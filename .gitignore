@@ -10,5 +10,4 @@ wheels/
 .venv
 
 # logs
-*.log
 *.json

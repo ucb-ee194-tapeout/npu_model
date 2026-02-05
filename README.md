@@ -101,21 +101,21 @@ uv run ./scripts/run.py --program MatmulProgram --hardware_config DefaultHardwar
 Specify hardware configuration and program:
 
 ```bash
-uv run scripts/run.py --hardware_config DefaultHardwareConfig -p AddiProgram -o trace.log
+uv run scripts/run.py --hardware_config DefaultHardwareConfig -p AddiProgram -o trace.json
 ```
 
 ### Command-Line Options
 
 - `--hardware_config`: Hardware configuration class (default: `DefaultHardwareConfig`)
 - `-p, --program`: Program to execute (default: `AddiProgram`)
-- `-o, --output`: Output trace file (default: `trace.log`)
+- `-o, --output`: Output trace file (default: `trace.json`)
 - `--max-cycles`: Maximum simulation cycles (default: `1000`)
 
 ### Viewing Traces
 
 1. Run simulation to generate trace file
 2. Open https://ui.perfetto.dev
-3. Load the generated trace file (`.log` or `.json`)
+3. Load the generated trace file (`.json`)
 4. Explore cycle-by-cycle execution flow
 
 
@@ -172,24 +172,6 @@ npu_model/
 │   └── run.py             # Main simulation runner
 └── pyproject.toml         # Project dependencies
 ```
-
-
-## Supported Instructions
-
-### Scalar Operations
-- `nop`: No operation
-- `add`, `addi`: Addition
-- `sub`: Subtraction
-- `jal`: Jump and link
-- `blt`: Branch if less than
-
-### Matrix Operations
-- `matmul`: Matrix multiplication
-
-### DMA Operations
-- `dma.load`: Load data from memory to matrix register
-- `dma.store`: Store matrix register to memory
-- `dma.wait`: Barrier/synchronization (placeholder)
 
 
 ## Creating Custom Programs

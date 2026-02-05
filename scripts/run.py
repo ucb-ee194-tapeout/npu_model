@@ -47,7 +47,7 @@ Examples:
         default="AddiProgram",
         help="Program to run",
     )
-    parser.add_argument("-o", "--output", default="trace.log", help="Output trace file")
+    parser.add_argument("-o", "--output", default="trace.json", help="Output trace file")
     parser.add_argument(
         "--max-cycles", type=int, default=1000, help="Maximum cycles to simulate"
     )
