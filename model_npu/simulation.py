@@ -90,6 +90,11 @@ class Simulation:
             print(f"    Busy Cycles:  {exu_stats['busy_cycles']}")
             print(f"    Utilization:  {exu_stats['utilization']:.1%}")
 
+        print("\nFinal register contents")
+        print(f"XRF: {self.core.arch_state.xrf}")
+        print(f"MRF[0]: {self.core.arch_state.mrf[0]}")
+        print(f"MRF[1]: {self.core.arch_state.mrf[1]}")
+
         print("\n" + "=" * 60)
         print(f"\nTrace written to: {self.logger_config.filename}")
         print("Open with Perfetto (https://ui.perfetto.dev)")

@@ -23,7 +23,6 @@ class ArchState:
         self.logger = logger
 
     def reset(self) -> None:
-        self.mem = bytearray(self.memory_size)
         self.xrf = [0] * 32
         self.mrf = [np.zeros(self.matrix_shape) for _ in range(32)]
         self.flags = [False] * 3
