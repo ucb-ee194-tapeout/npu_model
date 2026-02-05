@@ -1,0 +1,17 @@
+[project]
+name = "npu-model"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=2.2.6",
+    "pre-commit>=4.5.1",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
