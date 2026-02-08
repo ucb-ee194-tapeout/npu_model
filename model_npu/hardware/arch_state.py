@@ -22,10 +22,12 @@ class ArchState:
         self.xrf: list[int] = [0] * self.cfg.num_x_registers
         self.mrf: list[torch.Tensor] = [
             torch.zeros(self.cfg.mrf_depth * self.cfg.mrf_width, dtype=torch.uint8)
-        ] * self.cfg.num_m_registers
+            for _ in range(self.cfg.num_m_registers)
+        ]
         self.wb: list[torch.Tensor] = [
             torch.zeros(self.cfg.wb_width, dtype=torch.uint8)
-        ] * self.cfg.num_wb_registers
+            for _ in range(self.cfg.num_wb_registers)
+        ]
         self.flags: list[bool] = [False] * 3
 
     def reset(self) -> None:
