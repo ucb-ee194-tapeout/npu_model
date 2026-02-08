@@ -64,32 +64,47 @@ class ArchState:
 
     def write_mrf_u8(self, vd: int, value: torch.tensor) -> None:
         assert value.dtype == torch.uint8
-        assert value.numel() == self.cfg.mrf_depth * self.cfg.mrf_width // torch.uint8.itemsize
+        assert (
+            value.numel()
+            == self.cfg.mrf_depth * self.cfg.mrf_width // torch.uint8.itemsize
+        )
         self.mrf[vd].view(torch.uint8)[:] = value.flatten()
 
     def read_mrf_u8(self, vs: int) -> torch.tensor:
-        return self.mrf[vs].view(torch.uint8).reshape(
-            self.cfg.mrf_depth, self.cfg.mrf_width // torch.uint8.itemsize
+        return (
+            self.mrf[vs]
+            .view(torch.uint8)
+            .reshape(self.cfg.mrf_depth, self.cfg.mrf_width // torch.uint8.itemsize)
         )
 
     def write_mrf_f32(self, vd: int, value: torch.tensor) -> None:
         assert value.dtype == torch.float32
-        assert value.numel() == self.cfg.mrf_depth * self.cfg.mrf_width // torch.float32.itemsize
+        assert (
+            value.numel()
+            == self.cfg.mrf_depth * self.cfg.mrf_width // torch.float32.itemsize
+        )
         self.mrf[vd].view(torch.float32)[:] = value.flatten()
 
     def read_mrf_f32(self, vs: int) -> torch.tensor:
-        return self.mrf[vs].view(torch.float32).reshape(
-            self.cfg.mrf_depth, self.cfg.mrf_width // torch.float32.itemsize
+        return (
+            self.mrf[vs]
+            .view(torch.float32)
+            .reshape(self.cfg.mrf_depth, self.cfg.mrf_width // torch.float32.itemsize)
         )
 
     def write_mrf_bf16(self, vd: int, value: torch.tensor) -> None:
         assert value.dtype == torch.bfloat16
-        assert value.numel() == self.cfg.mrf_depth * self.cfg.mrf_width // torch.bfloat16.itemsize
+        assert (
+            value.numel()
+            == self.cfg.mrf_depth * self.cfg.mrf_width // torch.bfloat16.itemsize
+        )
         self.mrf[vd].view(torch.bfloat16)[:] = value.flatten()
 
     def read_mrf_bf16(self, vs: int) -> torch.tensor:
-        return self.mrf[vs].view(torch.bfloat16).reshape(
-            self.cfg.mrf_depth, self.cfg.mrf_width // torch.bfloat16.itemsize
+        return (
+            self.mrf[vs]
+            .view(torch.bfloat16)
+            .reshape(self.cfg.mrf_depth, self.cfg.mrf_width // torch.bfloat16.itemsize)
         )
 
     def write_wb_u8(self, wd: int, value: torch.tensor) -> None:
@@ -118,13 +133,13 @@ class ArchState:
         assert (
             base + data.numel() <= self.cfg.memory_size
         ), f"Memory write out of bounds: {base} + {data.numel()} > {self.cfg.memory_size}"
-        self.mem[base:base + data.numel()] = data
+        self.mem[base : base + data.numel()] = data
 
     def read_memory(self, base: int, length: int) -> torch.tensor:
         assert (
             base + length <= self.cfg.memory_size
         ), f"Memory read out of bounds: {base} + {length} > {self.cfg.memory_size}"
-        return self.mem[base:base + length]
+        return self.mem[base : base + length]
 
     def set_flag(self, flag: int) -> None:
         self.flags[flag] = True

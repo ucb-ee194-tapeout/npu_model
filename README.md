@@ -12,34 +12,34 @@ This perf model is tick-based.
 These two terms primarily discerns the execution model of the simulator.
 
 A tick-based performance model specifies hardware behavior per cycle.
-At every cycle, every FU is "ticked" one by one. 
+At every cycle, every FU is "ticked" one by one.
 This is easier to write but usually slower.
 
 An event based performance model specifies hardware behavior as events.
-Classically, there exists a global event queue. 
+Classically, there exists a global event queue.
 Producers insert events into this queue to invoke its consumers.
-Consumers are invoked when their invocation is poped from the queue. 
+Consumers are invoked when their invocation is poped from the queue.
 This is harder to write and reason about, but can be faster if done right.
 
-We choose to implement tick-based for its simplicity. 
+We choose to implement tick-based for its simplicity.
 
 This is execution driven.
 
 ### Execution Driven vs Trace Driven
-These two terms primarily discerns the frontend behavior of the simulator. 
+These two terms primarily discerns the frontend behavior of the simulator.
 
-A trace-driven performance model does not require simulating any architectural value. 
+A trace-driven performance model does not require simulating any architectural value.
 A trace is a predefined, recorded sequence of instructions and memory access addresses.
 Assuming microarchitectural features does not change the ordering and content of the trace, (which may or may not be true), replaying these traces stimulates the uarch.
-This allows for faster simulation, and is usually easier to write as the correctness check is loose. 
+This allows for faster simulation, and is usually easier to write as the correctness check is loose.
 
-An execution-driven performance model requires simulating all architectural value. 
-Instead of a trace, its frontend fetch decision is dependent on the actual architectural value. 
+An execution-driven performance model requires simulating all architectural value.
+Instead of a trace, its frontend fetch decision is dependent on the actual architectural value.
 This is slower and harder to write, and it is easy diverge from realistic execution behaviors.
 
 We choose to do execution driven regardless, because the NPU ISA encodes static delays to avoid dynamic dependency checking.
 Hence a functional model for it necessinates simulating timing.
-So writing this model in execution-driven fashion achives both goals in one shot.  
+So writing this model in execution-driven fashion achives both goals in one shot.
 
 
 ## Hardware Modeling

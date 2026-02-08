@@ -10,7 +10,9 @@ import sys
 from typing import Callable
 
 
-def import_packages(package_name: str, blacklist_pkgs: list[str] | None = None) -> list[str]:
+def import_packages(
+    package_name: str, blacklist_pkgs: list[str] | None = None
+) -> list[str]:
     """Import all sub-packages in a package recursively.
 
     It is easier to use this function to import all sub-packages in a package recursively
@@ -43,13 +45,15 @@ def import_packages(package_name: str, blacklist_pkgs: list[str] | None = None) 
     classes = {}
 
     # Import all Python files and collect classes
-    for info in _walk_packages(package.__path__, package.__name__ + ".", blacklist_pkgs=blacklist_pkgs):
+    for info in _walk_packages(
+        package.__path__, package.__name__ + ".", blacklist_pkgs=blacklist_pkgs
+    ):
         try:
             module = importlib.import_module(info.name)
             # Get all classes defined in this module
             for name, obj in inspect.getmembers(module, inspect.isclass):
                 # Only include classes that are actually defined in this module (not imported)
-                if obj.__module__ == info.name and not name.startswith('_'):
+                if obj.__module__ == info.name and not name.startswith("_"):
                     class_names.append(name)
                     classes[name] = obj
         except Exception:
@@ -111,4 +115,6 @@ def _walk_packages(
                 # don't traverse path items we've seen before
                 path = [p for p in path if not seen(p)]
 
-                yield from _walk_packages(path, info.name + ".", onerror, blacklist_pkgs)
+                yield from _walk_packages(
+                    path, info.name + ".", onerror, blacklist_pkgs
+                )
