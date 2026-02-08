@@ -8,10 +8,12 @@ class DefaultHardwareConfig(HardwareConfig):
 
     fetch_width: int = 1
     isa: IsaSpec = IsaSpec
-    matrix_shape: Tuple[int, int] = (16, 16)
-    memory_size: int = 16 * 16 * 4 * 2
+    matrix_shape: Tuple[int, int] = (64, 32)
+    weight_shape: Tuple[int, int] = (16, 32)
+    memory_size: int = 1048576
     execution_units: dict[str, str] = {
         "Scalar0": "ScalarExecutionUnit",
         "Matrix0": "MatrixExecutionUnit",
+        "Vector0": "VectorExecutionUnit",
         "DMA0": "DmaExecutionUnit",
     }
