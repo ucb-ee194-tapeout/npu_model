@@ -49,7 +49,7 @@ Examples:
     )
     parser.add_argument("-o", "--output", default="trace.json", help="Output trace file")
     parser.add_argument(
-        "--max-cycles", type=int, default=1000, help="Maximum cycles to simulate"
+        "--max-cycles", type=int, default=10000, help="Maximum cycles to simulate"
     )
 
     args = parser.parse_args()

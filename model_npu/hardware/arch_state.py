@@ -7,16 +7,19 @@ class ArchState:
     def __init__(
         self,
         logger: Optional[Logger] = None,
-        matrix_shape: Tuple[int, int] = (8, 128),
+        matrix_shape: Tuple[int, int] = (64, 32),
+        weight_shape: Tuple[int, int] = (16, 32),
         memory_size: int = 1024,
     ) -> None:
         # metadata
         self.matrix_shape = matrix_shape
+        self.weight_shape = weight_shape
         self.memory_size = memory_size
         # state
         self.mem: bytearray = bytearray()
         self.xrf: list[int] = []
-        self.mrf: list[np.ndarray] = []
+        self.mrf: list[bytearray] = []
+        self.wb: list[bytearray] = []
         self.flags: list[bool] = []
         self.pc: int = 0
         self.npc: int = 0
