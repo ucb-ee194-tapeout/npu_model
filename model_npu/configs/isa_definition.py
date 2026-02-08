@@ -70,7 +70,14 @@ def dma_load(state: ArchState, args: Dict[str, int]) -> None:
     data = state.read_memory(base, size)
     # zero pad the data to the size of the MRF
     if data.numel() < state.cfg.mrf_depth * state.cfg.mrf_width // torch.uint8.itemsize:
-        data = torch.nn.functional.pad(data, (0, state.cfg.mrf_depth * state.cfg.mrf_width // torch.uint8.itemsize - data.numel()))
+        data = torch.nn.functional.pad(
+            data,
+            (
+                0,
+                state.cfg.mrf_depth * state.cfg.mrf_width // torch.uint8.itemsize
+                - data.numel(),
+            ),
+        )
     state.write_mrf_u8(args["rd"], data)
 
 
@@ -81,7 +88,14 @@ def dma_loadw(state: ArchState, args: Dict[str, int]) -> None:
     data = torch.tensor(state.read_memory(base, size), dtype=torch.uint8)
     # zero pad the data to the size of the WB
     if data.numel() < state.cfg.wb_width // torch.uint8.itemsize:
-        data = torch.nn.functional.pad(data, (0, state.cfg.wb_depth * state.cfg.wb_width // torch.uint8.itemsize - data.numel()))
+        data = torch.nn.functional.pad(
+            data,
+            (
+                0,
+                state.cfg.wb_depth * state.cfg.wb_width // torch.uint8.itemsize
+                - data.numel(),
+            ),
+        )
     state.write_wb_u8(args["rd"], data)
 
 
