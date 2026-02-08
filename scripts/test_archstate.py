@@ -1,7 +1,6 @@
 import torch
-from model_npu.hardware.arch_state import ArchStateConfig, ArchState
-
-
+from model_npu.hardware.arch_state import ArchState
+from model_npu.hardware.config import ArchStateConfig
 if __name__ == "__main__":
     cfg = ArchStateConfig(
         mrf_depth=64,  # each instruction is 64 cycles
