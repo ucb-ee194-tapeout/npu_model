@@ -102,7 +102,7 @@ class ArchState:
 
     def write_wb_bf16(self, wd: int, value: torch.tensor) -> None:
         assert value.dtype == torch.bfloat16
-        assert value.numel() == self.cfg.wb_depth * self.cfg.wb_width // torch.bfloat16.itemsize
+        assert value.numel() == self.cfg.wb_width // torch.bfloat16.itemsize
         self.wb[wd].view(torch.bfloat16)[:] = value.flatten()
 
     def read_wb_bf16(self, ws: int) -> torch.tensor:
