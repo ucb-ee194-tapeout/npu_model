@@ -1,5 +1,5 @@
 from typing import List
-
+import torch
 
 from model_npu.software.program import Program
 from model_npu.logging.logger import Logger, LaneType
@@ -39,9 +39,8 @@ class Core(Module):
         self.logger = logger
 
         self.arch_state = ArchState(
+            config=self.config.arch_state_config,
             logger=self.logger,
-            matrix_shape=self.config.matrix_shape,
-            memory_size=self.config.memory_size,
         )
 
         # Create execution units (each gets logger reference)
@@ -77,7 +76,7 @@ class Core(Module):
         self.ifu.load_program(program)
         if len(program.memory_regions) > 0:
             for base, arr in program.memory_regions:
-                self.arch_state.write_bytes(base, arr.tobytes(order="C"))
+                self.arch_state.write_memory(base, arr.flatten().view(torch.uint8))
 
     def reset(self) -> None:
         """Reset all components."""

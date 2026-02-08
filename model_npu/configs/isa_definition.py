@@ -1,5 +1,5 @@
 from typing import Dict
-import numpy as np
+import torch
 
 from model_npu.isa import instr, InstructionType
 from model_npu.hardware.arch_state import ArchState
@@ -17,17 +17,17 @@ def nop(state: ArchState, args: Dict[str, int]) -> None:
 
 @instr("add", instruction_type=InstructionType.SCALAR)
 def add(state: ArchState, args: Dict[str, int]) -> None:
-    state.set_xrf(args["rd"], state.xrf[args["rs1"]] + state.xrf[args["rs2"]])
+    state.write_xrf(args["rd"], state.xrf[args["rs1"]] + state.xrf[args["rs2"]])
 
 
 @instr("addi", instruction_type=InstructionType.SCALAR)
 def addi(state: ArchState, args: Dict[str, int]) -> None:
-    state.set_xrf(args["rd"], state.xrf[args["rs1"]] + args["imm"])
+    state.write_xrf(args["rd"], state.xrf[args["rs1"]] + args["imm"])
 
 
 @instr("sub", instruction_type=InstructionType.SCALAR)
 def sub(state: ArchState, args: Dict[str, int]) -> None:
-    state.set_xrf(args["rd"], state.xrf[args["rs1"]] - state.xrf[args["rs2"]])
+    state.write_xrf(args["rd"], state.xrf[args["rs1"]] - state.xrf[args["rs2"]])
 
 
 @instr("jal", instruction_type=InstructionType.SCALAR)
@@ -52,7 +52,10 @@ Matrix operations
 
 @instr("matmul", instruction_type=InstructionType.MATRIX)
 def matmul(state: ArchState, args: Dict[str, int]) -> None:
-    state.mrf[args["rd"]] = state.mrf[args["rs1"]] @ state.mrf[args["rs2"]]
+    activation = state.read_mrf_bf16(args["rs1"])
+    weight = state.read_wb_bf16(args["rs2"])
+    accumulation = (activation @ weight.T).to(torch.float32)
+    state.write_mrf_f32(args["rd"], accumulation)
 
 
 """
@@ -64,18 +67,30 @@ Memory operations
 def dma_load(state: ArchState, args: Dict[str, int]) -> None:
     base = args["base"]
     size = args["size"]
-    data = np.frombuffer(state.read_bytes(base, size), dtype=np.float32).reshape(
-        state.matrix_shape
-    )  # FIXME: referencing shape here might be a bad idea
-    state.mrf[args["rd"]] = data
+    data = state.read_memory(base, size)
+    # zero pad the data to the size of the MRF
+    if data.numel() < state.cfg.mrf_depth * state.cfg.mrf_width // torch.uint8.itemsize:
+        data = torch.nn.functional.pad(data, (0, state.cfg.mrf_depth * state.cfg.mrf_width // torch.uint8.itemsize - data.numel()))
+    state.write_mrf_u8(args["rd"], data)
+
+
+@instr("dma.loadw", instruction_type=InstructionType.DMA)
+def dma_loadw(state: ArchState, args: Dict[str, int]) -> None:
+    base = args["base"]
+    size = args["size"]
+    data = torch.tensor(state.read_memory(base, size), dtype=torch.uint8)
+    # zero pad the data to the size of the WB
+    if data.numel() < state.cfg.wb_width // torch.uint8.itemsize:
+        data = torch.nn.functional.pad(data, (0, state.cfg.wb_depth * state.cfg.wb_width // torch.uint8.itemsize - data.numel()))
+    state.write_wb_u8(args["rd"], data)
 
 
 @instr("dma.store", instruction_type=InstructionType.DMA)
 def dma_store(state: ArchState, args: Dict[str, int]) -> None:
     base = args["base"]
     size = args["size"]
-    data = state.mrf[args["rs1"]].astype(np.float32, copy=False).tobytes(order="C")
-    state.write_bytes(base, data)
+    data = state.mrf[args["rs1"]].view(torch.uint8)
+    state.write_memory(base, data[:size])
 
 
 @instr("dma.wait", instruction_type=InstructionType.BARRIER)
