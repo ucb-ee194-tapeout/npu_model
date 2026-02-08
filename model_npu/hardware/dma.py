@@ -59,7 +59,7 @@ class DmaExecutionUnit(ExecutionUnit):
             # Accept new instruction
             if uop is not None:
                 # tag instruction with execution delay
-                uop.execute_delay = self.config.matrix_shape[0]  # FIXME: verify this
+                uop.execute_delay = 10 + uop.insn.args["size"]  # FIXME: verify this
                 self.in_flight = uop
                 self._total_instructions += 1
                 # Log: end dispatch, start execute

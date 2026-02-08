@@ -7,6 +7,7 @@ requires-python = ">=3.10"
 dependencies = [
     "numpy>=2.2.6",
     "pre-commit>=4.5.1",
+    "torch>=2.10.0",
 ]
 
 [tool.setuptools.packages.find]
