@@ -90,7 +90,7 @@ def dma_store(state: ArchState, args: Dict[str, int]) -> None:
     base = args["base"]
     size = args["size"]
     data = state.mrf[args["rs1"]].view(torch.uint8)
-    state.write_memory(base, data)
+    state.write_memory(base, data[:size])
 
 
 @instr("dma.wait", instruction_type=InstructionType.BARRIER)
