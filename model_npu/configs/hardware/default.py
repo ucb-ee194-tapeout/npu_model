@@ -7,6 +7,7 @@ class DefaultHardwareConfig(HardwareConfig):
     name: str = "SimpleNPU"
 
     fetch_width: int = 1
+    dispatch_strategy: str = "round_robin"
     isa: IsaSpec = IsaSpec
     arch_state_config: ArchStateConfig = ArchStateConfig(
         mrf_depth=64,  # each instruction is 64 cycles

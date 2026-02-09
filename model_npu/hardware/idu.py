@@ -28,6 +28,7 @@ class InstructionDecode(Module):
         logger: Logger,
         isa: IsaSpec,
         arch_state: ArchState,
+        dispatch_strategy: str
     ) -> None:
         self.exus = exus
         self.logger = logger
@@ -36,6 +37,7 @@ class InstructionDecode(Module):
         self.uop = None  # the current uop in flight
         self.lane_id = 1
         self.cycle = 0
+        self.dispatch_strategy = dispatch_strategy
         # Build a mapping from EXU type to EXU instances
         self.exu_map: Dict[InstructionType, List[ExecutionUnit]] = {}
         for exu in exus:
@@ -127,11 +129,8 @@ class InstructionDecode(Module):
             self.uop = None
             return
 
-        exu_list = self.exu_map[exu_type]
-        target_exu = exu_list[0]
-        self.outputs[target_exu].prepare(
-            self.uop
-        )  # TODO: currently always choose the first EXU
+        target_exu = self.choose_target_exu(exu_type)
+        self.outputs[target_exu].prepare(self.uop)
 
         # if we dispatched a DMA instruction, set flag as busy here
         if exu_type == InstructionType.DMA:
@@ -158,7 +157,7 @@ class InstructionDecode(Module):
                 return False
 
         exu_list = self.exu_map[exu_type]
-        target_exu = exu_list[0]
+        target_exu = exu_list[0] # always choose the first EXU
         if self.outputs[target_exu].should_stall():
             # Don't end D stage - keep it active to show instruction is waiting
             # The D stage will end when we actually dispatch
@@ -168,3 +167,19 @@ class InstructionDecode(Module):
         # Backpressure cleared - if we were stalled, the D stage continues:
         self._stalled = False
         return False
+    
+    def choose_target_exu(self, exu_type: InstructionType) -> ExecutionUnit:
+        exu_list = self.exu_map[exu_type]
+        if self.dispatch_strategy == "round_robin":
+            return exu_list[self.cycle % len(exu_list)]
+        elif self.dispatch_strategy == "greedy":
+            # always choose the first EXU that is not busy
+            target_exu = exu_list[0]
+            for exu in exu_list:
+                if not exu.is_busy():
+                    return exu
+            return target_exu
+        elif self.dispatch_strategy == "dummy":
+            return exu_list[0]
+        else:
+            raise ValueError(f"Invalid dispatch strategy: {self.dispatch_strategy}")
