@@ -107,6 +107,25 @@ class ArchState:
             .reshape(self.cfg.mrf_depth, self.cfg.mrf_width // torch.bfloat16.itemsize)
         )
 
+    def read_vrf_bf16(self, v: int) -> torch.Tensor:
+        vs = v // self.cfg.mrf_depth
+        row = v % self.cfg.mrf_depth
+        row_bytes = self.cfg.mrf_width  # should be 32
+        start = row * row_bytes
+        end = start + row_bytes
+        row_u8 = self.mrf[vs][start:end].contiguous()
+        bf = row_u8.view(torch.int16).view(torch.bfloat16)
+        return bf.clone()
+
+    def write_vrf_bf16(self, v: int, value: torch.Tensor) -> None:
+        vs = v // self.cfg.mrf_depth
+        row = v % self.cfg.mrf_depth
+        row_bytes = self.cfg.mrf_width
+        start = row * row_bytes
+        end = start + row_bytes
+        encoded = value.contiguous().view(torch.int16).view(torch.uint8)
+        self.mrf[vs][start:end] = encoded
+
     def write_wb_u8(self, wd: int, value: torch.tensor) -> None:
         assert value.dtype == torch.uint8
         assert value.numel() == self.cfg.wb_width // torch.uint8.itemsize

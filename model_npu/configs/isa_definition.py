@@ -59,6 +59,82 @@ def matmul(state: ArchState, args: Dict[str, int]) -> None:
 
 
 """
+Vector operations
+"""
+
+
+@instr("vadd", instruction_type=InstructionType.VECTOR)
+def vadd(state: ArchState, args: Dict[str, int]) -> None:
+    a = state.read_mrf_bf16(args["vs1"]).clone()
+    b = state.read_mrf_bf16(args["vs2"]).clone()
+    state.write_mrf_bf16(args["vrd"], (a + b).to(torch.bfloat16))
+
+
+@instr("vsub", instruction_type=InstructionType.VECTOR)
+def vsub(state: ArchState, args: Dict[str, int]) -> None:
+    a = state.read_mrf_bf16(args["vs1"]).clone()
+    b = state.read_mrf_bf16(args["vs2"]).clone()
+    state.write_mrf_bf16(args["vrd"], (a - b).to(torch.bfloat16))
+
+
+@instr("vmul", instruction_type=InstructionType.VECTOR)
+def vmul(state: ArchState, args: Dict[str, int]) -> None:
+    a = state.read_mrf_bf16(args["vs1"]).clone()
+    b = state.read_mrf_bf16(args["vs2"]).clone()
+    result = (a * b).to(torch.bfloat16)
+    print(result)
+    state.write_mrf_bf16(args["vrd"], (a * b).to(torch.bfloat16))
+
+
+@instr("vsqrt", instruction_type=InstructionType.VECTOR)
+def vsqrt(state: ArchState, args: Dict[str, int]) -> None:
+    x = state.read_mrf_bf16(args["vs1"]).clone()
+    state.write_mrf_bf16(args["vrd"], torch.sqrt(x).to(torch.bfloat16))
+
+
+@instr("vreciprocal", instruction_type=InstructionType.VECTOR)
+def vreciprocal(state: ArchState, args: Dict[str, int]) -> None:
+    x = state.read_mrf_bf16(args["vs1"]).clone()
+    state.write_mrf_bf16(args["vrd"], (1.0 / x).to(torch.bfloat16))
+
+
+@instr("vexp", instruction_type=InstructionType.VECTOR)
+def vexp(state: ArchState, args: Dict[str, int]) -> None:
+    x = state.read_mrf_bf16(args["vs1"]).clone()
+    state.write_mrf_bf16(args["vrd"], torch.exp(x).to(torch.bfloat16))
+
+
+@instr("vlog2", instruction_type=InstructionType.VECTOR)
+def vlog2(state: ArchState, args: Dict[str, int]) -> None:
+    x = state.read_mrf_bf16(args["vs1"]).clone()
+    state.write_mrf_bf16(args["vrd"], torch.log2(x).to(torch.bfloat16))
+
+
+@instr("vexp2", instruction_type=InstructionType.VECTOR)
+def vexp2(state: ArchState, args: Dict[str, int]) -> None:
+    x = state.read_mrf_bf16(args["vs1"]).clone()
+    state.write_mrf_bf16(args["vrd"], torch.exp2(x).to(torch.bfloat16))
+
+
+@instr("vsin", instruction_type=InstructionType.VECTOR)
+def vsin(state: ArchState, args: Dict[str, int]) -> None:
+    x = state.read_mrf_bf16(args["vs1"]).clone()
+    state.write_mrf_bf16(args["vrd"], torch.sin(x).to(torch.bfloat16))
+
+
+@instr("vcos", instruction_type=InstructionType.VECTOR)
+def vcos(state: ArchState, args: Dict[str, int]) -> None:
+    x = state.read_mrf_bf16(args["vs1"]).clone()
+    state.write_mrf_bf16(args["vrd"], torch.cos(x).to(torch.bfloat16))
+
+
+@instr("vtanh", instruction_type=InstructionType.VECTOR)
+def vtanh(state: ArchState, args: Dict[str, int]) -> None:
+    x = state.read_mrf_bf16(args["vs1"]).clone()
+    state.write_mrf_bf16(args["vrd"], torch.tanh(x).to(torch.bfloat16))
+
+
+"""
 Memory operations
 """
 

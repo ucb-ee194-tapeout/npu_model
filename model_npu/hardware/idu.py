@@ -142,7 +142,7 @@ class InstructionDecode(Module):
         self.uop = None
 
     def claim_uop(self, ifu_output: StageData[Optional["Uop"]]) -> None:
-        """Claim a new uop from IFU"""
+        """Claim a new uop from IFU"""  
         assert self.uop is None
 
     def check_backpressure(self, uop: "Uop") -> bool:
