@@ -10,8 +10,8 @@ class DefaultHardwareConfig(HardwareConfig):
     isa: IsaSpec = IsaSpec
     arch_state_config: ArchStateConfig = ArchStateConfig(
         mrf_depth=64,  # each instruction is 64 cycles
-        mrf_width=1 * 32 * 1,  # each cycle, we read out 64 B of activation row
-        wb_width=16 * 32 * 2,  # each cycle, we read out 1024 B of weight
+        mrf_width=1 * 32 * 1,  # 64 rows of 32 bytes in a tensor register
+        wb_width=16 * 32 * 1,  # 512 16-bit elements fit in one weight buffer
         num_x_registers=32,
         num_m_registers=64,
         num_wb_registers=2,
