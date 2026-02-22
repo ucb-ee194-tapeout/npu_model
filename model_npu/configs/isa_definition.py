@@ -210,13 +210,21 @@ def matmul_mxu0(state: ArchState, args: Dict[str, int]) -> None:
 
 @instr("matmul.mxu1", instruction_type=InstructionType.MATRIX)
 def matmul_mxu1(state: ArchState, args: Dict[str, int]) -> None:
-    """
-    Matrix multiplication using MXU1, the parallel inner product tree.
-    """
-    activation = state.read_mrf_bf16(args["rs1"])
-    weight = state.read_wb_bf16(args["rs2"])
-    accumulation = (activation @ weight.T).to(torch.float32)
-    state.write_mrf_f32(args["rd"], accumulation)
+    activation_fp8 = state.read_mrf_fp8(args["rs1"])
+    weight_fp8 = state.read_wb_fp8(args["rs2"])
+
+    activation_fp16 = activation_fp8.to(torch.float16)
+    weight_fp16 = weight_fp8.to(torch.float16)
+
+    product_fp16 = activation_fp16 @ weight_fp16
+
+    acc_bf16 = state.read_mrf_bf16(args["rd"])
+    acc_fp16 = acc_bf16.to(torch.float16)
+
+    accumulation_fp16 = acc_fp16 + product_fp16
+
+    output_bf16 = accumulation_fp16.to(torch.bfloat16)
+    state.write_mrf_bf16(args["rd"], output_bf16)
 
 
 """
