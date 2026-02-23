@@ -22,6 +22,7 @@ from model_npu.configs.hardware import *  # noqa: F401, F403
 from model_npu.configs.isa_definition import *  # noqa: F401, F403
 
 
+
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(
