@@ -90,7 +90,8 @@ class ArchState:
             self.mrf[vs]
             .view(torch.float8_e4m3fn)
             .reshape(
-                self.cfg.mrf_depth, self.cfg.mrf_width // torch.float8_e4m3fn.itemsize
+                self.cfg.mrf_depth,
+                self.cfg.mrf_width // torch.float8_e4m3fn.itemsize,
             )
         )
 

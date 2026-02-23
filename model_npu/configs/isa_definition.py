@@ -210,7 +210,7 @@ def matmul_mxu0(state: ArchState, args: Dict[str, int]) -> None:
 
 @instr("matmul.mxu1", instruction_type=InstructionType.MATRIX)
 def matmul_mxu1(state: ArchState, args: Dict[str, int]) -> None:
-    activation_fp8 = state.read_mrf_fp8(args["rs1"])
+    activation_fp8 = state.read_mrf_fp8(args["rs1"]) 
     weight_fp8 = state.read_wb_fp8(args["rs2"])
 
     activation_fp16 = activation_fp8.to(torch.float16)
@@ -251,7 +251,6 @@ def vmul(state: ArchState, args: Dict[str, int]) -> None:
     a = state.read_mrf_bf16(args["vs1"])
     b = state.read_mrf_bf16(args["vs2"])
     result = (a * b).to(torch.bfloat16)
-    print(result)
     state.write_mrf_bf16(args["vrd"], (a * b).to(torch.bfloat16))
 
 
