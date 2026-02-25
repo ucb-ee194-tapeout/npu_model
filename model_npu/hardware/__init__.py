@@ -5,7 +5,7 @@ from .exu import (
     ExecutionUnit,
     ScalarExecutionUnit,
 )
-from .mxu import MatrixExecutionUnit
+from .mxu import MatrixExecutionUnitInner, MatrixExecutionUnitSystolic
 from .dma import DmaExecutionUnit
 
 __all__ = [

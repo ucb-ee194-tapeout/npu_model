@@ -77,6 +77,24 @@ class ArchState:
             .reshape(self.cfg.mrf_depth, self.cfg.mrf_width // torch.uint8.itemsize)
         )
 
+    def write_mrf_fp8(self, vd: int, value: torch.tensor) -> None:
+        assert value.dtype == torch.uint8
+        assert (
+            value.numel()
+            == self.cfg.mrf_depth * self.cfg.mrf_width // torch.float8_e4m3fn.itemsize
+        )
+        self.mrf[vd].view(torch.float8_e4m3fn)[:] = value.flatten()
+
+    def read_mrf_fp8(self, vs: int) -> torch.tensor:
+        return (
+            self.mrf[vs]
+            .view(torch.float8_e4m3fn)
+            .reshape(
+                self.cfg.mrf_depth,
+                self.cfg.mrf_width // torch.float8_e4m3fn.itemsize,
+            )
+        )
+
     def write_mrf_f32(self, vd: int, value: torch.tensor) -> None:
         assert value.dtype == torch.float32
         assert (
@@ -107,14 +125,33 @@ class ArchState:
             .reshape(self.cfg.mrf_depth, self.cfg.mrf_width // torch.bfloat16.itemsize)
         )
 
+    def read_vrf_bf16(self, v: int) -> torch.Tensor:
+        vs = v // self.cfg.mrf_depth
+        row = v % self.cfg.mrf_depth
+        row_bytes = self.cfg.mrf_width  # should be 32
+        start = row * row_bytes
+        end = start + row_bytes
+        row_u8 = self.mrf[vs][start:end].contiguous()
+        bf = row_u8.view(torch.int16).view(torch.bfloat16)
+        return bf.clone()
+
+    def write_vrf_bf16(self, v: int, value: torch.Tensor) -> None:
+        vs = v // self.cfg.mrf_depth
+        row = v % self.cfg.mrf_depth
+        row_bytes = self.cfg.mrf_width
+        start = row * row_bytes
+        end = start + row_bytes
+        encoded = value.contiguous().view(torch.int16).view(torch.uint8)
+        self.mrf[vs][start:end] = encoded
+
     def write_wb_u8(self, wd: int, value: torch.tensor) -> None:
         assert value.dtype == torch.uint8
         assert value.numel() == self.cfg.wb_width // torch.uint8.itemsize
         self.wb[wd].view(torch.uint8)[:] = value.flatten()
 
     def read_wb_u8(self, ws: int) -> torch.tensor:
-        num_cols = self.cfg.mrf_width // torch.uint8.itemsize
-        num_rows = (self.cfg.wb_width // torch.uint8.itemsize) // num_cols
+        num_rows = self.cfg.mrf_width // torch.uint8.itemsize
+        num_cols = (self.cfg.wb_width // torch.uint8.itemsize) // num_rows
         return self.wb[ws].view(torch.uint8).reshape(num_rows, num_cols)
 
     def write_wb_bf16(self, wd: int, value: torch.tensor) -> None:
@@ -123,9 +160,20 @@ class ArchState:
         self.wb[wd].view(torch.bfloat16)[:] = value.flatten()
 
     def read_wb_bf16(self, ws: int) -> torch.tensor:
-        num_cols = self.cfg.mrf_width // torch.bfloat16.itemsize
-        num_rows = (self.cfg.wb_width // torch.bfloat16.itemsize) // num_cols
+        num_rows = self.cfg.mrf_width // torch.bfloat16.itemsize
+        num_cols = (self.cfg.wb_width // torch.bfloat16.itemsize) // num_rows
         return self.wb[ws].view(torch.bfloat16).reshape(num_rows, num_cols)
+
+    def write_wb_fp8(self, wd: int, value: torch.tensor) -> None:
+        assert value.dtype == torch.float8_e4m3fn
+        assert value.numel() == self.cfg.wb_width // torch.float8_e4m3fn.itemsize
+        self.wb[wd].view(torch.float8_e4m3fn)[:] = value.flatten()
+
+    def read_wb_fp8(self, ws: int) -> torch.tensor:
+        num_rows = self.cfg.mrf_width // torch.float8_e4m3fn.itemsize
+        num_cols = (self.cfg.wb_width // torch.float8_e4m3fn.itemsize) // num_rows
+
+        return self.wb[ws].view(torch.float8_e4m3fn).reshape(num_rows, num_cols)
 
     def write_memory(self, base: int, data: torch.tensor) -> None:
         data = data.flatten()
