@@ -1,0 +1,22 @@
+BasedOnStyle: LLVM
+
+# Use tabs instead of spaces
+UseTab: Always
+IndentWidth: 4
+TabWidth: 4
+
+# Keep continuation indentation clean with tabs
+ContinuationIndentWidth: 4
+
+# Prevent weird alignment using spaces
+AlignAfterOpenBracket: DontAlign
+AlignOperands: false
+AlignTrailingComments: false
+
+# Keep braces predictable
+BreakBeforeBraces: Attach
+
+# Make struct/union formatting clean
+IndentCaseLabels: true
+AllowShortIfStatementsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: Empty

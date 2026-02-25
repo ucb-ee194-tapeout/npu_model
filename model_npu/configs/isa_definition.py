@@ -197,7 +197,7 @@ def mv_mw(state: ArchState, args: Dict[str, int]) -> None:
     state.write_wb_bf16(args["rd"], state.read_mrf_bf16(args["rs1"]))
 
 
-@instr("matmul.SYSTOLIC", instruction_type=InstructionType.MATRIX)
+@instr("matmul.SYSTOLIC", instruction_type=InstructionType.MATRIX_SYSTOLIC)
 def matmul_mxu0(state: ArchState, args: Dict[str, int]) -> None:
     """
     Matrix multiplication using MXU0, the systolic array.
@@ -210,7 +210,7 @@ def matmul_mxu0(state: ArchState, args: Dict[str, int]) -> None:
     state.write_mrf_f32(args["rd"], accumulation)
 
 
-@instr("matmul.INNER", instruction_type=InstructionType.MATRIX)
+@instr("matmul.INNER", instruction_type=InstructionType.MATRIX_INNER)
 def matmul_mxu1(state: ArchState, args: Dict[str, int]) -> None:
     activation_fp8 = state.read_mrf_fp8(args["rs1"]) 
     weight_fp8 = state.read_wb_fp8(args["rs2"])

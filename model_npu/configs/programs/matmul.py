@@ -18,8 +18,8 @@ class MatmulProgram(Program):
             mnemonic="dma.load.w", args={"rd": 1, "base": 2048, "size": 512, "flag": 0}
         ),  # a full 64x16 matrix of bf16s (ones)
         Instruction(mnemonic="dma.wait", args={"flag": 0}),
-        Instruction(mnemonic="matmul.mxu1", args={"rd": 0, "rs1": 2, "rs2": 1}),
-        Instruction(mnemonic="matmul.mxu1", args={"rd": 0, "rs1": 2, "rs2": 1}),
+        Instruction(mnemonic="matmul.INNER", args={"rd": 0, "rs1": 2, "rs2": 1}),
+        Instruction(mnemonic="matmul.INNER", args={"rd": 0, "rs1": 2, "rs2": 1}),
         # Instruction(mnemonic="nop", args={}),
     ]
 
