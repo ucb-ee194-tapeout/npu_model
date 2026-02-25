@@ -17,7 +17,7 @@ class AddiProgram(Program):
         Instruction(mnemonic="addi", args={"rd": 1, "rs1": 1, "imm": 1}),
         Instruction(mnemonic="blt", args={"rs1": 1, "rs2": 2, "imm": -1}),
         Instruction(mnemonic="matmul.mxu1", args={"rd": 1, "rs1": 1, "rs2": 1}),
-        # Instruction(mnemonic="nop", args={}),
+        Instruction(mnemonic="nop", args={}),
         Instruction(mnemonic="addi", args={"rd": 4, "rs1": 4, "imm": 1}),
         Instruction(mnemonic="addi", args={"rd": 5, "rs1": 5, "imm": 1}),
         # Instruction(mnemonic="nop", args={}),
