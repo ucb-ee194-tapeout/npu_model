@@ -12,7 +12,7 @@ from .idu import InstructionDecode
 from .exu import ExecutionUnit
 
 from .exu import ScalarExecutionUnit  # noqa: F401, F403
-from .mxu import MatrixExecutionUnit  # noqa: F401, F403
+from .mxu import MatrixExecutionUnitInner, MatrixExecutionUnitSystolic  # noqa: F401, F403
 from .dma import DmaExecutionUnit  # noqa: F401, F403
 from .vpu import VectorExecutionUnit  # noqa: F401, F403
 

@@ -5,8 +5,10 @@ class InstructionType:
     SCALAR = 0
     VECTOR = 1
     MATRIX = 2
-    DMA = 3
-    BARRIER = 4
+    DMA = 4
+    BARRIER = 5
+    MATRIX_SYSTOLIC = 6
+    MATRIX_INNER = 7
 
 
 class Operation:

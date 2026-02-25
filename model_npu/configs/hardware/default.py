@@ -19,7 +19,8 @@ class DefaultHardwareConfig(HardwareConfig):
     )
     execution_units: dict[str, str] = {
         "Scalar0": "ScalarExecutionUnit",
-        "Matrix0": "MatrixExecutionUnit",
+        "Matrix0": "MatrixExecutionUnitSystolic",
+        "Matrix1": "MatrixExecutionUnitInner",
         "Vector0": "VectorExecutionUnit",
         "DMA0": "DmaExecutionUnit",
     }
