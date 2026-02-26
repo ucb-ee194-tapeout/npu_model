@@ -45,6 +45,16 @@ class DmaExecutionUnit(ExecutionUnit):
             # clear the flag
             self.arch_state.clear_flag(uop.insn.args["flag"])
             print(f"DMA {self.name} cleared flag {uop.insn.args['flag']}")
+            
+            if len(self.in_flight) != 0:
+                #Log: start execute
+                self.logger.log_stage_start(
+                    self.in_flight[0].id,
+                    "E",
+                    lane=self.lane_id,
+                    cycle=self.cycle,
+                )
+
 
         self._pending_completions = []
 
@@ -60,6 +70,7 @@ class DmaExecutionUnit(ExecutionUnit):
             if uop is not None:
                 # tag instruction with execution delay
                 uop.execute_delay = 10 + uop.insn.args["size"]  # FIXME: verify this
+                # uop.execute_delay = 10
                 self.in_flight.append(uop)
                 self._total_instructions += 1
 
@@ -67,14 +78,15 @@ class DmaExecutionUnit(ExecutionUnit):
                 # I think this needs to happen here since our entire goal
                 # with doing this is to not block. Not 100% sure.
                 idu_output.claim()
-                
-                # Log: end dispatch.
+
+                # Log: End dispatch
                 self.logger.log_stage_end(
                     uop.id,
                     "D",
                     lane=LaneType.DIU.value,
                     cycle=self.cycle,
                 )
+                
                 if len(self.in_flight) == 1:
                     #Log: start execute
                     self.logger.log_stage_start(
@@ -82,7 +94,7 @@ class DmaExecutionUnit(ExecutionUnit):
                         "E",
                         lane=self.lane_id,
                         cycle=self.cycle,
-                    )
+                    )                 
 
         # Track if EXU was busy
         if self.is_busy():
@@ -98,15 +110,8 @@ class DmaExecutionUnit(ExecutionUnit):
                 # Defer completion logging to next tick
                 self._pending_completions.append(self.in_flight[0])
                 # print(f"MXU {self.name} completed instruction {self.in_flight[0].id}")
-                self.in_flight = self.in_flight[1:]
-                if len(self.in_flight) != 0:
-                    #Log: start execute for next instruction
-                    self.logger.log_stage_start(
-                        self.in_flight[0].id,
-                        "E",
-                        lane=self.lane_id,
-                        cycle=self.cycle,
-                    )
+                self.in_flight = self.in_flight[1:]    
+                
 
     def flush_completions(self) -> None:
         """Flush any pending completions (call at end of simulation)."""

@@ -12,24 +12,34 @@ class DMAStallProgram(Program):
     """
 
     instructions: List[Instruction] = [
-        Instruction("dma.load.m", {"rd": 0, "base": 0, "size": 16 * 2, "flag": 0}, delay=5),
-        Instruction("dma.load.m", {"rd": 1, "base": 16 * 2, "size": 16 * 2, "flag": 1}, delay=5),
-        Instruction("dma.load.m", {"rd": 2, "base": 16 * 3, "size": 16 * 2, "flag": 2}, delay=5),
-        # Instruction("dma.wait", {"flag": 2}),
-        Instruction(mnemonic="addi", args={"rd": 5, "rs1": 0, "imm": 10}),
-        Instruction(mnemonic="dma.wait", args={"flag": 2}),
+        # Load things w/ Matmul
         Instruction(
-            mnemonic="dma.store.m",
-            args={"rs1": 3, "base": 16 * 4, "size": 32, "flag": 1},
-            delay=15,
-        ),  # stall for 15 cycles before dispatching me
-        Instruction(mnemonic="dma.wait", args={"flag": 1}),
+            mnemonic="dma.load.m", args={"rd": 2, "base": 0, "size": 2048, "flag": 0}
+        ),  # a full 64x16 matrix of bf16s (0-2048)
+        Instruction(
+            mnemonic="dma.load.w", args={"rd": 1, "base": 2048, "size": 512, "flag": 1}
+        ),  # a full 64x16 matrix of bf16s (ones)
+        Instruction(mnemonic="dma.wait", args={"flag": 1}), # Wait to get these things
+        
+        # Do unnecessary loads
+        Instruction(
+            mnemonic="dma.load.m", args={"rd": 3, "base": 0, "size": 2048, "flag": 0}
+        ),
+        Instruction(
+            mnemonic="dma.load.w", args={"rd": 0, "base": 2048, "size": 512, "flag": 1}
+        ),
 
+        # Do matmul
+        Instruction(mnemonic="matmul.INNER", args={"rd": 0, "rs1": 2, "rs2": 1}),
+        Instruction(mnemonic="matmul.INNER", args={"rd": 0, "rs1": 2, "rs2": 1}),
+        Instruction(mnemonic="dma.wait", args={"flag": 1}), # Wait to finish loads
+        # Instruction(mnemonic="nop", args={}),
     ]
-    
+
     memory_regions: List[Tuple[int, torch.Tensor]] = [
-        (0, torch.ones((16, 16), dtype=torch.float32)),
-        (32, torch.ones((16, 16), dtype=torch.float32)),
-        (48, torch.ones((16, 16), dtype=torch.float32)),
-        (16 * 4, torch.ones((16, 16), dtype=torch.float32)),
+        # A = 64x32 matrix with increasing values
+        (0, (torch.eye(64, 32, dtype=torch.float8_e4m3fn))),
+        # B = 32x16 matrix (identity-like: first 16 columns of 32x32 identity)
+        # So result is (64x32) @ (32x16) -> (64x16)
+        (2048, (torch.eye(32, 16, dtype=torch.float8_e4m3fn))),
     ]
