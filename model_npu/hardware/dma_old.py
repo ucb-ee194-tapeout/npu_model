@@ -2,7 +2,7 @@ from typing import Optional, List
 
 from .exu import ExecutionUnit
 from ..logging.logger import Logger, LaneType
-from .arch_state import ArchState
+from ..hardware.arch_state import ArchState
 from ..software.instruction import Uop
 from ..isa import InstructionType
 from .stage_data import StageData
@@ -30,7 +30,7 @@ class DmaExecutionUnit(ExecutionUnit):
         self.reset()
 
     def reset(self) -> None:
-        self.in_flight: List["Uop"] = []
+        self.in_flight: Optional["Uop"] = None
         self._complete_count = 0
         self._pending_completions: List["Uop"] = []
         self._total_instructions = 0
@@ -50,63 +50,49 @@ class DmaExecutionUnit(ExecutionUnit):
 
         self._complete_count = 0
 
-        # If there are less than 8 instructions queued, check if we can queue more.
-        if len(self.in_flight) < 8:
+        if self.in_flight is None:
+            # Peek instruction from DIU
             uop = None
-            if len(self.in_flight) < 8:
+            if self.in_flight is None:
                 uop = idu_output.peek()
-            
+
             # Accept new instruction
             if uop is not None:
                 # tag instruction with execution delay
                 uop.execute_delay = 10 + uop.insn.args["size"]  # FIXME: verify this
-                self.in_flight.append(uop)
+                self.in_flight = uop
                 self._total_instructions += 1
-
-                # claim the uop from the DIU
-                # I think this needs to happen here since our entire goal
-                # with doing this is to not block. Not 100% sure.
-                idu_output.claim()
-                
-                # Log: end dispatch.
+                # Log: end dispatch, start execute
                 self.logger.log_stage_end(
                     uop.id,
                     "D",
                     lane=LaneType.DIU.value,
                     cycle=self.cycle,
                 )
-                if len(self.in_flight) == 1:
-                    #Log: start execute
-                    self.logger.log_stage_start(
-                        uop.id,
-                        "E",
-                        lane=self.lane_id,
-                        cycle=self.cycle,
-                    )
+                self.logger.log_stage_start(
+                    uop.id,
+                    "E",
+                    lane=self.lane_id,
+                    cycle=self.cycle,
+                )
 
         # Track if EXU was busy
         if self.is_busy():
             self._busy_cycles += 1
 
         # Process in-flight instructions
-        if len(self.in_flight) != 0:
-            self.in_flight[0].execute_delay -= 1
-            if self.in_flight[0].execute_delay <= 0:
+        if self.in_flight:
+            self.in_flight.execute_delay -= 1
+            if self.in_flight.execute_delay <= 0:
                 # execute the instruction
-                self.in_flight[0].execute_fn(self.arch_state, self.in_flight[0].insn.args)
+                self.in_flight.execute_fn(self.arch_state, self.in_flight.insn.args)
                 self._complete_count = 1
                 # Defer completion logging to next tick
-                self._pending_completions.append(self.in_flight[0])
-                # print(f"MXU {self.name} completed instruction {self.in_flight[0].id}")
-                self.in_flight = self.in_flight[1:]
-                if len(self.in_flight) != 0:
-                    #Log: start execute for next instruction
-                    self.logger.log_stage_start(
-                        self.in_flight[0].id,
-                        "E",
-                        lane=self.lane_id,
-                        cycle=self.cycle,
-                    )
+                self._pending_completions.append(self.in_flight)
+                # claim the uop from the DIU
+                idu_output.claim()
+                self.in_flight = None
+                # print(f"MXU {self.name} completed instruction {self.in_flight.id}")
 
     def flush_completions(self) -> None:
         """Flush any pending completions (call at end of simulation)."""
@@ -117,12 +103,12 @@ class DmaExecutionUnit(ExecutionUnit):
 
     def is_busy(self) -> bool:
         """Check if the EXU is busy."""
-        return len(self.in_flight) != 0 and self.in_flight[0].insn.mnemonic != "nop"
+        return self.in_flight is not None and self.in_flight.insn.mnemonic != "nop"
 
     @property
     def has_in_flight(self) -> bool:
         """Check if there are any in-flight instructions."""
-        return len(self.in_flight) != 0
+        return self.in_flight is not None
 
     @property
     def complete_count(self) -> int:
