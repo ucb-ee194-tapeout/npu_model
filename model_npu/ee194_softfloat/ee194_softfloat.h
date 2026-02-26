@@ -2,9 +2,13 @@
 #define EE194_SOFTLOAT_H
 
 #include <stdint.h>
+#include <stdlib.h>
 
 #define FP16_EXP_WIDTH 5
 #define FP16_MANTISSA_WIDTH 10
+#define FP16_BIAS -15
+
+#define E4M3_BIAS -7
 
 /************************* FLOATING POINT TYPES *************************/
 typedef union e4m3 {
@@ -31,7 +35,7 @@ typedef union fp16 {
 
 typedef union bf16 {
   struct {
-    uint16_t mantissa : 8;
+    uint16_t mantissa : 7;
     uint16_t exponent : 8;
     uint16_t sign : 1;
   };
@@ -86,4 +90,45 @@ fp16 e4m3_to_fp32(e4m3 input);
  */
 fp16 mul_fp16(fp16 a, fp16 b);
 
-#endif 
+/**
+ * @brief generate the anchor exponent from N products and an addend
+ * 
+ * @param products 
+ * @param addend 
+ * @return uint8_t 
+ */
+uint8_t generate_anchor_fp16(fp16 *products, size_t num_products, e4m3 addend);
+
+/**
+ * @brief align fp16 to 32-bit fixed-point integer
+ * 
+ * @param input 
+ * @param addend 
+ * @return uint32 
+ */
+uint32_t fp16_to_int_align(fp16 input, uint8_t anchor_exp);
+
+/**
+ * @brief align e4m3 to 32-bit fixed-point integer
+ *
+ * @param input
+ * @param addend
+ * @return uint32
+ */
+uint32_t e4m3_to_int_align(e4m3 input, uint8_t anchor_exp);
+
+/**
+ * @brief reduce products and addend into a single sum
+ * 
+ */
+uint32_t fixed_point_int_reduction(uint32_t *products, size_t num_products, uint32_t addend);
+
+/**
+ * @brief convert 32 bit fixed point integer to bf16
+ * 
+ * @param value 
+ * @return bf16 
+ */
+bf16 int_to_bf16(uint32_t value, uint8_t anchor_exp);
+
+#endif
