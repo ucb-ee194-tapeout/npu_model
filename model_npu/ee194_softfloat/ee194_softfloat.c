@@ -8,7 +8,7 @@
 #define BITMASK_LSB_T(T, N) \
 	((T)((N) == 0           \
 			 ? 0            \
-			 : ((N) >= (sizeof(T) * 8) ? (T) ~(T) 0 : (((T)1 << (N)) - (T)1))))
+			 : ((N) >= (sizeof(T) * 8) ? (T) ~(T)0 : (((T)1 << (N)) - (T)1))))
 /**
  * @brief upcast e4m3 to fp16
  *
@@ -161,22 +161,26 @@ uint8_t generate_anchor_fp16(fp16 *products, size_t num_products, e4m3 addend)
  * @param addend
  * @return uint32
  */
-uint32_t fp16_to_int_align(fp16 input, uint8_t anchor_exp) {
+uint32_t fp16_to_int_align(fp16 input, uint8_t anchor_exp)
+{
 	const int int_width = 32;
 	const int frac_bits = 10; // sigWidth - 1 for fp16
 	const int exp_bias = 15;
 
-	if (input.exponent == 0 && input.mantissa == 0) {
+	if (input.exponent == 0 && input.mantissa == 0)
+	{
 		return 0;
 	}
 	uint32_t full_sig;
 	int32_t unbiased_exp;
 
-	if (input.exponent == 0) {
+	if (input.exponent == 0)
+	{
 		full_sig = input.mantissa;
 		unbiased_exp = 1 - exp_bias;
 	}
-	else {
+	else
+	{
 		// normalized
 		full_sig = (1u << frac_bits) | input.mantissa;
 		unbiased_exp = (int32_t)input.exponent - exp_bias;
@@ -185,25 +189,32 @@ uint32_t fp16_to_int_align(fp16 input, uint8_t anchor_exp) {
 	// shiftRight = frac_bits + anchorExp - (int_width - 1) - unbExp
 	int32_t shiftRight =
 		frac_bits +
-		(int32_t) anchor_exp -
+		(int32_t)anchor_exp -
 		(int_width - 1) -
 		unbiased_exp;
 
 	uint32_t magnitude = 0;
 
-	if (shiftRight >= int_width) {
+	if (shiftRight >= int_width)
+	{
 		magnitude = 0;
-	} else if (shiftRight >= 0) {
+	}
+	else if (shiftRight >= 0)
+	{
 		magnitude = full_sig >> shiftRight;
-	} else if (shiftRight >= -(int_width - 1)) {
+	}
+	else if (shiftRight >= -(int_width - 1))
+	{
 		magnitude = full_sig << (-shiftRight);
-	} else {
+	}
+	else
+	{
 		magnitude = 0;
 	}
 
-	int32_t signed_val = input.sign ? -(int32_t) magnitude : (int32_t)magnitude;
+	int32_t signed_val = input.sign ? -(int32_t)magnitude : (int32_t)magnitude;
 
-	return (uint32_t) signed_val;
+	return (uint32_t)signed_val;
 }
 
 /**
@@ -213,9 +224,10 @@ uint32_t fp16_to_int_align(fp16 input, uint8_t anchor_exp) {
  * @param addend
  * @return uint32
  */
-uint32_t e4m3_to_int_align(e4m3 input, uint8_t anchor_exp) {
+uint32_t e4m3_to_int_align(e4m3 input, uint8_t anchor_exp)
+{
 	const int int_width = 32;
-	const int frac_bits = 3; 
+	const int frac_bits = 3;
 	const int exp_bias = 7;
 
 	if (input.exponent == 0 && input.mantissa == 0)
@@ -272,9 +284,11 @@ uint32_t e4m3_to_int_align(e4m3 input, uint8_t anchor_exp) {
  * @brief reduce products and addend into a single sum
  *
  */
-uint32_t fixed_point_int_reduction(uint32_t *products, size_t num_products, uint32_t addend) {
+uint32_t fixed_point_int_reduction(uint32_t *products, size_t num_products, uint32_t addend)
+{
 	uint32_t reduction;
-	for (int i = 0; i < num_products; i++) {
+	for (int i = 0; i < num_products; i++)
+	{
 		reduction += products[i];
 	}
 
@@ -299,7 +313,8 @@ bf16 int_to_bf16(uint32_t value, uint8_t anchor_exp)
 
 	int32_t signed_val = (int32_t)value;
 
-	if (signed_val == 0) {
+	if (signed_val == 0)
+	{
 		return result;
 	}
 
@@ -308,16 +323,18 @@ bf16 int_to_bf16(uint32_t value, uint8_t anchor_exp)
 
 	int msb_index = 31 - __builtin_clz(mag);
 
-	int32_t unbiased_exp = msb_index + (int32_t) anchor_exp - (int_width - 1);
+	int32_t unbiased_exp = msb_index + (int32_t)anchor_exp - (int_width - 1);
 
 	int32_t biased_exp = unbiased_exp + bf16_bias;
 
-	if (biased_exp <= 0) {
+	if (biased_exp <= 0)
+	{
 		result.half = 0;
 		return result;
 	}
 
-	if (biased_exp >= 255) {
+	if (biased_exp >= 255)
+	{
 		result.exponent = 0xFF;
 		result.mantissa = 0;
 		return result;
