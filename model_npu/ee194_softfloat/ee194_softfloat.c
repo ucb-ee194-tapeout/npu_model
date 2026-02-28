@@ -138,7 +138,7 @@ fp16 mul_fp16(fp16 a, fp16 b)
  */
 uint8_t generate_anchor_fp16(fp16 *products, size_t num_products, e4m3 addend)
 {
-	uint8_t max_fp16_exponent;
+	uint8_t max_fp16_exponent = products[0].exponent;
 
 	for (int i = 0; i < num_products; i++)
 	{
@@ -186,12 +186,7 @@ uint32_t fp16_to_int_align(fp16 input, uint8_t anchor_exp)
 		unbiased_exp = (int32_t)input.exponent - exp_bias;
 	}
 
-	// shiftRight = frac_bits + anchorExp - (int_width - 1) - unbExp
-	int32_t shiftRight =
-		frac_bits +
-		(int32_t)anchor_exp -
-		(int_width - 1) -
-		unbiased_exp;
+	int32_t shiftRight = frac_bits + (int32_t)anchor_exp - (int_width - 1) - unbiased_exp;
 
 	uint32_t magnitude = 0;
 
@@ -249,12 +244,7 @@ uint32_t e4m3_to_int_align(e4m3 input, uint8_t anchor_exp)
 		unbiased_exp = (int32_t)input.exponent - exp_bias;
 	}
 
-	// shiftRight = frac_bits + anchorExp - (int_width - 1) - unbExp
-	int32_t shiftRight =
-		frac_bits +
-		(int32_t)anchor_exp -
-		(int_width - 1) -
-		unbiased_exp;
+	int32_t shiftRight = frac_bits + (int32_t)anchor_exp - (int_width - 1) - unbiased_exp;
 
 	uint32_t magnitude = 0;
 
@@ -284,9 +274,9 @@ uint32_t e4m3_to_int_align(e4m3 input, uint8_t anchor_exp)
  * @brief reduce products and addend into a single sum
  *
  */
-uint32_t fixed_point_int_reduction(uint32_t *products, size_t num_products, uint32_t addend)
+int32_t fixed_point_int_reduction(int32_t *products, size_t num_products, int32_t addend)
 {
-	uint32_t reduction;
+	int32_t reduction = 0;
 	for (int i = 0; i < num_products; i++)
 	{
 		reduction += products[i];
@@ -302,48 +292,82 @@ uint32_t fixed_point_int_reduction(uint32_t *products, size_t num_products, uint
  * @return bf16
  */
 
-bf16 int_to_bf16(uint32_t value, uint8_t anchor_exp)
+bf16 int_to_bf16(int32_t x, uint8_t anchor_exp)
 {
-	const int int_width = 32;
-	const int bf16_bias = 127;
-	const int bf16_frac_bits = 7;
-
 	bf16 result;
-	result.half = 0;
 
-	int32_t signed_val = (int32_t)value;
-
-	if (signed_val == 0)
-	{
-		return result;
-	}
-
-	result.sign = (signed_val < 0);
-	uint32_t mag = result.sign ? (uint32_t)(-signed_val) : (uint32_t)signed_val;
-
-	int msb_index = 31 - __builtin_clz(mag);
-
-	int32_t unbiased_exp = msb_index + (int32_t)anchor_exp - (int_width - 1);
-
-	int32_t biased_exp = unbiased_exp + bf16_bias;
-
-	if (biased_exp <= 0)
+	// zero
+	if (x == 0)
 	{
 		result.half = 0;
 		return result;
 	}
 
-	if (biased_exp >= 255)
-	{
-		result.exponent = 0xFF;
+	// extract sign, get magnitude
+	int sign = 0;
+	if (x < 0) {
+		sign = 1;
+		x = -x; 
+	}
+
+	// find leading bit position 
+	int msb = 31 - __builtin_clz(x); // position of highest set bit, 0-indexed
+
+	// adjust exponent
+	// anchor correction: + anchor_exp - (intWidth - 1) = + anchor_exp - 31
+	int biased_exp = msb + 127 + anchor_exp - 31;
+
+	// clamp exponent
+	if (biased_exp <= 0) {
+		// underflow to zero
+		result.half = 0;
+		result.sign = sign;
+		return result;
+	}
+	if (biased_exp >= 255) {
+		// overflow to infinity
+		result.sign = sign;
+		result.exponent = 255;
 		result.mantissa = 0;
 		return result;
 	}
 
-	result.exponent = (uint16_t)biased_exp;
+	// extract 7 mantissa bits from below the MSB
+	// the significand is x with implicit leading 1 at position msb
+	// we want the 7 bits below that
+	uint32_t mantissa;
+	if (msb >= 7) {
+		// need to round: check the bit just below what we keep
+		uint32_t round_bit = (x >> (msb - 7 - 1)) & 1;
+		mantissa = (x >> (msb - 7)) & 0x7F;
+		// round to nearest even
+		if (round_bit) {
+			uint32_t sticky = (x & ((1u << (msb - 7 - 1)) - 1)) != 0;
+			if (sticky || (mantissa & 1)) {
+				mantissa += 1;
+				if (mantissa > 0x7F) {
+					// mantissa overflowed, carry into exponent
+					mantissa = 0;
+					biased_exp += 1;
+					if (biased_exp >= 255)
+					{
+						result.sign = sign;
+						result.exponent = 255;
+						result.mantissa = 0;
+						return result;
+					}
+				}
+			}
+		}
+	}
+	
+	else {
+		// integer is small enough that all bits fit, shift up
+		mantissa = (x << (7 - msb)) & 0x7F;
+	}
 
-	uint32_t normalized = mag << (31 - msb_index);
-
-	result.mantissa = (normalized >> (32 - 1 - bf16_frac_bits)) & 0x7F;
+	result.sign = sign;
+	result.exponent = (uint8_t)biased_exp;
+	result.mantissa = (uint8_t)mantissa;
 	return result;
 }

@@ -8,6 +8,12 @@
 #define FP16_MANTISSA_WIDTH 10
 #define FP16_BIAS -15
 
+#define BF16_EXP_WIDTH 8
+#define BF16_MANTISSA_WIDTH 7
+#define BF16 -127
+
+#define E4M3_EXP_WIDTH 4
+#define E4M3_MANTISSA_WIDTH 3
 #define E4M3_BIAS -7
 
 /************************* FLOATING POINT TYPES *************************/
@@ -121,7 +127,7 @@ uint32_t e4m3_to_int_align(e4m3 input, uint8_t anchor_exp);
  * @brief reduce products and addend into a single sum
  * 
  */
-uint32_t fixed_point_int_reduction(uint32_t *products, size_t num_products, uint32_t addend);
+int32_t fixed_point_int_reduction(int32_t *products, size_t num_products, int32_t addend);
 
 /**
  * @brief convert 32 bit fixed point integer to bf16
@@ -129,6 +135,6 @@ uint32_t fixed_point_int_reduction(uint32_t *products, size_t num_products, uint
  * @param value 
  * @return bf16 
  */
-bf16 int_to_bf16(uint32_t value, uint8_t anchor_exp);
+bf16 int_to_bf16(int32_t value, uint8_t anchor_exp);
 
 #endif
