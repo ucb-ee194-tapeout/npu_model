@@ -202,17 +202,26 @@ def matmul_mxu0(state: ArchState, args: Dict[str, int]) -> None:
     """
     Matrix multiplication using MXU0, the systolic array.
     """
+    activation_fp8 = state.read_mrf_fp8(args["rs1"])
+    weight_fp8 = state.read_wb_fp8("mxu1", args["rs2"])
 
-    # FIXME: incorrect input/output types
-    activation = state.read_mrf_bf16(args["rs1"])
-    weight = state.read_wb_bf16("mxu0", args["rs2"])
-    accumulation = (activation @ weight.T).to(torch.float32)
-    state.write_mrf_f32(args["rd"], accumulation)
+    activation_fp16 = activation_fp8.to(torch.float16)
+    weight_fp16 = weight_fp8.to(torch.float16)
+
+    product_fp16 = activation_fp16 @ weight_fp16
+
+    acc_bf16 = state.read_mrf_bf16(args["rd"])
+    acc_fp16 = acc_bf16.to(torch.float16)
+
+    accumulation_fp16 = acc_fp16 + product_fp16
+
+    output_bf16 = accumulation_fp16.to(torch.bfloat16)
+    state.write_mrf_bf16(args["rd"], output_bf16)
 
 
 @instr("matmul.mxu1", instruction_type=InstructionType.MATRIX_INNER)
 def matmul_mxu1(state: ArchState, args: Dict[str, int]) -> None:
-    activation_fp8 = state.read_mrf_fp8(args["rs1"]) 
+    activation_fp8 = state.read_mrf_fp8(args["rs1"])
     weight_fp8 = state.read_wb_fp8("mxu1", args["rs2"])
 
     activation_fp16 = activation_fp8.to(torch.float16)
@@ -253,7 +262,7 @@ def vmul(state: ArchState, args: Dict[str, int]) -> None:
     a = state.read_mrf_bf16(args["vs1"])
     b = state.read_mrf_bf16(args["vs2"])
     result = (a * b).to(torch.bfloat16)
-    state.write_mrf_bf16(args["vrd"], (a * b).to(torch.bfloat16))
+    state.write_mrf_bf16(args["vrd"], result)
 
 
 @instr("vsqrt", instruction_type=InstructionType.VECTOR)
@@ -352,7 +361,7 @@ def dma_load_mxu0(state: ArchState, args: Dict[str, int]) -> None:
             data,
             (
                 0,
-                state.cfg.wb_depth * state.cfg.wb_width // torch.uint8.itemsize
+                state.cfg.wb_width // torch.uint8.itemsize
                 - data.numel(),
             ),
         )
@@ -366,14 +375,14 @@ def dma_load_mxu1(state: ArchState, args: Dict[str, int]) -> None:
     """
     base = args["base"]
     size = args["size"]
-    data = torch.tensor(state.read_memory(base, size), dtype=torch.uint8)
+    data = state.read_memory(base, size).to(torch.uint8)
     # zero pad the data to the size of the WB
     if data.numel() < state.cfg.wb_width // torch.uint8.itemsize:
         data = torch.nn.functional.pad(
             data,
             (
                 0,
-                state.cfg.wb_depth * state.cfg.wb_width // torch.uint8.itemsize
+                state.cfg.wb_width // torch.uint8.itemsize
                 - data.numel(),
             ),
         )

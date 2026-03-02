@@ -1,7 +1,6 @@
 from typing import List, Tuple
 from ...software import Instruction, Program
 import torch
-from torch import float8_e4m3fn
 
 
 class MatmulProgram(Program):
