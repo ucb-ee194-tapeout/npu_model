@@ -22,6 +22,7 @@ if __name__ == "__main__":
         sys.path.insert(0, str(repo_root))
 
 import model_npu
+import torch
 from model_npu.logging import LoggerConfig
 from model_npu.simulation import Simulation
 
@@ -103,6 +104,23 @@ def main():
                 old_stdout = sys.stdout
                 sys.stdout = io.StringIO()
             sim.run(max_cycles=args.max_cycles)
+
+            # Verify golden result if program defines it
+            if hasattr(program, "golden_result") and program.golden_result:
+                output_base, golden_tensor = program.golden_result
+                size = golden_tensor.numel() * golden_tensor.element_size()
+                mem_data = sim.core.arch_state.read_memory(output_base, size)
+                actual = mem_data.view(golden_tensor.dtype).reshape(
+                    golden_tensor.shape
+                ).clone()
+                if not torch.allclose(
+                    actual.float(), golden_tensor.float(), rtol=1e-2, atol=1e-2
+                ):
+                    diff = (actual.float() - golden_tensor.float()).abs().max()
+                    raise AssertionError(
+                        f"Golden check failed: max diff = {diff:.6f}"
+                    )
+
             if args.quiet:
                 sys.stdout = old_stdout
             try:

@@ -3,79 +3,92 @@ from ...software import (
     Instruction,
     Program,
 )
-import numpy as np
+import torch
+
+from model_npu.workload.gemma_blocks import gemma_mlp_gate_up_forward
+
+
+GATE_PROJ_WEIGHT_DATA = torch.ones((32, 16), dtype=torch.float8_e4m3fn)
+UP_PROJ_WEIGHT_DATA = torch.ones((32, 16), dtype=torch.float8_e4m3fn)
+ACTIVATION_DATA = torch.ones((64, 32), dtype=torch.float8_e4m3fn)
+
+# Memory layout: gate weights, up weights, activation, output
+GATE_WEIGHT_BASE = 0x0000
+UP_WEIGHT_BASE = 0x0200  # 512 bytes after gate
+ACTIVATION_DATA_BASE = 0x2000
+OUTPUT_DATA_BASE = 0x3000
 
 
 class GemmaMlpProgram(Program):
     """
-    Gemma MLP kernel program.
+    Gemma MLP kernel program (simplified).
+    Gate and up projections, then elementwise gate*up (simplified GeGLU).
     """
 
     instructions: List[Instruction] = [
-        # load gate_proj_weight tile
+        # Load gate weight to WB mxu1 (matmul.mxu0 reads from mxu1)
         Instruction(
-            mnemonic="dma.load",
-            args={"rd": 0, "base": 0, "size": 16 * 32 * 1, "flag": 0},
+            mnemonic="dma.load.mxu1",
+            args={
+                "rd": 0,
+                "base": GATE_WEIGHT_BASE,
+                "size": GATE_PROJ_WEIGHT_DATA.numel() * torch.float8_e4m3fn.itemsize,
+                "flag": 0,
+            },
         ),
-        # load up_proj_weight tile
         Instruction(
-            mnemonic="dma.load",
-            args={"rd": 1, "base": 0, "size": 16 * 32 * 1, "flag": 1},
-        ),
-
-        # set loop bound and counter
-        Instruction(mnemonic="addi", args={"rd": 1, "rs1": 0, "imm": 8}),
-        Instruction(mnemonic="addi", args={"rd": 2, "rs1": 0, "imm": 0}),
-        Instruction(mnemonic="dma.wait", args={"flag": 0}),
-
-        # load x tile
-        Instruction(
-            mnemonic="dma.load",
-            args={"rd": 0, "base": 0, "size": 64 * 32 * 1, "flag": 0},
+            mnemonic="dma.load.mxu1",
+            args={
+                "rd": 1,
+                "base": UP_WEIGHT_BASE,
+                "size": UP_PROJ_WEIGHT_DATA.numel() * torch.float8_e4m3fn.itemsize,
+                "flag": 1,
+            },
         ),
         Instruction(mnemonic="dma.wait", args={"flag": 0}),
-
-        # gate projection
-        Instruction(mnemonic="matmul", args={"rd": 1, "rs1": 0, "rs2": 0}, delay=0),
-        # up projection
-        Instruction(mnemonic="matmul", args={"rd": 2, "rs1": 0, "rs2": 1}, delay=0),
-
-        # loop
-        Instruction(mnemonic="blt", args={"rs1": 2, "rs2": 1, "imm": -4}, delay=0),
-        Instruction(mnemonic="addi", args={"rd": 2, "rs1": 2, "imm": 1}),
-        Instruction(mnemonic="nop", args={}),
-
-        Instruction(mnemonic="vlibroadcast", args={"rd": 4, "imm": 0.7978845608028654}),
-        Instruction(mnemonic="vlibroadcast", args={"rd": 5, "imm": 0.044715}),
-        # reset loop counter
-        Instruction(mnemonic="addi", args={"rd": 2, "rs1": 0, "imm": 0}),
-
-        # pow(x, 3)
-        Instruction(mnemonic="vmul", args={"rd": 6, "rs1": 1, "rs2": 1}),
-        Instruction(mnemonic="vmul", args={"rd": 6, "rs1": 6, "rs2": 1}),
-        # 0.044715 * x_pow3
-        Instruction(mnemonic="vmul", args={"rd": 6, "rs1": 5, "rs2": 6}),
-        # x + x_pow3
-        Instruction(mnemonic="vadd", args={"rd": 6, "rs1": 1, "rs2": 6}),
-        # sqrt_constant * x
-        Instruction(mnemonic="vmul", args={"rd": 6, "rs1": 4, "rs2": 6}),
-
-        # loop
-        Instruction(mnemonic="blt", args={"rs1": 2, "rs2": 1, "imm": -1}, delay=0),
-        Instruction(mnemonic="addi", args={"rd": 2, "rs1": 2, "imm": 1}),
-        Instruction(mnemonic="nop", args={}),
-
+        Instruction(mnemonic="dma.wait", args={"flag": 1}),
+        # Load activation to MRF
+        Instruction(
+            mnemonic="dma.load",
+            args={
+                "rd": 0,
+                "base": ACTIVATION_DATA_BASE,
+                "size": ACTIVATION_DATA.numel() * torch.float8_e4m3fn.itemsize,
+                "flag": 0,
+            },
+        ),
+        Instruction(mnemonic="dma.wait", args={"flag": 0}),
+        # Gate projection: activation @ gate_weight -> MRF 1
+        Instruction(mnemonic="matmul.mxu0", args={"rd": 1, "rs1": 0, "rs2": 0}),
+        # Up projection: activation @ up_weight -> MRF 2
+        Instruction(mnemonic="matmul.mxu0", args={"rd": 2, "rs1": 0, "rs2": 1}),
+        # Simplified output: gate * up (GeGLU uses gate * silu(up))
+        Instruction(mnemonic="vmul", args={"vrd": 6, "vs1": 1, "vs2": 2}),
+        # Store result
         Instruction(
             mnemonic="dma.store",
-            args={"rs1": 0, "base": 0, "size": 64 * 16 * 1, "flag": 2},
-            delay=15,
-        ),  # stall for 15 cycles before dispatching me
+            args={
+                "rs1": 6,
+                "base": OUTPUT_DATA_BASE,
+                "size": 64 * 16 * torch.bfloat16.itemsize,
+                "flag": 2,
+            },
+        ),
         Instruction(mnemonic="dma.wait", args={"flag": 2}),
     ]
 
-    memory_regions: List[Tuple[int, np.ndarray]] = [
-        (0, np.ones((64, 16)).astype(np.float32)),
-        (0, np.ones((64, 16)).astype(np.float32)),
-        (0, np.ones((64, 16)).astype(np.float32)),
-        (0, np.ones((64, 16)).astype(np.float32)),
+    memory_regions: List[Tuple[int, torch.Tensor]] = [
+        (GATE_WEIGHT_BASE, GATE_PROJ_WEIGHT_DATA),
+        (UP_WEIGHT_BASE, UP_PROJ_WEIGHT_DATA),
+        (ACTIVATION_DATA_BASE, ACTIVATION_DATA),
     ]
+
+    golden_result: tuple[int, torch.Tensor] = (
+        OUTPUT_DATA_BASE,
+        gemma_mlp_gate_up_forward(
+            ACTIVATION_DATA,
+            GATE_PROJ_WEIGHT_DATA,
+            UP_PROJ_WEIGHT_DATA,
+            use_gelu=False,  # matches NPU: gate * up
+        ).to(torch.bfloat16),
+    )

@@ -13,6 +13,8 @@ Options:
 
 import argparse
 
+import torch
+
 import model_npu
 from model_npu.logging import LoggerConfig
 from model_npu.simulation import Simulation
@@ -20,7 +22,6 @@ from model_npu.simulation import Simulation
 from model_npu.configs.programs import *  # noqa: F401, F403
 from model_npu.configs.hardware import *  # noqa: F401, F403
 from model_npu.configs.isa_definition import *  # noqa: F401, F403
-
 
 
 def main():
@@ -82,6 +83,9 @@ Examples:
         program=program,
     )
     sim.run(max_cycles=args.max_cycles)
+
+    # print DRAM contents
+    print(sim.core.arch_state.read_memory(0x3000, 64 * 16 * 1).view(torch.bfloat16))
 
 
 if __name__ == "__main__":
