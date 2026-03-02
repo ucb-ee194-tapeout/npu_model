@@ -1,7 +1,5 @@
 from typing import Optional, List
 
-from sympy import Matrix
-
 from .exu import ExecutionUnit
 from ..logging.logger import Logger, LaneType
 from ..hardware.arch_state import ArchState
@@ -128,7 +126,7 @@ class MatrixExecutionUnitSystolic(ExecutionUnit):
 
     @property
     def supported_instruction_types(self) -> List[InstructionType]:
-        return [InstructionType.MATRIX_SYSTOLIC, InstructionType.MATRIX]
+        return [InstructionType.MATRIX_mxu0, InstructionType.MATRIX]
 
 
 class MatrixExecutionUnitInner(ExecutionUnit):
@@ -248,4 +246,4 @@ class MatrixExecutionUnitInner(ExecutionUnit):
 
     @property
     def supported_instruction_types(self) -> List[InstructionType]:
-        return [InstructionType.MATRIX_INNER, InstructionType.MATRIX]
+        return [InstructionType.MATRIX_mxu1, InstructionType.MATRIX]

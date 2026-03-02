@@ -7,8 +7,8 @@ class InstructionType:
     MATRIX = 2
     DMA = 4
     BARRIER = 5
-    MATRIX_SYSTOLIC = 6
-    MATRIX_INNER = 7
+    MATRIX_mxu0 = 6
+    MATRIX_mxu1 = 7
 
 
 class Operation:

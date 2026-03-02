@@ -86,7 +86,9 @@ class InstructionDecode(Module):
             if uop is None:
                 return
 
-            instr_definition = self.isa.operations[uop.insn.mnemonic]
+            instr_definition = self.isa.operations.get(uop.insn.mnemonic)
+            if instr_definition is None:
+                raise ValueError(f"Instruction {uop.insn.mnemonic} not found in ISA")
             uop.execute_fn = instr_definition.effect
 
             self.logger.log_stage_end(

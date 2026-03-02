@@ -194,26 +194,26 @@ def mv_mw(state: ArchState, args: Dict[str, int]) -> None:
     Vector/matrix move from matrix registers to weight buffer.
     """
     # TODO: check register dimensions
-    state.write_wb_bf16(args["rd"], state.read_mrf_bf16(args["rs1"]))
+    state.write_wb_bf16("mxu0", args["rd"], state.read_mrf_bf16(args["rs1"]))
 
 
-@instr("matmul.SYSTOLIC", instruction_type=InstructionType.MATRIX_SYSTOLIC)
+@instr("matmul.mxu0", instruction_type=InstructionType.MATRIX_mxu0)
 def matmul_mxu0(state: ArchState, args: Dict[str, int]) -> None:
     """
     Matrix multiplication using MXU0, the systolic array.
     """
-    
+
     # FIXME: incorrect input/output types
     activation = state.read_mrf_bf16(args["rs1"])
-    weight = state.read_wb_bf16(args["rs2"])
+    weight = state.read_wb_bf16("mxu0", args["rs2"])
     accumulation = (activation @ weight.T).to(torch.float32)
     state.write_mrf_f32(args["rd"], accumulation)
 
 
-@instr("matmul.INNER", instruction_type=InstructionType.MATRIX_INNER)
+@instr("matmul.mxu1", instruction_type=InstructionType.MATRIX_mxu1)
 def matmul_mxu1(state: ArchState, args: Dict[str, int]) -> None:
     activation_fp8 = state.read_mrf_fp8(args["rs1"]) 
-    weight_fp8 = state.read_wb_fp8(args["rs2"])
+    weight_fp8 = state.read_wb_fp8("mxu1", args["rs2"])
 
     activation_fp16 = activation_fp8.to(torch.float16)
     weight_fp16 = weight_fp8.to(torch.float16)
@@ -317,8 +317,8 @@ Memory operations
 """
 
 
-@instr("dma.load.m", instruction_type=InstructionType.DMA)
-def dma_load_m(state: ArchState, args: Dict[str, int]) -> None:
+@instr("dma.load", instruction_type=InstructionType.DMA)
+def dma_load(state: ArchState, args: Dict[str, int]) -> None:
     """
     DMA load from memory to matrix registers.
     """
@@ -338,10 +338,10 @@ def dma_load_m(state: ArchState, args: Dict[str, int]) -> None:
     state.write_mrf_u8(args["rd"], data)
 
 
-@instr("dma.load.w", instruction_type=InstructionType.DMA)
-def dma_load_w(state: ArchState, args: Dict[str, int]) -> None:
+@instr("dma.load.mxu0", instruction_type=InstructionType.DMA)
+def dma_load_mxu0(state: ArchState, args: Dict[str, int]) -> None:
     """
-    DMA load from memory to weight buffer.
+    DMA load from memory to weight buffer at MXU0.
     """
     base = args["base"]
     size = args["size"]
@@ -356,11 +356,32 @@ def dma_load_w(state: ArchState, args: Dict[str, int]) -> None:
                 - data.numel(),
             ),
         )
-    state.write_wb_u8(args["rd"], data)
+    state.write_wb_u8("mxu0", args["rd"], data)
 
 
-@instr("dma.store.m", instruction_type=InstructionType.DMA)
-def dma_store_m(state: ArchState, args: Dict[str, int]) -> None:
+@instr("dma.load.mxu1", instruction_type=InstructionType.DMA)
+def dma_load_mxu1(state: ArchState, args: Dict[str, int]) -> None:
+    """
+    DMA load from memory to weight buffer at MXU1.
+    """
+    base = args["base"]
+    size = args["size"]
+    data = torch.tensor(state.read_memory(base, size), dtype=torch.uint8)
+    # zero pad the data to the size of the WB
+    if data.numel() < state.cfg.wb_width // torch.uint8.itemsize:
+        data = torch.nn.functional.pad(
+            data,
+            (
+                0,
+                state.cfg.wb_depth * state.cfg.wb_width // torch.uint8.itemsize
+                - data.numel(),
+            ),
+        )
+    state.write_wb_u8("mxu1", args["rd"], data)
+
+
+@instr("dma.store", instruction_type=InstructionType.DMA)
+def dma_store(state: ArchState, args: Dict[str, int]) -> None:
     """
     DMA store from matrix registers to memory.
     """
