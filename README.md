@@ -121,6 +121,13 @@ uv run scripts/run.py --hardware_config DefaultHardwareConfig -p AddiProgram -o 
 4. Explore cycle-by-cycle execution flow
 
 
+### Running tests
+
+```bash
+uv run ./scripts/test_archstate.py
+uv run ./scripts/test_programs.py --quiet
+```
+
 ## Architecture
 
 ### Pipeline Flow

@@ -1,7 +1,5 @@
 from typing import Optional, List
 
-from sympy import Matrix
-
 from .exu import ExecutionUnit
 from ..logging.logger import Logger, LaneType
 from ..hardware.arch_state import ArchState

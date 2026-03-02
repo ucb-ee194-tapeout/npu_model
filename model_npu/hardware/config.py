@@ -1,17 +1,16 @@
 from dataclasses import dataclass
 
-from typing import Tuple
 from model_npu.isa import IsaSpec
 
 
 @dataclass
 class ArchStateConfig:
     mrf_depth: int
-    """ Read depth of a matrix register in bytes. """
+    """ Read depth of a matrix register (number of rows). """
     mrf_width: int
     """ Read width of a matrix register in bytes. """
     wb_width: int
-    """ Write width of a weight buffer entry in bytes. """
+    """ Read width of a weight buffer entry in bytes. """
     num_x_registers: int
     """ Number of scalar registers. """
     num_m_registers: int
