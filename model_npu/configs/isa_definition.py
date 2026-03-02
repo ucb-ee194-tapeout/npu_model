@@ -83,12 +83,16 @@ def sll(state: ArchState, args: Dict[str, int]) -> None:
 
 @instr("slt", instruction_type=InstructionType.SCALAR)
 def slt(state: ArchState, args: Dict[str, int]) -> None:
-    state.write_xrf(args["rd"], 1 if state.xrf[args["rs1"]] < state.xrf[args["rs2"]] else 0)
+    state.write_xrf(
+        args["rd"], 1 if state.xrf[args["rs1"]] < state.xrf[args["rs2"]] else 0
+    )
 
 
 @instr("sltu", instruction_type=InstructionType.SCALAR)
 def sltu(state: ArchState, args: Dict[str, int]) -> None:
-    state.write_xrf(args["rd"], 1 if state.xrf[args["rs1"]] < state.xrf[args["rs2"]] else 0)  # TODO: sign
+    state.write_xrf(
+        args["rd"], 1 if state.xrf[args["rs1"]] < state.xrf[args["rs2"]] else 0
+    )  # TODO: sign
 
 
 @instr("xor", instruction_type=InstructionType.SCALAR)
@@ -226,7 +230,7 @@ def matmul_mxu1(state: ArchState, args: Dict[str, int]) -> None:
 
 
 """
-Vector operations
+Vector operations (bfloat16)
 """
 
 
@@ -300,113 +304,12 @@ def vtanh(state: ArchState, args: Dict[str, int]) -> None:
     state.write_mrf_bf16(args["vrd"], torch.tanh(x).to(torch.bfloat16))
 
 
-"""
-Vector operations
-"""
-
-
 @instr("mv.mm", instruction_type=InstructionType.VECTOR)
 def mv_mm(state: ArchState, args: Dict[str, int]) -> None:
     """
     Vector/matrix move between matrix registers.
     """
     state.write_mrf_f32(args["rd"], state.read_mrf_f32(args["rs1"]))
-
-
-@instr("vadd", instruction_type=InstructionType.VECTOR)
-def vadd(state: ArchState, args: Dict[str, int]) -> None:
-    """
-    Vector/matrix add.
-    """
-    state.write_mrf_f32(args["rd"], state.read_mrf_f32(args["rs1"]) + state.read_mrf_f32(args["rs2"]))
-
-
-@instr("vsub", instruction_type=InstructionType.VECTOR)
-def vsub(state: ArchState, args: Dict[str, int]) -> None:
-    """
-    Vector/matrix subtract.
-    """
-    state.write_mrf_f32(args["rd"], state.read_mrf_f32(args["rs1"]) - state.read_mrf_f32(args["rs2"]))
-
-
-@instr("vmul", instruction_type=InstructionType.VECTOR)
-def vmul(state: ArchState, args: Dict[str, int]) -> None:
-    """
-    Vector/matrix multiply.
-    """
-    state.write_mrf_f32(args["rd"], state.read_mrf_f32(args["rs1"]) * state.read_mrf_f32(args["rs2"]))
-
-
-@instr("vrcp", instruction_type=InstructionType.VECTOR)
-def vrcp(state: ArchState, args: Dict[str, int]) -> None:
-    """
-    Vector/matrix reciprocal.
-    """
-    state.write_mrf_f32(args["rd"], 1 / state.read_mrf_f32(args["rs1"]))
-
-
-@instr("vsqrt", instruction_type=InstructionType.VECTOR)
-def vsqrt(state: ArchState, args: Dict[str, int]) -> None:
-    """
-    Vector/matrix square root.
-    """
-    state.write_mrf_f32(args["rd"], torch.sqrt(state.read_mrf_f32(args["rs1"])))
-
-
-@instr("vlog2", instruction_type=InstructionType.VECTOR)
-def vlog2(state: ArchState, args: Dict[str, int]) -> None:
-    """
-    Vector/matrix log base 2.
-    """
-    state.write_mrf_f32(args["rd"], torch.log2(state.read_mrf_f32(args["rs1"])))
-
-
-@instr("vexp2", instruction_type=InstructionType.VECTOR)
-def vexp2(state: ArchState, args: Dict[str, int]) -> None:
-    """
-    Vector/matrix exponential base 2.
-    """
-    state.write_mrf_f32(args["rd"], torch.exp2(state.read_mrf_f32(args["rs1"])))
-
-
-# @instr("vlog", instruction_type=InstructionType.VECTOR)
-# def vlog(state: ArchState, args: Dict[str, int]) -> None:
-    # """
-    # Vector/matrix natural log.
-    # """
-#     state.write_mrf_f32(args["rd"], torch.log(state.read_mrf_f32(args["rs1"])))
-
-
-@instr("vexp", instruction_type=InstructionType.VECTOR)
-def vexp(state: ArchState, args: Dict[str, int]) -> None:
-    """
-    Vector/matrix natural exponential.
-    """
-    state.write_mrf_f32(args["rd"], torch.exp(state.read_mrf_f32(args["rs1"])))
-
-
-@instr("vsin", instruction_type=InstructionType.VECTOR)
-def vsin(state: ArchState, args: Dict[str, int]) -> None:
-    """
-    Vector/matrix sine.
-    """
-    state.write_mrf_f32(args["rd"], torch.sin(state.read_mrf_f32(args["rs1"])))
-
-
-@instr("vcos", instruction_type=InstructionType.VECTOR)
-def vcos(state: ArchState, args: Dict[str, int]) -> None:
-    """
-    Vector/matrix cosine.
-    """
-    state.write_mrf_f32(args["rd"], torch.cos(state.read_mrf_f32(args["rs1"])))
-
-
-@instr("vtanh", instruction_type=InstructionType.VECTOR)
-def vtanh(state: ArchState, args: Dict[str, int]) -> None:
-    """
-    Vector/matrix hyperbolic tangent.
-    """
-    state.write_mrf_f32(args["rd"], torch.tanh(state.read_mrf_f32(args["rs1"])))
 
 
 """

@@ -18,5 +18,5 @@ if __name__ == "__main__":
     state.write_mrf_f32(0, torch.ones(64, 16))
     print(state.read_mrf_f32(0))
 
-    state.write_mrf_bf16(0, torch.ones(64, 32))
+    state.write_mrf_bf16(0, torch.ones(64, 32, dtype=torch.bfloat16))
     print(state.read_mrf_bf16(0))

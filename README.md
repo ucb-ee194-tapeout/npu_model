@@ -1,5 +1,7 @@
 # NPU-Model
 
+[![Tests](https://github.com/ucb-ee194-tapeout/npu_model/actions/workflows/test.yml/badge.svg)](https://github.com/ucb-ee194-tapeout/npu_model/actions/workflows/test.yml)
+
 This is a preliminary, experimental performance model for various NPU architecture.
 Notice that this is neither performant or accurate in any sense.
 This model makes highly ideal assumption, and is only useful for educational purposes or early stage exploration.
