@@ -345,7 +345,7 @@ def dma_load_mxu0(state: ArchState, args: Dict[str, int]) -> None:
     """
     base = args["base"]
     size = args["size"]
-    data = torch.tensor(state.read_memory(base, size), dtype=torch.uint8)
+    data = state.read_memory(base, size).to(torch.uint8)
     # zero pad the data to the size of the WB
     if data.numel() < state.cfg.wb_width // torch.uint8.itemsize:
         data = torch.nn.functional.pad(
