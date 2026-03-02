@@ -77,7 +77,7 @@ class ArchState:
         )
         self.mrf[vd].view(torch.uint8)[:] = value.flatten()
 
-    def read_mrf_u8(self, vs: int) -> torch.tensor:
+    def read_mrf_u8(self, vs: int) -> torch.Tensor:
         return (
             self.mrf[vs]
             .view(torch.uint8)
@@ -92,7 +92,7 @@ class ArchState:
         )
         self.mrf[vd].view(torch.float8_e4m3fn)[:] = value.flatten()
 
-    def read_mrf_fp8(self, vs: int) -> torch.tensor:
+    def read_mrf_fp8(self, vs: int) -> torch.Tensor:
         return (
             self.mrf[vs]
             .view(torch.float8_e4m3fn)
@@ -110,7 +110,7 @@ class ArchState:
         )
         self.mrf[vd].view(torch.float32)[:] = value.flatten()
 
-    def read_mrf_f32(self, vs: int) -> torch.tensor:
+    def read_mrf_f32(self, vs: int) -> torch.Tensor:
         return (
             self.mrf[vs]
             .view(torch.float32)
@@ -125,7 +125,7 @@ class ArchState:
         )
         self.mrf[vd].view(torch.bfloat16)[:] = value.flatten()
 
-    def read_mrf_bf16(self, vs: int) -> torch.tensor:
+    def read_mrf_bf16(self, vs: int) -> torch.Tensor:
         return (
             self.mrf[vs]
             .view(torch.bfloat16)
@@ -156,7 +156,7 @@ class ArchState:
         assert value.numel() == self.cfg.wb_width // torch.uint8.itemsize
         self.wb[unit][wd].view(torch.uint8)[:] = value.flatten()
 
-    def read_wb_u8(self, unit: str, ws: int) -> torch.tensor:
+    def read_wb_u8(self, unit: str, ws: int) -> torch.Tensor:
         num_rows = self.cfg.mrf_width // torch.uint8.itemsize
         num_cols = (self.cfg.wb_width // torch.uint8.itemsize) // num_rows
         return self.wb[unit][ws].view(torch.uint8).reshape(num_rows, num_cols)
@@ -166,7 +166,7 @@ class ArchState:
         assert value.numel() == self.cfg.wb_width // torch.bfloat16.itemsize
         self.wb[unit][wd].view(torch.bfloat16)[:] = value.flatten()
 
-    def read_wb_bf16(self, unit: str, ws: int) -> torch.tensor:
+    def read_wb_bf16(self, unit: str, ws: int) -> torch.Tensor:
         num_rows = self.cfg.mrf_width // torch.bfloat16.itemsize
         num_cols = (self.cfg.wb_width // torch.bfloat16.itemsize) // num_rows
         return self.wb[unit][ws].view(torch.bfloat16).reshape(num_rows, num_cols)
@@ -176,7 +176,7 @@ class ArchState:
         assert value.numel() == self.cfg.wb_width // torch.float8_e4m3fn.itemsize
         self.wb[unit][wd].view(torch.float8_e4m3fn)[:] = value.flatten()
 
-    def read_wb_fp8(self, unit: str, ws: int) -> torch.tensor:
+    def read_wb_fp8(self, unit: str, ws: int) -> torch.Tensor:
         num_rows = self.cfg.mrf_width // torch.float8_e4m3fn.itemsize
         num_cols = (self.cfg.wb_width // torch.float8_e4m3fn.itemsize) // num_rows
 
@@ -190,7 +190,7 @@ class ArchState:
         ), f"Memory write out of bounds: {base} + {data.numel()} > {self.cfg.memory_size}"
         self.mem[base:base + data.numel()] = data
 
-    def read_memory(self, base: int, length: int) -> torch.tensor:
+    def read_memory(self, base: int, length: int) -> torch.Tensor:
         assert (
             base + length <= self.cfg.memory_size
         ), f"Memory read out of bounds: {base} + {length} > {self.cfg.memory_size}"
