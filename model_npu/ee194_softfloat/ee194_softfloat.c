@@ -29,16 +29,14 @@ bf16 e4m3_to_bf16(e4m3 input)
 fp16 e4m3_to_fp16(e4m3 input)
 {
 	bool is_zero = input.exponent == 0 && input.mantissa == 0;
-	bool is_nan = input.byte == 0xFF;
-
-	uint16_t fp16_exponent = (input.exponent + 8) & BITMASK_LSB_T(uint16_t, 5);
-	uint16_t fp16_mantissa = input.mantissa << 7;
+	bool is_nan = input.byte == 0xff;
 
 	fp16 result;
 	if (is_nan)
 	{
-		result.half = BITMASK_LSB_T(uint16_t, 15);
 		result.sign = input.sign;
+		result.exponent = 0x1F;
+		result.mantissa = 0x200; // 0b1000000000
 	}
 	else if (is_zero)
 	{
@@ -48,8 +46,8 @@ fp16 e4m3_to_fp16(e4m3 input)
 	else
 	{
 		result.sign = input.sign;
-		result.exponent = fp16_exponent;
-		result.mantissa = fp16_mantissa;
+		result.exponent = (input.exponent + 8) & 0x1F;
+		result.mantissa = input.mantissa << 7;
 	}
 	return result;
 }
@@ -136,9 +134,9 @@ fp16 mul_fp16(fp16 a, fp16 b)
  * @param addend
  * @return uint8_t
  */
-uint8_t generate_anchor_fp16(fp16 *products, size_t num_products, e4m3 addend)
+int16_t generate_anchor_fp16(fp16 *products, size_t num_products, e4m3 addend)
 {
-	uint8_t max_fp16_exponent = products[0].exponent;
+	int16_t max_fp16_exponent = products[0].exponent + FP16_BIAS;
 
 	for (int i = 0; i < num_products; i++)
 	{
@@ -147,11 +145,15 @@ uint8_t generate_anchor_fp16(fp16 *products, size_t num_products, e4m3 addend)
 			max_fp16_exponent = (products[i].exponent + FP16_BIAS);
 		}
 	}
+	printf("max fp16 exponent: %d\n", max_fp16_exponent);
 
-	uint8_t max_exponent = max_fp16_exponent > (addend.exponent + E4M3_BIAS) ? max_fp16_exponent : (addend.exponent + E4M3_BIAS);
-	uint8_t anchor_headroom = ceil(log2(32 + 1)) + 1;
+	int16_t max_exponent = max_fp16_exponent > (addend.exponent + E4M3_BIAS + 1) ? max_fp16_exponent : (addend.exponent + E4M3_BIAS + 1);
+	int16_t anchor_headroom = ceil(log2(32 + 1)) + 1;
 
-	return max_exponent + anchor_headroom;
+	int16_t result = max_exponent + anchor_headroom;
+	printf("anchor: %d\n", result);
+	return result;
+
 }
 
 /**
@@ -163,7 +165,7 @@ uint8_t generate_anchor_fp16(fp16 *products, size_t num_products, e4m3 addend)
  */
 uint32_t fp16_to_int_align(fp16 input, uint8_t anchor_exp)
 {
-	const int int_width = 32;
+	const int int_width = INT_WIDTH;
 	const int frac_bits = 10; // sigWidth - 1 for fp16
 	const int exp_bias = 15;
 
@@ -186,7 +188,7 @@ uint32_t fp16_to_int_align(fp16 input, uint8_t anchor_exp)
 		unbiased_exp = (int32_t)input.exponent - exp_bias;
 	}
 
-	int32_t shiftRight = frac_bits + (int32_t)anchor_exp - (int_width - 1) - unbiased_exp;
+	int32_t shiftRight = frac_bits + (int32_t) anchor_exp - (int_width - 1) - unbiased_exp;
 
 	uint32_t magnitude = 0;
 
@@ -221,7 +223,7 @@ uint32_t fp16_to_int_align(fp16 input, uint8_t anchor_exp)
  */
 uint32_t e4m3_to_int_align(e4m3 input, uint8_t anchor_exp)
 {
-	const int int_width = 32;
+	const int int_width = INT_WIDTH;
 	const int frac_bits = 3;
 	const int exp_bias = 7;
 
@@ -275,7 +277,7 @@ uint32_t e4m3_to_int_align(e4m3 input, uint8_t anchor_exp)
  *
  */
 int32_t fixed_point_int_reduction(int32_t *products, size_t num_products, int32_t addend)
-{
+{	
 	int32_t reduction = 0;
 	for (int i = 0; i < num_products; i++)
 	{
@@ -305,26 +307,29 @@ bf16 int_to_bf16(int32_t x, uint8_t anchor_exp)
 
 	// extract sign, get magnitude
 	int sign = 0;
-	if (x < 0) {
+	if (x < 0)
+	{
 		sign = 1;
-		x = -x; 
+		x = -x;
 	}
 
-	// find leading bit position 
+	// find leading bit position
 	int msb = 31 - __builtin_clz(x); // position of highest set bit, 0-indexed
 
 	// adjust exponent
 	// anchor correction: + anchor_exp - (intWidth - 1) = + anchor_exp - 31
-	int biased_exp = msb + 127 + anchor_exp - 31;
+	int biased_exp = msb + 127 + anchor_exp - (INT_WIDTH - 1);
 
 	// clamp exponent
-	if (biased_exp <= 0) {
+	if (biased_exp <= 0)
+	{
 		// underflow to zero
 		result.half = 0;
 		result.sign = sign;
 		return result;
 	}
-	if (biased_exp >= 255) {
+	if (biased_exp >= 255)
+	{
 		// overflow to infinity
 		result.sign = sign;
 		result.exponent = 255;
@@ -336,16 +341,20 @@ bf16 int_to_bf16(int32_t x, uint8_t anchor_exp)
 	// the significand is x with implicit leading 1 at position msb
 	// we want the 7 bits below that
 	uint32_t mantissa;
-	if (msb >= 7) {
+	if (msb >= 7)
+	{
 		// need to round: check the bit just below what we keep
 		uint32_t round_bit = (x >> (msb - 7 - 1)) & 1;
 		mantissa = (x >> (msb - 7)) & 0x7F;
 		// round to nearest even
-		if (round_bit) {
+		if (round_bit)
+		{
 			uint32_t sticky = (x & ((1u << (msb - 7 - 1)) - 1)) != 0;
-			if (sticky || (mantissa & 1)) {
+			if (sticky || (mantissa & 1))
+			{
 				mantissa += 1;
-				if (mantissa > 0x7F) {
+				if (mantissa > 0x7F)
+				{
 					// mantissa overflowed, carry into exponent
 					mantissa = 0;
 					biased_exp += 1;
@@ -360,8 +369,9 @@ bf16 int_to_bf16(int32_t x, uint8_t anchor_exp)
 			}
 		}
 	}
-	
-	else {
+
+	else
+	{
 		// integer is small enough that all bits fit, shift up
 		mantissa = (x << (7 - msb)) & 0x7F;
 	}

@@ -16,6 +16,8 @@
 #define E4M3_MANTISSA_WIDTH 3
 #define E4M3_BIAS -7
 
+#define INT_WIDTH 20
+
 /************************* FLOATING POINT TYPES *************************/
 typedef union e4m3 {
   struct {
@@ -103,7 +105,7 @@ fp16 mul_fp16(fp16 a, fp16 b);
  * @param addend 
  * @return uint8_t 
  */
-uint8_t generate_anchor_fp16(fp16 *products, size_t num_products, e4m3 addend);
+int16_t generate_anchor_fp16(fp16 *products, size_t num_products, e4m3 addend);
 
 /**
  * @brief align fp16 to 32-bit fixed-point integer
