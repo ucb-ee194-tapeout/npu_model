@@ -190,7 +190,7 @@ class ArchState:
 
     def write_memory(self, base: int, data: torch.Tensor) -> None:
         data = data.flatten()
-        print(f"Writing {data.numel()} bytes to memory at base {base}")
+        # print(f"Writing {data.numel()} bytes to memory at base {base}")
         assert (
             base + data.numel() <= self.cfg.memory_size
         ), f"Memory write out of bounds: {base} + {data.numel()} > {self.cfg.memory_size}"

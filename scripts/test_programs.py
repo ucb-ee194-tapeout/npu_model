@@ -47,10 +47,9 @@ def main():
         help="Hardware configuration class name",
     )
     parser.add_argument(
-        "-q",
-        "--quiet",
+        "--verbose",
         action="store_true",
-        help="Suppress per-program output (only summary)",
+        help="Verbose output",
     )
     args = parser.parse_args()
 
@@ -84,7 +83,7 @@ def main():
             program = program_cls()
         except Exception as e:
             failed.append((name, e))
-            if not args.quiet:
+            if args.verbose:
                 print(f"FAIL {name}: instantiate: {e}", file=sys.stderr)
             continue
 
@@ -97,8 +96,9 @@ def main():
                 hardware_config=hardware_config_cls(),
                 logger_config=LoggerConfig(filename=trace_path),
                 program=program,
+                verbose=args.verbose,
             )
-            if args.quiet:
+            if not args.verbose:
                 # Redirect stdout so we only see summary
                 import io
                 old_stdout = sys.stdout
@@ -121,23 +121,23 @@ def main():
                         f"Golden check failed: max diff = {diff:.6f}"
                     )
 
-            if args.quiet:
+            if not args.verbose:
                 sys.stdout = old_stdout
             try:
                 Path(trace_path).unlink(missing_ok=True)
             except (PermissionError, OSError):
                 pass
         except Exception as e:
-            if args.quiet:
+            if not args.verbose:
                 try:
                     sys.stdout = old_stdout
                 except NameError:
                     pass
             failed.append((name, e))
-            if not args.quiet:
+            if args.verbose:
                 print(f"FAIL {name}: {e}", file=sys.stderr)
         else:
-            if not args.quiet:
+            if args.verbose:
                 print(f"OK   {name}")
         finally:
             try:
