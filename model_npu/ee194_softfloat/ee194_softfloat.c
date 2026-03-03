@@ -72,8 +72,8 @@ fp16 mul_fp16(fp16 a, fp16 b)
 
 	result.sign = a.sign ^ b.sign;
 
-	int exp_a = a.exponent - 15;
-	int exp_b = b.exponent - 15;
+	int exp_a = a.exponent + FP16_BIAS;
+	int exp_b = b.exponent + FP16_BIAS;
 
 	int exp = exp_a + exp_b;
 
@@ -269,7 +269,7 @@ uint32_t e4m3_to_int_align(e4m3 input, uint8_t anchor_exp)
 
 	int32_t signed_val = input.sign ? -(int32_t)magnitude : (int32_t)magnitude;
 
-	return (uint32_t)signed_val;
+	return (uint32_t) signed_val;
 }
 
 /**
@@ -377,7 +377,7 @@ bf16 int_to_bf16(int32_t x, uint8_t anchor_exp)
 	}
 
 	result.sign = sign;
-	result.exponent = (uint8_t)biased_exp;
-	result.mantissa = (uint8_t)mantissa;
+	result.exponent = (uint16_t) biased_exp;
+	result.mantissa = (uint16_t) mantissa;
 	return result;
 }
