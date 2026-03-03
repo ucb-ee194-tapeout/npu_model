@@ -125,7 +125,13 @@ uv run scripts/run.py --hardware_config DefaultHardwareConfig -p AddiProgram -o 
 
 ```bash
 uv run ./scripts/test_archstate.py
-uv run ./scripts/test_programs.py --quiet
+uv run ./scripts/test_programs.py
+```
+
+or with more logging:
+
+```bash
+uv run ./scripts/test_programs.py --verbose
 ```
 
 ## Architecture
