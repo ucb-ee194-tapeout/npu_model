@@ -24,5 +24,3 @@ class VectorArithmeticProgram(Program):
         (0, torch.arange(16, dtype=torch.bfloat16)),
         (16 * 2, torch.zeros(16, dtype=torch.bfloat16)),
     ]
-
-

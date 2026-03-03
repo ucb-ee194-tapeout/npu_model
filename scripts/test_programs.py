@@ -22,6 +22,7 @@ if __name__ == "__main__":
         sys.path.insert(0, str(repo_root))
 
 import model_npu
+import torch
 from model_npu.logging import LoggerConfig
 from model_npu.simulation import Simulation
 
@@ -46,10 +47,9 @@ def main():
         help="Hardware configuration class name",
     )
     parser.add_argument(
-        "-q",
-        "--quiet",
+        "--verbose",
         action="store_true",
-        help="Suppress per-program output (only summary)",
+        help="Verbose output",
     )
     args = parser.parse_args()
 
@@ -83,7 +83,7 @@ def main():
             program = program_cls()
         except Exception as e:
             failed.append((name, e))
-            if not args.quiet:
+            if args.verbose:
                 print(f"FAIL {name}: instantiate: {e}", file=sys.stderr)
             continue
 
@@ -96,30 +96,48 @@ def main():
                 hardware_config=hardware_config_cls(),
                 logger_config=LoggerConfig(filename=trace_path),
                 program=program,
+                verbose=args.verbose,
             )
-            if args.quiet:
+            if not args.verbose:
                 # Redirect stdout so we only see summary
                 import io
                 old_stdout = sys.stdout
                 sys.stdout = io.StringIO()
             sim.run(max_cycles=args.max_cycles)
-            if args.quiet:
+
+            # Verify golden result if program defines it
+            if hasattr(program, "golden_result") and program.golden_result:
+                output_base, golden_tensor = program.golden_result
+                size = golden_tensor.numel() * golden_tensor.element_size()
+                mem_data = sim.core.arch_state.read_memory(output_base, size)
+                actual = mem_data.view(golden_tensor.dtype).reshape(
+                    golden_tensor.shape
+                ).clone()
+                if not torch.allclose(
+                    actual.float(), golden_tensor.float(), rtol=1e-2, atol=1e-2
+                ):
+                    diff = (actual.float() - golden_tensor.float()).abs().max()
+                    raise AssertionError(
+                        f"Golden check failed: max diff = {diff:.6f}"
+                    )
+
+            if not args.verbose:
                 sys.stdout = old_stdout
             try:
                 Path(trace_path).unlink(missing_ok=True)
             except (PermissionError, OSError):
                 pass
         except Exception as e:
-            if args.quiet:
+            if not args.verbose:
                 try:
                     sys.stdout = old_stdout
                 except NameError:
                     pass
             failed.append((name, e))
-            if not args.quiet:
+            if args.verbose:
                 print(f"FAIL {name}: {e}", file=sys.stderr)
         else:
-            if not args.quiet:
+            if args.verbose:
                 print(f"OK   {name}")
         finally:
             try:

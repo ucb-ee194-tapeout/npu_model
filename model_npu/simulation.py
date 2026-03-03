@@ -10,6 +10,7 @@ class Simulation:
         hardware_config: HardwareConfig,
         logger_config: LoggerConfig,
         program: Program,
+        verbose: bool = True,
     ):
         """
         Create a simple NPU hardware configuration.
@@ -25,6 +26,7 @@ class Simulation:
         self.logger_config = logger_config
         self.hardware_config = hardware_config
         self.program = program
+        self.verbose = verbose
 
         # Create logger for trace output
         lane_names = {0: "IFU", 1: "DIU"}
@@ -33,7 +35,8 @@ class Simulation:
         self.logger = Logger(logger_config, lane_names=lane_names)
 
         isa = self.hardware_config.isa
-        print(f"\nISA loaded with {len(isa.operations)} operations")
+        if self.verbose:
+            print(f"\nISA loaded with {len(isa.operations)} operations")
 
         # Create core
         self.core = Core(
@@ -42,17 +45,18 @@ class Simulation:
         )
 
         self.core.load_program(self.program)
-        print(f"Program loaded with {len(self.program)} instructions")
+        if self.verbose:
+            print(f"Program loaded with {len(self.program)} instructions")
 
-        print("\nHardware configured:")
-        print("  - Fetch width: 1 instruction/cycle (in-order)")
-        print(f"  - Execution units: {[str(exu) for exu in self.core.exus]}")
-        print(f"  - Trace output: {self.logger_config.filename}")
+            print("\nHardware configured:")
+            print("  - Fetch width: 1 instruction/cycle (in-order)")
+            print(f"  - Execution units: {[str(exu) for exu in self.core.exus]}")
+            print(f"  - Trace output: {self.logger_config.filename}")
 
-        # Run simulation
-        print("\n" + "-" * 60)
-        print("Running simulation...")
-        print("-" * 60)
+            # Run simulation
+            print("\n" + "-" * 60)
+            print("Running simulation...")
+            print("-" * 60)
 
     def run(self, max_cycles: int = 10000):
         """Run simulation until completion or max_cycles."""
@@ -75,29 +79,30 @@ class Simulation:
         # Get and print results
         stats = self.get_stats()
 
-        print("\nSimulation Complete!")
-        print(f"\n{'Metric':<30} {'Value':>15}")
-        print("-" * 45)
-        print(f"{'Total Cycles':<30} {stats['cycles']:>15}")
-        print(f"{'Instructions Completed':<30} {stats['total_instructions']:>15}")
-        print(f"{'IPC (Instr per Cycle)':<30} {stats['ipc']:>15.3f}")
+        if self.verbose:
+            print("\nSimulation Complete!")
+            print(f"\n{'Metric':<30} {'Value':>15}")
+            print("-" * 45)
+            print(f"{'Total Cycles':<30} {stats['cycles']:>15}")
+            print(f"{'Instructions Completed':<30} {stats['total_instructions']:>15}")
+            print(f"{'IPC (Instr per Cycle)':<30} {stats['ipc']:>15.3f}")
 
-        print("\nExecution Unit Utilization")
-        print("-" * 45)
-        for exu_name, exu_stats in stats["exu_stats"].items():
-            print(f"  {exu_name}:")
-            print(f"    Instructions: {exu_stats['instructions']}")
-            print(f"    Busy Cycles:  {exu_stats['busy_cycles']}")
-            print(f"    Utilization:  {exu_stats['utilization']:.1%}")
+            print("\nExecution Unit Utilization")
+            print("-" * 45)
+            for exu_name, exu_stats in stats["exu_stats"].items():
+                print(f"  {exu_name}:")
+                print(f"    Instructions: {exu_stats['instructions']}")
+                print(f"    Busy Cycles:  {exu_stats['busy_cycles']}")
+                print(f"    Utilization:  {exu_stats['utilization']:.1%}")
 
-        print("\nFinal register contents")
-        print(f"XRF: {self.core.arch_state.xrf}")
-        print(f"MRF[0]: {self.core.arch_state.mrf[0]}")
-        print(f"MRF[1]: {self.core.arch_state.mrf[1]}")
+            print("\nFinal register contents")
+            print(f"XRF: {self.core.arch_state.xrf}")
+            print(f"MRF[0]: {self.core.arch_state.mrf[0]}")
+            print(f"MRF[1]: {self.core.arch_state.mrf[1]}")
 
-        print("\n" + "=" * 60)
-        print(f"\nTrace written to: {self.logger_config.filename}")
-        print("Open with Perfetto (https://ui.perfetto.dev)")
+            print("\n" + "=" * 60)
+            print(f"\nTrace written to: {self.logger_config.filename}")
+            print("Open with Perfetto (https://ui.perfetto.dev)")
 
     def get_stats(self) -> dict:
         """Get execution statistics."""
