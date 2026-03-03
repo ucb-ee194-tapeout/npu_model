@@ -14,24 +14,26 @@ class DMAStallProgram(Program):
     instructions: List[Instruction] = [
         # Load things w/ Matmul
         Instruction(
-            mnemonic="dma.load.m", args={"rd": 2, "base": 0, "size": 2048, "flag": 0}
+            mnemonic="dma.load", args={"rd": 2, "base": 0, "size": 2048, "flag": 0}
         ),  # a full 64x16 matrix of bf16s (0-2048)
         Instruction(
-            mnemonic="dma.load.w", args={"rd": 1, "base": 2048, "size": 512, "flag": 1}
+            mnemonic="dma.load.mxu0", args={"rd": 1, "base": 2048, "size": 512, "flag": 1}
         ),  # a full 64x16 matrix of bf16s (ones)
         Instruction(mnemonic="dma.wait", args={"flag": 1}), # Wait to get these things
         
         # Do unnecessary loads
         Instruction(
-            mnemonic="dma.load.m", args={"rd": 3, "base": 0, "size": 2048, "flag": 0}
+            mnemonic="dma.load", args={"rd": 3, "base": 0, "size": 2048, "flag": 0}
         ),
         Instruction(
-            mnemonic="dma.load.w", args={"rd": 0, "base": 2048, "size": 512, "flag": 1}
+            mnemonic="dma.load.mxu0", args={"rd": 0, "base": 2048, "size": 512, "flag": 1}
         ),
 
         # Do matmul
-        Instruction(mnemonic="matmul.INNER", args={"rd": 0, "rs1": 2, "rs2": 1}),
-        Instruction(mnemonic="matmul.INNER", args={"rd": 0, "rs1": 2, "rs2": 1}),
+        Instruction(mnemonic="matmul.mxu0", args={"rd": 0, "rs1": 2, "rs2": 1}),
+        Instruction(mnemonic="matmul.mxu0", args={"rd": 0, "rs1": 2, "rs2": 1}),
+        Instruction(mnemonic="matmul.mxu0", args={"rd": 0, "rs1": 2, "rs2": 1}),
+        Instruction(mnemonic="matmul.mxu0", args={"rd": 0, "rs1": 2, "rs2": 1}),
         Instruction(mnemonic="dma.wait", args={"flag": 1}), # Wait to finish loads
         # Instruction(mnemonic="nop", args={}),
     ]
