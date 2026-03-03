@@ -1,4 +1,4 @@
-from typing import Dict, Callable
+from typing import Callable
 
 
 class Instruction:
@@ -15,7 +15,7 @@ class Instruction:
     def __init__(
         self,
         mnemonic: str,
-        args: Dict[str, int],
+        args: dict[str, int],
         delay: int = 0,
     ) -> None:
         self.mnemonic = mnemonic

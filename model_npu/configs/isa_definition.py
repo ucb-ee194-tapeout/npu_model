@@ -1,4 +1,3 @@
-from typing import Dict
 import torch
 
 from model_npu.isa import instr, InstructionType
@@ -13,7 +12,7 @@ PIPELINE_LATENCY = 2
 
 
 @instr("delay", instruction_type=InstructionType.SCALAR)
-def delay(state: ArchState, args: Dict[str, int]) -> None:
+def delay(state: ArchState, args: dict[str, int]) -> None:
     """
     Delay for a specified number of cycles.
 
@@ -24,118 +23,118 @@ def delay(state: ArchState, args: Dict[str, int]) -> None:
 
 
 @instr("addi", instruction_type=InstructionType.SCALAR)
-def addi(state: ArchState, args: Dict[str, int]) -> None:
+def addi(state: ArchState, args: dict[str, int]) -> None:
     state.write_xrf(args["rd"], state.xrf[args["rs1"]] + args["imm"])
 
 
 @instr("slli", instruction_type=InstructionType.SCALAR)
-def slli(state: ArchState, args: Dict[str, int]) -> None:
+def slli(state: ArchState, args: dict[str, int]) -> None:
     state.write_xrf(args["rd"], state.xrf[args["rs1"]] << args["imm"])
 
 
 @instr("slti", instruction_type=InstructionType.SCALAR)
-def slti(state: ArchState, args: Dict[str, int]) -> None:
+def slti(state: ArchState, args: dict[str, int]) -> None:
     state.write_xrf(args["rd"], 1 if state.xrf[args["rs1"]] < args["imm"] else 0)
 
 
 @instr("sltiu", instruction_type=InstructionType.SCALAR)
-def sltiu(state: ArchState, args: Dict[str, int]) -> None:
+def sltiu(state: ArchState, args: dict[str, int]) -> None:
     state.write_xrf(args["rd"], 1 if state.xrf[args["rs1"]] < args["imm"] else 0)
 
 
 @instr("xori", instruction_type=InstructionType.SCALAR)
-def xori(state: ArchState, args: Dict[str, int]) -> None:
+def xori(state: ArchState, args: dict[str, int]) -> None:
     state.write_xrf(args["rd"], state.xrf[args["rs1"]] ^ args["imm"])
 
 
 @instr("srli", instruction_type=InstructionType.SCALAR)
-def srli(state: ArchState, args: Dict[str, int]) -> None:
+def srli(state: ArchState, args: dict[str, int]) -> None:
     state.write_xrf(args["rd"], state.xrf[args["rs1"]] >> args["imm"])
 
 
 @instr("srai", instruction_type=InstructionType.SCALAR)
-def srai(state: ArchState, args: Dict[str, int]) -> None:
+def srai(state: ArchState, args: dict[str, int]) -> None:
     state.write_xrf(args["rd"], state.xrf[args["rs1"]] >> args["imm"])
 
 
 @instr("ori", instruction_type=InstructionType.SCALAR)
-def ori(state: ArchState, args: Dict[str, int]) -> None:
+def ori(state: ArchState, args: dict[str, int]) -> None:
     state.write_xrf(args["rd"], state.xrf[args["rs1"]] | args["imm"])
 
 
 @instr("andi", instruction_type=InstructionType.SCALAR)
-def andi(state: ArchState, args: Dict[str, int]) -> None:
+def andi(state: ArchState, args: dict[str, int]) -> None:
     state.write_xrf(args["rd"], state.xrf[args["rs1"]] & args["imm"])
 
 
 @instr("add", instruction_type=InstructionType.SCALAR)
-def add(state: ArchState, args: Dict[str, int]) -> None:
+def add(state: ArchState, args: dict[str, int]) -> None:
     state.write_xrf(args["rd"], state.xrf[args["rs1"]] + state.xrf[args["rs2"]])
 
 
 @instr("sub", instruction_type=InstructionType.SCALAR)
-def sub(state: ArchState, args: Dict[str, int]) -> None:
+def sub(state: ArchState, args: dict[str, int]) -> None:
     state.write_xrf(args["rd"], state.xrf[args["rs1"]] - state.xrf[args["rs2"]])
 
 
 @instr("sll", instruction_type=InstructionType.SCALAR)
-def sll(state: ArchState, args: Dict[str, int]) -> None:
+def sll(state: ArchState, args: dict[str, int]) -> None:
     state.write_xrf(args["rd"], state.xrf[args["rs1"]] << state.xrf[args["rs2"]])
 
 
 @instr("slt", instruction_type=InstructionType.SCALAR)
-def slt(state: ArchState, args: Dict[str, int]) -> None:
+def slt(state: ArchState, args: dict[str, int]) -> None:
     state.write_xrf(
         args["rd"], 1 if state.xrf[args["rs1"]] < state.xrf[args["rs2"]] else 0
     )
 
 
 @instr("sltu", instruction_type=InstructionType.SCALAR)
-def sltu(state: ArchState, args: Dict[str, int]) -> None:
+def sltu(state: ArchState, args: dict[str, int]) -> None:
     state.write_xrf(
         args["rd"], 1 if state.xrf[args["rs1"]] < state.xrf[args["rs2"]] else 0
     )  # TODO: sign
 
 
 @instr("xor", instruction_type=InstructionType.SCALAR)
-def xor(state: ArchState, args: Dict[str, int]) -> None:
+def xor(state: ArchState, args: dict[str, int]) -> None:
     state.write_xrf(args["rd"], state.xrf[args["rs1"]] ^ state.xrf[args["rs2"]])
 
 
 @instr("srl", instruction_type=InstructionType.SCALAR)
-def srl(state: ArchState, args: Dict[str, int]) -> None:
+def srl(state: ArchState, args: dict[str, int]) -> None:
     state.write_xrf(args["rd"], state.xrf[args["rs1"]] >> state.xrf[args["rs2"]])
 
 
 @instr("sra", instruction_type=InstructionType.SCALAR)
-def sra(state: ArchState, args: Dict[str, int]) -> None:
+def sra(state: ArchState, args: dict[str, int]) -> None:
     state.write_xrf(args["rd"], state.xrf[args["rs1"]] >> state.xrf[args["rs2"]])
 
 
 @instr("or", instruction_type=InstructionType.SCALAR)
-def or_(state: ArchState, args: Dict[str, int]) -> None:
+def or_(state: ArchState, args: dict[str, int]) -> None:
     state.write_xrf(args["rd"], state.xrf[args["rs1"]] | state.xrf[args["rs2"]])
 
 
 @instr("and", instruction_type=InstructionType.SCALAR)
-def and_(state: ArchState, args: Dict[str, int]) -> None:
+def and_(state: ArchState, args: dict[str, int]) -> None:
     state.write_xrf(args["rd"], state.xrf[args["rs1"]] & state.xrf[args["rs2"]])
 
 
 @instr("lui", instruction_type=InstructionType.SCALAR)
-def lui(state: ArchState, args: Dict[str, int]) -> None:
+def lui(state: ArchState, args: dict[str, int]) -> None:
     state.write_xrf(args["rd"], state.xrf[args["imm"]] << 12)
 
 
 @instr("jal", instruction_type=InstructionType.SCALAR)
-def jal(state: ArchState, args: Dict[str, int]) -> None:
+def jal(state: ArchState, args: dict[str, int]) -> None:
     state.set_npc(
         state.pc + args["imm"] - PIPELINE_LATENCY
     )  # FIXME: this is a hack to compensate for the IF->EX delay
 
 
 @instr("beq", instruction_type=InstructionType.SCALAR)
-def beq(state: ArchState, args: Dict[str, int]) -> None:
+def beq(state: ArchState, args: dict[str, int]) -> None:
     if state.xrf[args["rs1"]] == state.xrf[args["rs2"]]:
         state.set_npc(
             state.pc + args["imm"] - PIPELINE_LATENCY
@@ -143,7 +142,7 @@ def beq(state: ArchState, args: Dict[str, int]) -> None:
 
 
 @instr("bne", instruction_type=InstructionType.SCALAR)
-def bne(state: ArchState, args: Dict[str, int]) -> None:
+def bne(state: ArchState, args: dict[str, int]) -> None:
     if state.xrf[args["rs1"]] != state.xrf[args["rs2"]]:
         state.set_npc(
             state.pc + args["imm"] - PIPELINE_LATENCY
@@ -151,7 +150,7 @@ def bne(state: ArchState, args: Dict[str, int]) -> None:
 
 
 @instr("blt", instruction_type=InstructionType.SCALAR)
-def blt(state: ArchState, args: Dict[str, int]) -> None:
+def blt(state: ArchState, args: dict[str, int]) -> None:
     if state.xrf[args["rs1"]] < state.xrf[args["rs2"]]:
         state.set_npc(
             state.pc + args["imm"] - PIPELINE_LATENCY
@@ -159,7 +158,7 @@ def blt(state: ArchState, args: Dict[str, int]) -> None:
 
 
 @instr("bge", instruction_type=InstructionType.SCALAR)
-def bge(state: ArchState, args: Dict[str, int]) -> None:
+def bge(state: ArchState, args: dict[str, int]) -> None:
     if state.xrf[args["rs1"]] < state.xrf[args["rs2"]]:
         state.set_npc(
             state.pc + args["imm"] - PIPELINE_LATENCY
@@ -167,7 +166,7 @@ def bge(state: ArchState, args: Dict[str, int]) -> None:
 
 
 @instr("bltu", instruction_type=InstructionType.SCALAR)
-def bltu(state: ArchState, args: Dict[str, int]) -> None:
+def bltu(state: ArchState, args: dict[str, int]) -> None:
     if state.xrf[args["rs1"]] < state.xrf[args["rs2"]]:
         state.set_npc(
             state.pc + args["imm"] - PIPELINE_LATENCY
@@ -175,7 +174,7 @@ def bltu(state: ArchState, args: Dict[str, int]) -> None:
 
 
 @instr("bgeu", instruction_type=InstructionType.SCALAR)
-def bgeu(state: ArchState, args: Dict[str, int]) -> None:
+def bgeu(state: ArchState, args: dict[str, int]) -> None:
     if state.xrf[args["rs1"]] < state.xrf[args["rs2"]]:
         state.set_npc(
             state.pc + args["imm"] - PIPELINE_LATENCY
@@ -188,7 +187,7 @@ Matrix operations
 
 
 @instr("mv.mw", instruction_type=InstructionType.MATRIX)
-def mv_mw(state: ArchState, args: Dict[str, int]) -> None:
+def mv_mw(state: ArchState, args: dict[str, int]) -> None:
     """
     Vector/matrix move from matrix registers to weight buffer.
     """
@@ -197,7 +196,7 @@ def mv_mw(state: ArchState, args: Dict[str, int]) -> None:
 
 
 @instr("matmul.mxu0", instruction_type=InstructionType.MATRIX_SYSTOLIC)
-def matmul_mxu0(state: ArchState, args: Dict[str, int]) -> None:
+def matmul_mxu0(state: ArchState, args: dict[str, int]) -> None:
     """
     Matrix multiplication using MXU0, the systolic array.
     """
@@ -219,7 +218,7 @@ def matmul_mxu0(state: ArchState, args: Dict[str, int]) -> None:
 
 
 @instr("matmul.mxu1", instruction_type=InstructionType.MATRIX_INNER)
-def matmul_mxu1(state: ArchState, args: Dict[str, int]) -> None:
+def matmul_mxu1(state: ArchState, args: dict[str, int]) -> None:
     activation_fp8 = state.read_mrf_fp8(args["rs1"])
     weight_fp8 = state.read_wb_fp8("mxu1", args["rs2"])
 
@@ -243,21 +242,21 @@ Vector operations (bfloat16)
 
 
 @instr("vadd", instruction_type=InstructionType.VECTOR)
-def vadd(state: ArchState, args: Dict[str, int]) -> None:
+def vadd(state: ArchState, args: dict[str, int]) -> None:
     a = state.read_mrf_bf16(args["vs1"])
     b = state.read_mrf_bf16(args["vs2"])
     state.write_mrf_bf16(args["vrd"], (a + b).to(torch.bfloat16))
 
 
 @instr("vsub", instruction_type=InstructionType.VECTOR)
-def vsub(state: ArchState, args: Dict[str, int]) -> None:
+def vsub(state: ArchState, args: dict[str, int]) -> None:
     a = state.read_mrf_bf16(args["vs1"])
     b = state.read_mrf_bf16(args["vs2"])
     state.write_mrf_bf16(args["vrd"], (a - b).to(torch.bfloat16))
 
 
 @instr("vmul", instruction_type=InstructionType.VECTOR)
-def vmul(state: ArchState, args: Dict[str, int]) -> None:
+def vmul(state: ArchState, args: dict[str, int]) -> None:
     a = state.read_mrf_bf16(args["vs1"])
     b = state.read_mrf_bf16(args["vs2"])
     result = (a * b).to(torch.bfloat16)
@@ -265,56 +264,56 @@ def vmul(state: ArchState, args: Dict[str, int]) -> None:
 
 
 @instr("vsqrt", instruction_type=InstructionType.VECTOR)
-def vsqrt(state: ArchState, args: Dict[str, int]) -> None:
+def vsqrt(state: ArchState, args: dict[str, int]) -> None:
     x = state.read_mrf_bf16(args["vs1"])
     state.write_mrf_bf16(args["vrd"], torch.sqrt(x).to(torch.bfloat16))
 
 
 @instr("vrcp", instruction_type=InstructionType.VECTOR)
-def vrcp(state: ArchState, args: Dict[str, int]) -> None:
+def vrcp(state: ArchState, args: dict[str, int]) -> None:
     """Elementwise reciprocal: 1 / x."""
     x = state.read_mrf_bf16(args["vs1"])
     state.write_mrf_bf16(args["vrd"], (1.0 / x).to(torch.bfloat16))
 
 
 @instr("vexp", instruction_type=InstructionType.VECTOR)
-def vexp(state: ArchState, args: Dict[str, int]) -> None:
+def vexp(state: ArchState, args: dict[str, int]) -> None:
     x = state.read_mrf_bf16(args["vs1"])
     state.write_mrf_bf16(args["vrd"], torch.exp(x).to(torch.bfloat16))
 
 
 @instr("vlog2", instruction_type=InstructionType.VECTOR)
-def vlog2(state: ArchState, args: Dict[str, int]) -> None:
+def vlog2(state: ArchState, args: dict[str, int]) -> None:
     x = state.read_mrf_bf16(args["vs1"])
     state.write_mrf_bf16(args["vrd"], torch.log2(x).to(torch.bfloat16))
 
 
 @instr("vexp2", instruction_type=InstructionType.VECTOR)
-def vexp2(state: ArchState, args: Dict[str, int]) -> None:
+def vexp2(state: ArchState, args: dict[str, int]) -> None:
     x = state.read_mrf_bf16(args["vs1"])
     state.write_mrf_bf16(args["vrd"], torch.exp2(x).to(torch.bfloat16))
 
 
 @instr("vsin", instruction_type=InstructionType.VECTOR)
-def vsin(state: ArchState, args: Dict[str, int]) -> None:
+def vsin(state: ArchState, args: dict[str, int]) -> None:
     x = state.read_mrf_bf16(args["vs1"])
     state.write_mrf_bf16(args["vrd"], torch.sin(x).to(torch.bfloat16))
 
 
 @instr("vcos", instruction_type=InstructionType.VECTOR)
-def vcos(state: ArchState, args: Dict[str, int]) -> None:
+def vcos(state: ArchState, args: dict[str, int]) -> None:
     x = state.read_mrf_bf16(args["vs1"])
     state.write_mrf_bf16(args["vrd"], torch.cos(x).to(torch.bfloat16))
 
 
 @instr("vtanh", instruction_type=InstructionType.VECTOR)
-def vtanh(state: ArchState, args: Dict[str, int]) -> None:
+def vtanh(state: ArchState, args: dict[str, int]) -> None:
     x = state.read_mrf_bf16(args["vs1"])
     state.write_mrf_bf16(args["vrd"], torch.tanh(x).to(torch.bfloat16))
 
 
 @instr("vreduce.sum", instruction_type=InstructionType.VECTOR)
-def vreduce_sum(state: ArchState, args: Dict[str, int]) -> None:
+def vreduce_sum(state: ArchState, args: dict[str, int]) -> None:
     """Reduce sum over second-to-last (across columns) dimension. For (rows, cols) in, gives (1, cols) broadcast."""
     x = state.read_mrf_bf16(args["vs1"])
     sum_val = torch.sum(x.float(), dim=0, keepdim=True)
@@ -323,7 +322,7 @@ def vreduce_sum(state: ArchState, args: Dict[str, int]) -> None:
 
 
 @instr("vrot.reduce.sum", instruction_type=InstructionType.VECTOR)
-def vrot_reduce_sum(state: ArchState, args: Dict[str, int]) -> None:
+def vrot_reduce_sum(state: ArchState, args: dict[str, int]) -> None:
     """Reduce sum over last (across rows) dimension. For (rows, cols) in, gives (rows, 1) broadcast."""
     # TODO: implementation cost?
     x = state.read_mrf_bf16(args["vs1"])
@@ -333,7 +332,7 @@ def vrot_reduce_sum(state: ArchState, args: Dict[str, int]) -> None:
 
 
 @instr("mv.mm", instruction_type=InstructionType.VECTOR)
-def mv_mm(state: ArchState, args: Dict[str, int]) -> None:
+def mv_mm(state: ArchState, args: dict[str, int]) -> None:
     """
     Vector/matrix move between matrix registers.
     """
@@ -346,7 +345,7 @@ Transpose operations
 
 
 @instr("vtrpose.h", instruction_type=InstructionType.VECTOR)
-def vtrpose_h(state: ArchState, args: Dict[str, int]) -> None:
+def vtrpose_h(state: ArchState, args: dict[str, int]) -> None:
     """Transpose upper half: block = x[:, 0:half], write (cols, rows) with first half rows = block.T. Use with vtrpose.l + vadd for full transpose."""
     # TODO: check correctness
     x = state.read_mrf_bf16(args["vs1"])
@@ -359,7 +358,7 @@ def vtrpose_h(state: ArchState, args: Dict[str, int]) -> None:
 
 
 @instr("vtrpose.l", instruction_type=InstructionType.VECTOR)
-def vtrpose_l(state: ArchState, args: Dict[str, int]) -> None:
+def vtrpose_l(state: ArchState, args: dict[str, int]) -> None:
     """Transpose lower half: block = x[:, half:], write (cols, rows) with second half rows = block.T. Use with vtrpose.h + vadd for full transpose."""
     # TODO: check correctness
     x = state.read_mrf_bf16(args["vs1"])
@@ -377,7 +376,7 @@ Memory operations
 
 
 @instr("dma.load", instruction_type=InstructionType.DMA)
-def dma_load(state: ArchState, args: Dict[str, int]) -> None:
+def dma_load(state: ArchState, args: dict[str, int]) -> None:
     """
     DMA load from memory to matrix registers.
     """
@@ -398,7 +397,7 @@ def dma_load(state: ArchState, args: Dict[str, int]) -> None:
 
 
 @instr("dma.load.mxu0", instruction_type=InstructionType.DMA)
-def dma_load_mxu0(state: ArchState, args: Dict[str, int]) -> None:
+def dma_load_mxu0(state: ArchState, args: dict[str, int]) -> None:
     """
     DMA load from memory to weight buffer at MXU0.
     """
@@ -419,7 +418,7 @@ def dma_load_mxu0(state: ArchState, args: Dict[str, int]) -> None:
 
 
 @instr("dma.load.mxu1", instruction_type=InstructionType.DMA)
-def dma_load_mxu1(state: ArchState, args: Dict[str, int]) -> None:
+def dma_load_mxu1(state: ArchState, args: dict[str, int]) -> None:
     """
     DMA load from memory to weight buffer at MXU1.
     """
@@ -440,7 +439,7 @@ def dma_load_mxu1(state: ArchState, args: Dict[str, int]) -> None:
 
 
 @instr("dma.store", instruction_type=InstructionType.DMA)
-def dma_store(state: ArchState, args: Dict[str, int]) -> None:
+def dma_store(state: ArchState, args: dict[str, int]) -> None:
     """
     DMA store from matrix registers to memory.
     """
@@ -451,7 +450,7 @@ def dma_store(state: ArchState, args: Dict[str, int]) -> None:
 
 
 @instr("dma.wait", instruction_type=InstructionType.BARRIER)
-def dma_wait(state: ArchState, args: Dict[str, int]) -> None:
+def dma_wait(state: ArchState, args: dict[str, int]) -> None:
     """
     Wait for target DMA operations to complete.
     """
