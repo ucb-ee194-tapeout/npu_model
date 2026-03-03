@@ -132,6 +132,12 @@ class ArchState:
             .reshape(self.cfg.mrf_depth, self.cfg.mrf_width // torch.bfloat16.itemsize)
         )
 
+    def read_mrf_bf16_transposed(self, vs: int) -> torch.Tensor:
+        """Read MRF as (cols, rows) for use after vtranspose."""
+        n_cols = self.cfg.mrf_width // torch.bfloat16.itemsize
+        n_rows = self.cfg.mrf_depth
+        return self.mrf[vs].view(torch.bfloat16).reshape(n_cols, n_rows)
+
     def read_vrf_bf16(self, v: int) -> torch.Tensor:
         vs = v // self.cfg.mrf_depth
         row = v % self.cfg.mrf_depth
