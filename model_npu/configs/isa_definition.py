@@ -9,6 +9,8 @@ from model_npu.hardware.arch_state import ArchState
 Scalar operations
 """
 
+PIPELINE_LATENCY = 2
+
 
 @instr("delay", instruction_type=InstructionType.SCALAR)
 def delay(state: ArchState, args: Dict[str, int]) -> None:
@@ -123,9 +125,6 @@ def and_(state: ArchState, args: Dict[str, int]) -> None:
 @instr("lui", instruction_type=InstructionType.SCALAR)
 def lui(state: ArchState, args: Dict[str, int]) -> None:
     state.write_xrf(args["rd"], state.xrf[args["imm"]] << 12)
-
-
-PIPELINE_LATENCY = 2
 
 
 @instr("jal", instruction_type=InstructionType.SCALAR)
@@ -314,32 +313,6 @@ def vtanh(state: ArchState, args: Dict[str, int]) -> None:
     state.write_mrf_bf16(args["vrd"], torch.tanh(x).to(torch.bfloat16))
 
 
-@instr("vtrpose.h", instruction_type=InstructionType.VECTOR)
-def vtrpose_h(state: ArchState, args: Dict[str, int]) -> None:
-    """Transpose upper half: block = x[:, 0:half], write (cols, rows) with first half rows = block.T. Use with vtrpose.l + vadd for full transpose."""
-    # TODO: check correctness
-    x = state.read_mrf_bf16(args["vs1"])
-    half = x.shape[0] // 2
-    block = x[0:half, :]
-    transposed = block.T.contiguous()
-    out = torch.zeros_like(x)
-    out[0:half, :] = transposed
-    state.write_mrf_bf16(args["vrd"], out)
-
-
-@instr("vtrpose.l", instruction_type=InstructionType.VECTOR)
-def vtrpose_l(state: ArchState, args: Dict[str, int]) -> None:
-    """Transpose lower half: block = x[:, half:], write (cols, rows) with second half rows = block.T. Use with vtrpose.h + vadd for full transpose."""
-    # TODO: check correctness
-    x = state.read_mrf_bf16(args["vs1"])
-    half = x.shape[0] // 2
-    block = x[half:, :]
-    transposed = block.T.contiguous()
-    out = torch.zeros_like(x)
-    out[half:, :] = transposed
-    state.write_mrf_bf16(args["vrd"], out)
-
-
 @instr("vreduce.sum", instruction_type=InstructionType.VECTOR)
 def vreduce_sum(state: ArchState, args: Dict[str, int]) -> None:
     """Reduce sum over second-to-last (across columns) dimension. For (rows, cols) in, gives (1, cols) broadcast."""
@@ -365,6 +338,37 @@ def mv_mm(state: ArchState, args: Dict[str, int]) -> None:
     Vector/matrix move between matrix registers.
     """
     state.write_mrf_f32(args["rd"], state.read_mrf_f32(args["rs1"]))
+
+
+"""
+Transpose operations
+"""
+
+
+@instr("vtrpose.h", instruction_type=InstructionType.VECTOR)
+def vtrpose_h(state: ArchState, args: Dict[str, int]) -> None:
+    """Transpose upper half: block = x[:, 0:half], write (cols, rows) with first half rows = block.T. Use with vtrpose.l + vadd for full transpose."""
+    # TODO: check correctness
+    x = state.read_mrf_bf16(args["vs1"])
+    half = x.shape[0] // 2
+    block = x[0:half, :]
+    transposed = block.T.contiguous()
+    out = torch.zeros_like(x)
+    out[0:half, :] = transposed
+    state.write_mrf_bf16(args["vrd"], out)
+
+
+@instr("vtrpose.l", instruction_type=InstructionType.VECTOR)
+def vtrpose_l(state: ArchState, args: Dict[str, int]) -> None:
+    """Transpose lower half: block = x[:, half:], write (cols, rows) with second half rows = block.T. Use with vtrpose.h + vadd for full transpose."""
+    # TODO: check correctness
+    x = state.read_mrf_bf16(args["vs1"])
+    half = x.shape[0] // 2
+    block = x[half:, :]
+    transposed = block.T.contiguous()
+    out = torch.zeros_like(x)
+    out[half:, :] = transposed
+    state.write_mrf_bf16(args["vrd"], out)
 
 
 """
