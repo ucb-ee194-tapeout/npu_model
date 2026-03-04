@@ -27,7 +27,7 @@ jobs:
         run: uv sync
 
       - name: Run program execution tests
-        run: uv run python scripts/test_programs.py --quiet
+        run: uv run python scripts/test_programs.py
 
       - name: Run arch state tests
         run: uv run python scripts/test_archstate.py
