@@ -1,4 +1,4 @@
-from typing import Optional, List
+from typing import List
 
 from .exu import ExecutionUnit
 from ..logging.logger import Logger, LaneType
@@ -30,13 +30,13 @@ class MatrixExecutionUnitSystolic(ExecutionUnit):
         self.reset()
 
     def reset(self) -> None:
-        self.in_flight: Optional["Uop"] = None
+        self.in_flight: Uop | None = None
         self._complete_count = 0
         self._pending_completions: List["Uop"] = []
         self._total_instructions = 0
         self._busy_cycles = 0
 
-    def tick(self, idu_output: StageData[Optional["Uop"]]) -> None:
+    def tick(self, idu_output: StageData[Uop | None]) -> None:
         self.cycle += 1
         # Log deferred completions from last cycle
         for uop in self._pending_completions:
@@ -150,13 +150,13 @@ class MatrixExecutionUnitInner(ExecutionUnit):
         self.reset()
 
     def reset(self) -> None:
-        self.in_flight: Optional["Uop"] = None
+        self.in_flight: Uop | None = None
         self._complete_count = 0
         self._pending_completions: List["Uop"] = []
         self._total_instructions = 0
         self._busy_cycles = 0
 
-    def tick(self, idu_output: StageData[Optional["Uop"]]) -> None:
+    def tick(self, idu_output: StageData[Uop | None]) -> None:
         self.cycle += 1
         # Log deferred completions from last cycle
         for uop in self._pending_completions:

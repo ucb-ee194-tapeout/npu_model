@@ -1,5 +1,3 @@
-from typing import Optional
-
 import torch
 from ..logging.logger import Logger
 from .config import ArchStateConfig
@@ -9,7 +7,7 @@ class ArchState:
     def __init__(
         self,
         config: ArchStateConfig,
-        logger: Optional[Logger] = None,
+        logger: Logger | None = None,
     ) -> None:
         self.cfg = config
         self.logger = logger

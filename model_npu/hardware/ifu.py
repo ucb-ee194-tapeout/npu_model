@@ -4,7 +4,6 @@ from ..software.program import Program
 from ..software.instruction import Uop
 from ..logging.logger import Logger, LaneType
 from ..hardware.arch_state import ArchState
-from typing import Optional
 
 
 class InstructionFetch(Module):
@@ -34,7 +33,7 @@ class InstructionFetch(Module):
         self.program = program
 
     def reset(self) -> None:
-        self.output: StageData[Optional[Uop]] = StageData(None)
+        self.output: StageData[Uop | None] = StageData(None)
         self.arch_state.set_pc(0)
         self._stalled = False
 
