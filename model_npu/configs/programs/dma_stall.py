@@ -35,7 +35,7 @@ class DMAStallProgram(Program):
         Instruction(mnemonic="matmul.mxu0", args={"rd": 0, "rs1": 2, "rs2": 1}),
         Instruction(mnemonic="matmul.mxu0", args={"rd": 0, "rs1": 2, "rs2": 1}),
         Instruction(mnemonic="dma.wait", args={"flag": 1}), # Wait to finish loads
-        # Instruction(mnemonic="nop", args={}),
+        Instruction(mnemonic="delay", args={"imm": 0}),
     ]
 
     memory_regions: List[Tuple[int, torch.Tensor]] = [

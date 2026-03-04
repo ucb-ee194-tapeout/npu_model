@@ -122,7 +122,7 @@ class DmaExecutionUnit(ExecutionUnit):
 
     def is_busy(self) -> bool:
         """Check if the EXU is busy."""
-        return len(self.in_flight) != 0 and self.in_flight[0].insn.mnemonic != "nop"
+        return len(self.in_flight) != 0 and self.in_flight[0].insn.mnemonic != "delay"
 
     @property
     def has_in_flight(self) -> bool:
