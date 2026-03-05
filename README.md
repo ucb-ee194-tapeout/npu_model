@@ -200,7 +200,7 @@ class MyProgram(Program):
     instructions = [
         Instruction(mnemonic="addi", args={"rd": 1, "rs1": 0, "imm": 5}),
         Instruction(mnemonic="addi", args={"rd": 2, "rs1": 1, "imm": 3}),
-        Instruction(mnemonic="nop", args={}),
+        Instruction(mnemonic="delay", args={"imm": 0}),
     ]
 ```
 

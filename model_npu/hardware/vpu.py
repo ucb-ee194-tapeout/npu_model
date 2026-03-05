@@ -100,7 +100,7 @@ class VectorExecutionUnit(ExecutionUnit):
 
     def is_busy(self) -> bool:
         """Check if the EXU is busy."""
-        return self.in_flight is not None and self.in_flight.insn.mnemonic != "nop"
+        return self.in_flight is not None and self.in_flight.insn.mnemonic != "delay"
 
     @property
     def has_in_flight(self) -> bool:

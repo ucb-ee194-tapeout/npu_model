@@ -20,5 +20,5 @@ class AddiProgram(Program):
         Instruction(mnemonic="delay", args={"imm": 0}),
         Instruction(mnemonic="addi", args={"rd": 4, "rs1": 4, "imm": 1}),
         Instruction(mnemonic="addi", args={"rd": 5, "rs1": 5, "imm": 1}),
-        # Instruction(mnemonic="nop", args={}),
+        Instruction(mnemonic="delay", args={"imm": 0}),
     ]

@@ -157,7 +157,7 @@ class ScalarExecutionUnit(ExecutionUnit):
                 cycle=self.cycle,
             )
 
-            self._busy_cycles += uop.insn.mnemonic != "nop"
+            self._busy_cycles += uop.insn.mnemonic != "delay"
             self._complete_count = 1
             # execute the instruction and modify the arch state
 
