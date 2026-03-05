@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 import json
-from typing import Dict, Optional, Tuple, Any
+from typing import Any
 
 
 @dataclass
@@ -41,15 +41,15 @@ class Logger:
         self,
         config: LoggerConfig,
         process_name: str = "NPU",
-        lane_names: Optional[Dict[int, str]] = None,
+        lane_names: dict[int, str] | None = None,
     ) -> None:
         self.config = config
         self.file = open(config.filename, "w")
         self.first_event = True
-        self.insn_labels: Dict[int, str] = {}
-        self.active: Dict[Tuple[int, str, int], int] = {}
+        self.insn_labels: dict[int, str] = {}
+        self.active: dict[tuple[int, str, int], int] = {}
         self.lane_names = lane_names or {}
-        self.arch_threads: Dict[Tuple[str, int], Tuple[int, str]] = {}
+        self.arch_threads: dict[tuple[str, int], tuple[int, str]] = {}
         self.ts = 1
 
         self.file.write("[")
@@ -87,7 +87,7 @@ class Logger:
         self.file.write("]\n")
         self.file.close()
 
-    def _write_event(self, event: Dict[str, Any]) -> None:
+    def _write_event(self, event: dict[str, Any]) -> None:
         if not self.first_event:
             self.file.write(",\n")
         else:

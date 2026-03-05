@@ -239,7 +239,7 @@ uv run pre-commit run --all-files
 
 ```python
 @instr("my_instr", instruction_type=InstructionType.SCALAR)
-def my_instr(state: ArchState, args: Dict[str, int]) -> None:
+def my_instr(state: ArchState, args: dict[str, int]) -> None:
     # Implement instruction behavior
     state.set_xrf(args["rd"], ...)
 ```

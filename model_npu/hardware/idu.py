@@ -1,6 +1,6 @@
 from .hardware import Module
 from .stage_data import StageData
-from typing import List, Dict, Type, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 from .exu import ExecutionUnit
 from ..logging.logger import Logger, LaneType
 from ..isa import IsaSpec
@@ -24,7 +24,7 @@ class InstructionDecode(Module):
 
     def __init__(
         self,
-        exus: List[ExecutionUnit],
+        exus: list[ExecutionUnit],
         logger: Logger,
         isa: IsaSpec,
         arch_state: ArchState,
@@ -37,7 +37,7 @@ class InstructionDecode(Module):
         self.lane_id = 1
         self.cycle = 0
         # Build a mapping from EXU type to EXU instances
-        self.exu_map: Dict[InstructionType, List[ExecutionUnit]] = {}
+        self.exu_map: dict[InstructionType, list[ExecutionUnit]] = {}
         for exu in exus:
             exu_types = exu.supported_instruction_types
             for t in exu_types:
@@ -48,7 +48,7 @@ class InstructionDecode(Module):
 
     def reset(self) -> None:
         # Per-EXU output stage data
-        self.outputs: Dict[ExecutionUnit, StageData[Optional["Uop"]]] = {
+        self.outputs: dict[ExecutionUnit, StageData["Uop | None"]] = {
             exu: StageData(None) for exu in self.exus
         }
         self._stalled = False
@@ -59,7 +59,7 @@ class InstructionDecode(Module):
             not output.is_valid() for output in self.outputs.values()
         )
 
-    def tick(self, ifu_output: StageData[List["Uop"]]) -> None:
+    def tick(self, ifu_output: StageData[list["Uop"]]) -> None:
         """
         Dispatch fetched instructions to their target execution units.
         Logs: E (end F stage), S (start D stage)
@@ -142,12 +142,12 @@ class InstructionDecode(Module):
         # if we dispatched a DMA instruction, set flag as busy here
         if exu_type == InstructionType.DMA:
             assert (
-                self.arch_state.check_flag(self.uop.insn.args["flag"]) == False
+                not self.arch_state.check_flag(self.uop.insn.args["flag"])
             ), f"Flag {self.uop.insn.args['flag']} is already set, erroneous program"
             self.arch_state.set_flag(self.uop.insn.args["flag"])
         self.uop = None
 
-    def claim_uop(self, ifu_output: StageData[Optional["Uop"]]) -> None:
+    def claim_uop(self, ifu_output: StageData["Uop | None"]) -> None:
         """Claim a new uop from IFU"""  
         assert self.uop is None
 

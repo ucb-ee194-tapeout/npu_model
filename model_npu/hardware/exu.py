@@ -1,5 +1,5 @@
 from abc import abstractmethod
-from typing import Optional, List
+from typing import List
 
 from .hardware import Module
 from .stage_data import StageData
@@ -45,7 +45,7 @@ class ExecutionUnit(Module):
         pass
 
     @abstractmethod
-    def tick(self, diu_output: StageData[Optional[Uop]]) -> None:
+    def tick(self, diu_output: StageData[Uop | None]) -> None:
         """Execute one cycle, claiming instruction from DIU output."""
         pass
 
@@ -113,12 +113,12 @@ class ScalarExecutionUnit(ExecutionUnit):
 
     def reset(self) -> None:
         # variables
-        self._pending_completion_uop: Optional["Uop"] = None
+        self._pending_completion_uop: Uop | None = None
         # logging variables
         self._total_instructions = 0
         self._busy_cycles = 0
 
-    def tick(self, idu_output: StageData[Optional["Uop"]]) -> None:
+    def tick(self, idu_output: StageData[Uop | None]) -> None:
         self.cycle += 1
         # Log deferred completions from last cycle
         if self._pending_completion_uop is not None:
