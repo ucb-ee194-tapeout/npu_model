@@ -10,6 +10,9 @@ Scalar operations
 
 PIPELINE_LATENCY = 2
 
+# Mask for 64-bit unsigned comparison (RISC-V RV64)
+_MASK64 = 0xFFFFFFFFFFFFFFFF
+
 
 @instr("delay", instruction_type=InstructionType.SCALAR)
 def delay(state: ArchState, args: dict[str, int]) -> None:
@@ -39,7 +42,9 @@ def slti(state: ArchState, args: dict[str, int]) -> None:
 
 @instr("sltiu", instruction_type=InstructionType.SCALAR)
 def sltiu(state: ArchState, args: dict[str, int]) -> None:
-    state.write_xrf(args["rd"], 1 if state.xrf[args["rs1"]] < args["imm"] else 0)
+    a = state.xrf[args["rs1"]] & _MASK64
+    b = args["imm"] & _MASK64
+    state.write_xrf(args["rd"], 1 if a < b else 0)
 
 
 @instr("xori", instruction_type=InstructionType.SCALAR)
@@ -91,9 +96,9 @@ def slt(state: ArchState, args: dict[str, int]) -> None:
 
 @instr("sltu", instruction_type=InstructionType.SCALAR)
 def sltu(state: ArchState, args: dict[str, int]) -> None:
-    state.write_xrf(
-        args["rd"], 1 if state.xrf[args["rs1"]] < state.xrf[args["rs2"]] else 0
-    )  # TODO: sign
+    a = state.xrf[args["rs1"]] & _MASK64
+    b = state.xrf[args["rs2"]] & _MASK64
+    state.write_xrf(args["rd"], 1 if a < b else 0)
 
 
 @instr("xor", instruction_type=InstructionType.SCALAR)
@@ -123,7 +128,8 @@ def and_(state: ArchState, args: dict[str, int]) -> None:
 
 @instr("lui", instruction_type=InstructionType.SCALAR)
 def lui(state: ArchState, args: dict[str, int]) -> None:
-    state.write_xrf(args["rd"], state.xrf[args["imm"]] << 12)
+    """Load upper immediate: rd = imm << 12 (RISC-V LUI semantics)."""
+    state.write_xrf(args["rd"], (args["imm"] << 12) & _MASK64)
 
 
 @instr("jal", instruction_type=InstructionType.SCALAR)
@@ -159,7 +165,8 @@ def blt(state: ArchState, args: dict[str, int]) -> None:
 
 @instr("bge", instruction_type=InstructionType.SCALAR)
 def bge(state: ArchState, args: dict[str, int]) -> None:
-    if state.xrf[args["rs1"]] < state.xrf[args["rs2"]]:
+    """Branch if rs1 >= rs2 (signed)."""
+    if state.xrf[args["rs1"]] >= state.xrf[args["rs2"]]:
         state.set_npc(
             state.pc + args["imm"] - PIPELINE_LATENCY
         )  # FIXME: this is a hack to compensate for the IF->EX delay
@@ -167,7 +174,10 @@ def bge(state: ArchState, args: dict[str, int]) -> None:
 
 @instr("bltu", instruction_type=InstructionType.SCALAR)
 def bltu(state: ArchState, args: dict[str, int]) -> None:
-    if state.xrf[args["rs1"]] < state.xrf[args["rs2"]]:
+    """Branch if rs1 < rs2 (unsigned)."""
+    a = state.xrf[args["rs1"]] & _MASK64
+    b = state.xrf[args["rs2"]] & _MASK64
+    if a < b:
         state.set_npc(
             state.pc + args["imm"] - PIPELINE_LATENCY
         )  # FIXME: this is a hack to compensate for the IF->EX delay
@@ -175,7 +185,10 @@ def bltu(state: ArchState, args: dict[str, int]) -> None:
 
 @instr("bgeu", instruction_type=InstructionType.SCALAR)
 def bgeu(state: ArchState, args: dict[str, int]) -> None:
-    if state.xrf[args["rs1"]] < state.xrf[args["rs2"]]:
+    """Branch if rs1 >= rs2 (unsigned)."""
+    a = state.xrf[args["rs1"]] & _MASK64
+    b = state.xrf[args["rs2"]] & _MASK64
+    if a >= b:
         state.set_npc(
             state.pc + args["imm"] - PIPELINE_LATENCY
         )  # FIXME: this is a hack to compensate for the IF->EX delay
@@ -199,9 +212,10 @@ def mv_mw(state: ArchState, args: dict[str, int]) -> None:
 def matmul_mxu0(state: ArchState, args: dict[str, int]) -> None:
     """
     Matrix multiplication using MXU0, the systolic array.
+    Weights are read from MXU0's weight buffer.
     """
     activation_fp8 = state.read_mrf_fp8(args["rs1"])
-    weight_fp8 = state.read_wb_fp8("mxu1", args["rs2"])
+    weight_fp8 = state.read_wb_fp8("mxu0", args["rs2"])
 
     activation_fp16 = activation_fp8.to(torch.float16)
     weight_fp16 = weight_fp8.to(torch.float16)
