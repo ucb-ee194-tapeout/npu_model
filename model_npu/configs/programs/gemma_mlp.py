@@ -26,9 +26,9 @@ class GemmaMlpProgram(Program):
     """
 
     instructions: List[Instruction] = [
-        # Load gate weight to WB mxu1 (matmul.mxu0 reads from mxu1)
+        # Load gate and up weights into MXU0's weight buffer (matmul.mxu0 uses mxu0's WB)
         Instruction(
-            mnemonic="dma.load.mxu1",
+            mnemonic="dma.load.mxu0",
             args={
                 "rd": 0,
                 "base": GATE_WEIGHT_BASE,
@@ -37,7 +37,7 @@ class GemmaMlpProgram(Program):
             },
         ),
         Instruction(
-            mnemonic="dma.load.mxu1",
+            mnemonic="dma.load.mxu0",
             args={
                 "rd": 1,
                 "base": UP_WEIGHT_BASE,
