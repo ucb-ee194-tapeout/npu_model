@@ -158,7 +158,7 @@ class GemmaSingleHeadLayerProgram(Program):
         Instruction(mnemonic="vsqrt", args={"vrd": 10, "vs1": 9}),
         Instruction(mnemonic="vrcp", args={"vrd": 5, "vs1": 10}),
         Instruction(mnemonic="vmul", args={"vrd": 1, "vs1": 1, "vs2": 5}),
-        # Spill K^T (MRF 2) and V (MRF 3) to SRAM, reload into MXU1 weight buffer
+        # Move K^T (MRF 2) and V (MRF 3) to SRAM, reload into MXU1 weight buffer
         Instruction(
             mnemonic="dma.store",
             args={
@@ -199,21 +199,21 @@ class GemmaSingleHeadLayerProgram(Program):
         ),
         Instruction(mnemonic="dma.wait", args={"flag": 0}),
         Instruction(mnemonic="dma.wait", args={"flag": 1}),
-        # scores = Q_norm @ K^T -> MRF 3
-        Instruction(mnemonic="matmul.mxu0", args={"rd": 3, "rs1": 1, "rs2": 0}),
+        # scores = Q_norm @ K^T -> MRF 15 
+        Instruction(mnemonic="matmul.mxu0", args={"rd": 15, "rs1": 1, "rs2": 0}),
         # scores_scaled = scores * scale
-        Instruction(mnemonic="vmul", args={"vrd": 4, "vs1": 3, "vs2": 11}),
+        Instruction(mnemonic="vmul", args={"vrd": 16, "vs1": 15, "vs2": 11}),
         # exp_scores = exp(scores_scaled)
-        Instruction(mnemonic="vexp", args={"vrd": 5, "vs1": 4}),
-        # col_sum = sum(exp_scores) (broadcast column-wise)
-        Instruction(mnemonic="vreduce.sum", args={"vrd": 6, "vs1": 5}),
+        Instruction(mnemonic="vexp", args={"vrd": 17, "vs1": 16}),
+        # col_sum = sum(exp_scores)
+        Instruction(mnemonic="vreduce.sum", args={"vrd": 18, "vs1": 17}),
         # inv_col_sum = 1 / col_sum
-        Instruction(mnemonic="vrcp", args={"vrd": 7, "vs1": 6}),
+        Instruction(mnemonic="vrcp", args={"vrd": 19, "vs1": 18}),
         # softmax_scores = exp_scores * inv_col_sum
-        Instruction(mnemonic="vmul", args={"vrd": 8, "vs1": 5, "vs2": 7}),
-        # attn_out = softmax_scores @ V -> MRF 9
-        Instruction(mnemonic="matmul.mxu0", args={"rd": 9, "rs1": 8, "rs2": 1}),
-        # Load up_weight and down_weight into MXU1 weight buffer (slots 0 and 1)
+        Instruction(mnemonic="vmul", args={"vrd": 20, "vs1": 17, "vs2": 19}),
+        # attn_out = softmax_scores @ V -> MRF 21 (
+        Instruction(mnemonic="matmul.mxu0", args={"rd": 21, "rs1": 20, "rs2": 1}),
+        # Load up_weight and down_weight into MXU1 weight buffer 
         Instruction(
             mnemonic="dma.load.mxu1",
             args={
@@ -234,24 +234,24 @@ class GemmaSingleHeadLayerProgram(Program):
         ),
         Instruction(mnemonic="dma.wait", args={"flag": 0}),
         Instruction(mnemonic="dma.wait", args={"flag": 1}),
-        # up_out = attn_out @ up_weight -> MRF 10
-        Instruction(mnemonic="matmul.mxu0", args={"rd": 10, "rs1": 9, "rs2": 0}),
+        # up_out = attn_out @ up_weight -> MRF 22 
+        Instruction(mnemonic="matmul.mxu0", args={"rd": 22, "rs1": 21, "rs2": 0}),
         # relu(x) = 0.5 * (x + |x|), where |x| = sqrt(x^2)
-        Instruction(mnemonic="vmul", args={"vrd": 4, "vs1": 10, "vs2": 10}),
-        Instruction(mnemonic="vsqrt", args={"vrd": 4, "vs1": 4}),
-        Instruction(mnemonic="vadd", args={"vrd": 10, "vs1": 10, "vs2": 4}),
-        Instruction(mnemonic="vmul", args={"vrd": 10, "vs1": 10, "vs2": 14}),
-        # down_out = relu_out @ down_weight -> MRF 11
-        Instruction(mnemonic="matmul.mxu0", args={"rd": 11, "rs1": 10, "rs2": 1}),
+        Instruction(mnemonic="vmul", args={"vrd": 23, "vs1": 22, "vs2": 22}),
+        Instruction(mnemonic="vsqrt", args={"vrd": 23, "vs1": 23}),
+        Instruction(mnemonic="vadd", args={"vrd": 22, "vs1": 22, "vs2": 23}),
+        Instruction(mnemonic="vmul", args={"vrd": 22, "vs1": 22, "vs2": 14}),
+        # down_out = relu_out @ down_weight -> MRF 24 
+        Instruction(mnemonic="matmul.mxu0", args={"rd": 24, "rs1": 22, "rs2": 1}),
         # RMS norm on down_out -> MRF 0
-        Instruction(mnemonic="vmul", args={"vrd": 5, "vs1": 11, "vs2": 11}),
+        Instruction(mnemonic="vmul", args={"vrd": 5, "vs1": 24, "vs2": 24}),
         Instruction(mnemonic="vrot.reduce.sum", args={"vrd": 6, "vs1": 5}),
         Instruction(mnemonic="vrcp", args={"vrd": 7, "vs1": 13}),
         Instruction(mnemonic="vmul", args={"vrd": 8, "vs1": 6, "vs2": 7}),
         Instruction(mnemonic="vadd", args={"vrd": 9, "vs1": 8, "vs2": 12}),
         Instruction(mnemonic="vsqrt", args={"vrd": 10, "vs1": 9}),
         Instruction(mnemonic="vrcp", args={"vrd": 5, "vs1": 10}),
-        Instruction(mnemonic="vmul", args={"vrd": 0, "vs1": 11, "vs2": 5}),
+        Instruction(mnemonic="vmul", args={"vrd": 0, "vs1": 24, "vs2": 5}),
         # Store result
         Instruction(
             mnemonic="dma.store",
@@ -278,12 +278,11 @@ class GemmaSingleHeadLayerProgram(Program):
         (HALF_BASE,        HALF_DATA),
     ]
 
-    # Golden result: eager PyTorch reference matching the NPU instruction sequence
     golden_result: tuple[int, torch.Tensor]
 
 
 def _rms_norm(x: torch.Tensor, eps: float = EPS) -> torch.Tensor:
-    return x / (x.pow(2).mean(dim=-1, keepdim=True) + eps).sqrt()
+    return (x / (x.pow(2).mean(dim=-1, keepdim=True) + eps).sqrt()).to(torch.bfloat16)
 
 
 def _mrf_as_fp8(bf16_tile: torch.Tensor) -> torch.Tensor:
