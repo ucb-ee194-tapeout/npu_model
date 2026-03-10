@@ -54,9 +54,9 @@ class GemmaSingleHeadLayerProgram(Program):
     """
 
     instructions: List[Instruction] = [
-        # Load Q_weight and K_weight into MXU1 weight buffer (slots 0 and 1)
+        # Load Q_weight and K_weight into MXU0 weight buffer (slots 0 and 1)
         Instruction(
-            mnemonic="dma.load.mxu1",
+            mnemonic="dma.load.mxu0",
             args={
                 "rd": 0,
                 "base": Q_WEIGHT_BASE,
@@ -65,7 +65,7 @@ class GemmaSingleHeadLayerProgram(Program):
             },
         ),
         Instruction(
-            mnemonic="dma.load.mxu1",
+            mnemonic="dma.load.mxu0",
             args={
                 "rd": 1,
                 "base": K_WEIGHT_BASE,
@@ -92,7 +92,7 @@ class GemmaSingleHeadLayerProgram(Program):
         Instruction(mnemonic="matmul.mxu0", args={"rd": 2, "rs1": 0, "rs2": 1}),
         # Reload slot 0 with V_weight
         Instruction(
-            mnemonic="dma.load.mxu1",
+            mnemonic="dma.load.mxu0",
             args={
                 "rd": 0,
                 "base": V_WEIGHT_BASE,
@@ -213,9 +213,9 @@ class GemmaSingleHeadLayerProgram(Program):
         Instruction(mnemonic="vmul", args={"vrd": 20, "vs1": 17, "vs2": 19}),
         # attn_out = softmax_scores @ V -> MRF 21 (
         Instruction(mnemonic="matmul.mxu0", args={"rd": 21, "rs1": 20, "rs2": 1}),
-        # Load up_weight and down_weight into MXU1 weight buffer 
+        # Load up_weight and down_weight into MXU0 weight buffer
         Instruction(
-            mnemonic="dma.load.mxu1",
+            mnemonic="dma.load.mxu0",
             args={
                 "rd": 0,
                 "base": UP_WEIGHT_BASE,
@@ -224,7 +224,7 @@ class GemmaSingleHeadLayerProgram(Program):
             },
         ),
         Instruction(
-            mnemonic="dma.load.mxu1",
+            mnemonic="dma.load.mxu0",
             args={
                 "rd": 1,
                 "base": DOWN_WEIGHT_BASE,

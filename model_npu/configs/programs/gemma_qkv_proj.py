@@ -34,9 +34,9 @@ class GemmaQkvProjProgram(Program):
     """
 
     instructions: List[Instruction] = [
-        # Load Q_weight and K_weight to WB mxu1 (matmul.mxu0 reads from mxu1)
+        # Load Q_weight and K_weight to WB mxu0 (matmul.mxu0 reads from mxu0)
         Instruction(
-            mnemonic="dma.load.mxu1",
+            mnemonic="dma.load.mxu0",
             args={
                 "rd": 0,
                 "base": Q_WEIGHT_BASE,
@@ -45,7 +45,7 @@ class GemmaQkvProjProgram(Program):
             },
         ),
         Instruction(
-            mnemonic="dma.load.mxu1",
+            mnemonic="dma.load.mxu0",
             args={
                 "rd": 1,
                 "base": K_WEIGHT_BASE,
