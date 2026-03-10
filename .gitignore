@@ -11,3 +11,6 @@ wheels/
 
 # logs
 *.json
+
+# Keep committed pin metadata in compiler subtree
+!compiler/third_party/*.json
