@@ -1,0 +1,16 @@
+{
+  "source": {
+    "repository": "https://github.com/iree-org/llvm-project.git",
+    "submodule_path": "third_party/llvm-project"
+  },
+  "pin": {
+    "iree_release_tag": "v3.10.0",
+    "iree_release_published_at": "2026-02-02T22:38:45Z",
+    "iree_tag_commit": "ae97779f59a81bc56f804927be57749bb22548fa",
+    "llvm_project_commit": "12d80f913c5a0f13f54610e9b0524137301665e3"
+  },
+  "notes": [
+    "This pin mirrors IREE's third_party/llvm-project submodule at release v3.10.0.",
+    "Use compiler/scripts/bootstrap_llvm.sh to clone and checkout the pinned commit."
+  ]
+}
