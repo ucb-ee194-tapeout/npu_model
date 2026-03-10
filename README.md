@@ -188,6 +188,30 @@ npu_model/
 └── pyproject.toml         # Project dependencies
 ```
 
+## MLIR Compiler Scaffold
+
+A standalone MLIR compiler scaffold now lives under [`compiler/`](compiler/README.md).
+
+It provides a three-layer NPU lowering path:
+
+1. `linalg.matmul` -> `npu_kernel`
+2. `npu_kernel` -> `npu_schedule`
+3. `npu_schedule` -> `npu_isa` -> textual ISA emission (`npu-translate`)
+
+The first end-to-end backend targets simulator-compatible mnemonics
+(`dma.load`, `dma.load.mxu0`, `dma.wait`, `matmul.mxu0`).
+
+For a fresh clone, the recommended reproducible build directory is:
+
+- `build/npu_compiler`
+
+and the full configure/build/test commands are documented in
+[`compiler/README.md`](compiler/README.md) under:
+
+- `Toolchain Options`
+- `Fresh Clone Reproduction`
+- `Run Lit Tests (Including Matmul and Gemma Symbol Paths)`
+
 
 ## Creating Custom Programs
 
