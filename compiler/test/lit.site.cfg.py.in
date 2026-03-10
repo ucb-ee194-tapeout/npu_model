@@ -1,0 +1,9 @@
+@LIT_SITE_CFG_IN_HEADER@
+
+config.test_exec_root = "@CMAKE_CURRENT_BINARY_DIR@"
+config.test_source_root = "@CMAKE_CURRENT_SOURCE_DIR@"
+
+config.npu_tools_dir = "@PROJECT_BINARY_DIR@/tools"
+config.llvm_tools_dir = "@LLVM_TOOLS_DIR@"
+
+lit_config.load_config(config, "@CMAKE_CURRENT_SOURCE_DIR@/lit.cfg.py")
