@@ -361,12 +361,11 @@ Transpose operations
 @instr("vtrpose.h", instruction_type=InstructionType.VECTOR)
 def vtrpose_h(state: ArchState, args: dict[str, int]) -> None:
     """Transpose upper half: block = x[:, 0:half], write (cols, rows) with first half rows = block.T. Use with vtrpose.l + vadd for full transpose."""
-    # TODO: check correctness
     x = state.read_mrf_bf16(args["vs1"])
-    half = x.shape[0] // 2
-    block = x[0:half, :]
+    half = x.shape[1] // 2
+    block = x[:, 0:half]
     transposed = block.T.contiguous()
-    out = torch.zeros_like(x)
+    out = torch.zeros(x.shape[1], x.shape[0], dtype=torch.bfloat16)
     out[0:half, :] = transposed
     state.write_mrf_bf16(args["vrd"], out)
 
@@ -374,12 +373,11 @@ def vtrpose_h(state: ArchState, args: dict[str, int]) -> None:
 @instr("vtrpose.l", instruction_type=InstructionType.VECTOR)
 def vtrpose_l(state: ArchState, args: dict[str, int]) -> None:
     """Transpose lower half: block = x[:, half:], write (cols, rows) with second half rows = block.T. Use with vtrpose.h + vadd for full transpose."""
-    # TODO: check correctness
     x = state.read_mrf_bf16(args["vs1"])
-    half = x.shape[0] // 2
-    block = x[half:, :]
+    half = x.shape[1] // 2
+    block = x[:, half:]
     transposed = block.T.contiguous()
-    out = torch.zeros_like(x)
+    out = torch.zeros(x.shape[1], x.shape[0], dtype=torch.bfloat16)
     out[half:, :] = transposed
     state.write_mrf_bf16(args["vrd"], out)
 
