@@ -1,0 +1,57 @@
+// -----// IR Dump After npu::{anonymous}::ConvertNPUKernelToSchedulePass (convert-npu-kernel-to-schedule) ('func.func' operation: @uk_gemma_attention_sym) //----- //
+module {
+  func.func @uk_gemma_attention_sym(%arg0: tensor<64x16xf8E4M3FN>, %arg1: tensor<16x16xf8E4M3FN>) -> tensor<64x16xf32> {
+    %0 = npu_schedule.ukernel_launch "npu_uk_gemma_attention_f8E4M3FN_f8E4M3FN_f32"(%arg0, %arg1) : tensor<64x16xf8E4M3FN>, tensor<16x16xf8E4M3FN> -> tensor<64x16xf32>
+    return %0 : tensor<64x16xf32>
+  }
+}
+
+
+// -----// IR Dump After npu::{anonymous}::ConvertNPUScheduleToISAPass (convert-npu-schedule-to-isa) ('func.func' operation: @uk_gemma_attention_sym) //----- //
+module {
+  func.func @uk_gemma_attention_sym(%arg0: tensor<64x16xf8E4M3FN>, %arg1: tensor<16x16xf8E4M3FN>) -> tensor<64x16xf32> {
+    npu_isa.dma_load_mxu1 rd = 0, base = 8192, size = 256, flag = 0
+    npu_isa.dma_load_mxu1 rd = 1, base = 12288, size = 256, flag = 1
+    npu_isa.dma_wait flag = 0
+    npu_isa.dma_wait flag = 1
+    npu_isa.dma_load rd = 0, base = 0, size = 1024, flag = 2
+    npu_isa.dma_load rd = 2, base = 16384, size = 2048, flag = 0
+    npu_isa.dma_wait flag = 2
+    npu_isa.dma_wait flag = 0
+    %0 = npu_isa.matmul_mxu0 %arg0, %arg1 regs = (3, 0, 0) : tensor<64x16xf8E4M3FN>, tensor<16x16xf8E4M3FN> -> tensor<64x16xf32>
+    %1 = npu_isa.vmul %0, %0 regs = (4, 3, 2) : tensor<64x16xf32>, tensor<64x16xf32> -> tensor<64x16xf32>
+    %2 = npu_isa.vexp %1 regs = (5, 4) : tensor<64x16xf32> -> tensor<64x16xf32>
+    %3 = npu_isa.vreduce_sum %2 regs = (6, 5) : tensor<64x16xf32> -> tensor<64x16xf32>
+    %4 = npu_isa.vrcp %3 regs = (7, 6) : tensor<64x16xf32> -> tensor<64x16xf32>
+    %5 = npu_isa.vmul %2, %4 regs = (8, 5, 7) : tensor<64x16xf32>, tensor<64x16xf32> -> tensor<64x16xf32>
+    %6 = npu_isa.matmul_mxu0 %5, %arg1 regs = (9, 8, 1) : tensor<64x16xf32>, tensor<16x16xf8E4M3FN> -> tensor<64x16xf32>
+    npu_isa.dma_store %6 rs1 = 9, base = 20480, size = 2048, flag = 1 : tensor<64x16xf32>
+    npu_isa.dma_wait flag = 1
+    return %6 : tensor<64x16xf32>
+  }
+}
+
+
+module {
+  func.func @uk_gemma_attention_sym(%arg0: tensor<64x16xf8E4M3FN>, %arg1: tensor<16x16xf8E4M3FN>) -> tensor<64x16xf32> {
+    npu_isa.dma_load_mxu1 rd = 0, base = 8192, size = 256, flag = 0
+    npu_isa.dma_load_mxu1 rd = 1, base = 12288, size = 256, flag = 1
+    npu_isa.dma_wait flag = 0
+    npu_isa.dma_wait flag = 1
+    npu_isa.dma_load rd = 0, base = 0, size = 1024, flag = 2
+    npu_isa.dma_load rd = 2, base = 16384, size = 2048, flag = 0
+    npu_isa.dma_wait flag = 2
+    npu_isa.dma_wait flag = 0
+    %0 = npu_isa.matmul_mxu0 %arg0, %arg1 regs = (3, 0, 0) : tensor<64x16xf8E4M3FN>, tensor<16x16xf8E4M3FN> -> tensor<64x16xf32>
+    %1 = npu_isa.vmul %0, %0 regs = (4, 3, 2) : tensor<64x16xf32>, tensor<64x16xf32> -> tensor<64x16xf32>
+    %2 = npu_isa.vexp %1 regs = (5, 4) : tensor<64x16xf32> -> tensor<64x16xf32>
+    %3 = npu_isa.vreduce_sum %2 regs = (6, 5) : tensor<64x16xf32> -> tensor<64x16xf32>
+    %4 = npu_isa.vrcp %3 regs = (7, 6) : tensor<64x16xf32> -> tensor<64x16xf32>
+    %5 = npu_isa.vmul %2, %4 regs = (8, 5, 7) : tensor<64x16xf32>, tensor<64x16xf32> -> tensor<64x16xf32>
+    %6 = npu_isa.matmul_mxu0 %5, %arg1 regs = (9, 8, 1) : tensor<64x16xf32>, tensor<16x16xf8E4M3FN> -> tensor<64x16xf32>
+    npu_isa.dma_store %6 rs1 = 9, base = 20480, size = 2048, flag = 1 : tensor<64x16xf32>
+    npu_isa.dma_wait flag = 1
+    return %6 : tensor<64x16xf32>
+  }
+}
+
