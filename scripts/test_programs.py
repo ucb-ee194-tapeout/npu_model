@@ -51,13 +51,27 @@ def main():
         action="store_true",
         help="Verbose output",
     )
+    parser.add_argument(
+        "--name-contains",
+        type=str,
+        default=None,
+        help="Only run programs whose class name contains this substring",
+    )
     args = parser.parse_args()
 
-    program_names = getattr(
-        model_npu.configs.programs, "__all__", []
-    )
+    program_names = getattr(model_npu.configs.programs, "__all__", [])
+    if args.name_contains:
+        program_names = [
+            name for name in program_names if args.name_contains in name
+        ]
     if not program_names:
-        print("No programs found in model_npu.configs.programs", file=sys.stderr)
+        if args.name_contains:
+            print(
+                "No matching programs found in model_npu.configs.programs",
+                file=sys.stderr,
+            )
+        else:
+            print("No programs found in model_npu.configs.programs", file=sys.stderr)
         sys.exit(1)
 
     try:
