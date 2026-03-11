@@ -31,7 +31,7 @@ class ArchState:
             torch.zeros(self.cfg.wb_width, dtype=torch.uint8)
             for _ in range(self.cfg.num_wb_registers)
         ]
-        self.flags: list[bool] = [False] * self.cfg.num_dma_channels
+        self.dma_busy: list[bool] = [False] * self.cfg.num_dma_channels
 
     def reset(self) -> None:
         for i in range(len(self.xrf)):
@@ -42,8 +42,8 @@ class ArchState:
             self.wb["mxu0"][i].fill_(0)
         for i in range(len(self.wb["mxu1"])):
             self.wb["mxu1"][i].fill_(0)
-        for i in range(len(self.flags)):
-            self.flags[i] = False
+        for i in range(len(self.dma_busy)):
+            self.dma_busy[i] = False
         self.pc = 0
         self.npc = 0
 
@@ -202,11 +202,11 @@ class ArchState:
         ), f"Memory read out of bounds: {base} + {length} > {self.cfg.memory_size}"
         return self.mem[base:base + length]
 
-    def set_flag(self, flag: int) -> None:
-        self.flags[flag] = True
+    def set_dma_busy(self, channel: int) -> None:
+        self.dma_busy[channel] = True
 
-    def clear_flag(self, flag: int) -> None:
-        self.flags[flag] = False
+    def clear_dma_busy(self, channel: int) -> None:
+        self.dma_busy[channel] = False
 
-    def check_flag(self, flag: int) -> bool:
-        return self.flags[flag]
+    def check_dma_busy(self, channel: int) -> bool:
+        return self.dma_busy[channel]

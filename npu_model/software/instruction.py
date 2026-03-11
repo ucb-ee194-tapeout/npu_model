@@ -30,9 +30,9 @@ class Instruction:
         match = _DMA_CHANNEL_RE.search(self.mnemonic)
         if match is not None:
             return int(match.group("channel"))
-        if "flag" in self.args:
-            return self.args["flag"]
-        raise KeyError(f"DMA instruction '{self.mnemonic}' does not encode a channel")
+        raise KeyError(
+            f"DMA instruction '{self.mnemonic}' must encode its channel as .ch<N>"
+        )
 
     def __str__(self) -> str:
         display_mnemonic = self.mnemonic
