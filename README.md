@@ -252,16 +252,16 @@ Instruction(mnemonic="my_instr", args={"rd": 1, ...})
 
 ## NPU Design Specification
 
-#### [00. Preface](./docs/00_preface/)
+#### [00. Preface](./npu_spec/00_preface/)
 
-#### [01. Introduction](./docs/01_introduction/)
+#### [01. Introduction](./npu_spec/01_introduction/)
 
-#### [02. System Parameters](./docs/02_system_parameters/)
+#### [02. System Parameters](./npu_spec/02_system_parameters/)
 
-#### [03. Registers and Execution State](./docs/03_registers_and_execution_state/)
+#### [03. Registers and Execution State](./npu_spec/03_registers_and_execution_state/)
 
-#### [04. Functional Units](./docs/04_functional_units/)
+#### [04. Functional Units](./npu_spec/04_functional_units/)
 
-#### [05. Memory Model](./docs/05_memory_model/)
+#### [05. Memory Model](./npu_spec/05_memory_model/)
 
-#### [06. Instruction Set](./docs/06_instruction_set/)
+#### [06. Instruction Set](./npu_spec/06_instruction_set/)
