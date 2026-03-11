@@ -249,3 +249,19 @@ def my_instr(state: ArchState, args: dict[str, int]) -> None:
 ```python
 Instruction(mnemonic="my_instr", args={"rd": 1, ...})
 ```
+
+## NPU Design Specification
+
+#### [00. Preface](./docs/00_preface/)
+
+#### [01. Introduction](./docs/01_introduction/)
+
+#### [02. System Parameters](./docs/02_system_parameters/)
+
+#### [03. Registers and Execution State](./docs/03_registers_and_execution_state/)
+
+#### [04. Functional Units](./docs/04_functional_units/)
+
+#### [05. Memory Model](./docs/05_memory_model/)
+
+#### [06. Instruction Set](./docs/06_instruction_set/)
