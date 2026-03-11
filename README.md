@@ -162,7 +162,7 @@ Pipeline stages use `StageData` with claim-based handshaking:
 
 ```
 npu_model/
-├── model_npu/
+├── npu_model/
 │   ├── configs/           # Hardware and program configurations
 │   │   ├── hardware/      # Hardware configuration classes
 │   │   ├── programs/      # Example programs
@@ -194,7 +194,7 @@ npu_model/
 Define a new program by subclassing `Program`:
 
 ```python
-from model_npu.software import Instruction, Program
+from npu_model.software import Instruction, Program
 
 class MyProgram(Program):
     instructions = [
@@ -210,8 +210,8 @@ class MyProgram(Program):
 Define custom hardware by subclassing `HardwareConfig`:
 
 ```python
-from model_npu.hardware.config import HardwareConfig
-from model_npu.isa import IsaSpec
+from npu_model.hardware.config import HardwareConfig
+from npu_model.isa import IsaSpec
 
 class MyHardwareConfig(HardwareConfig):
     name = "MyNPU"
@@ -235,7 +235,7 @@ uv run pre-commit run --all-files
 
 ### Adding New Instructions
 
-1. Define instruction effect in `model_npu/configs/isa_definition.py`:
+1. Define instruction effect in `npu_model/configs/isa_definition.py`:
 
 ```python
 @instr("my_instr", instruction_type=InstructionType.SCALAR)
