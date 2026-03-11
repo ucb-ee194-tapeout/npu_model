@@ -5,7 +5,7 @@ from ...software import (
 )
 import torch
 
-from model_npu.workload.gemma_blocks import gemma_mlp_gate_up_forward
+from npu_model.workload.gemma_blocks import gemma_mlp_gate_up_forward
 
 
 GATE_PROJ_WEIGHT_DATA = torch.ones((32, 16), dtype=torch.float8_e4m3fn)

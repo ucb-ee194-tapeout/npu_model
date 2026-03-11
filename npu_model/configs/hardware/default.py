@@ -1,6 +1,6 @@
 from typing import Tuple
-from model_npu.hardware.config import HardwareConfig, ArchStateConfig
-from model_npu.isa import IsaSpec
+from npu_model.hardware.config import HardwareConfig, ArchStateConfig
+from npu_model.isa import IsaSpec
 
 
 class DefaultHardwareConfig(HardwareConfig):
