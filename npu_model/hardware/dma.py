@@ -43,8 +43,9 @@ class DmaExecutionUnit(ExecutionUnit):
             self.logger.log_stage_end(uop.id, "E", lane=self.lane_id, cycle=self.cycle)
             self.logger.log_retire(uop.id)
             # clear the flag
-            self.arch_state.clear_flag(uop.insn.args["flag"])
-            print(f"DMA {self.name} cleared flag {uop.insn.args['flag']}")
+            channel = uop.insn.dma_channel()
+            self.arch_state.clear_flag(channel)
+            print(f"DMA {self.name} cleared flag {channel}")
             
             if len(self.in_flight) != 0:
                 #Log: start execute

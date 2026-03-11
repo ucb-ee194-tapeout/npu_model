@@ -28,36 +28,33 @@ class GemmaMlpProgram(Program):
     instructions: List[Instruction] = [
         # Load gate and up weights into MXU0's weight buffer (matmul.mxu0 uses mxu0's WB)
         Instruction(
-            mnemonic="dma.load.mxu0",
+            mnemonic="dma.load.mxu0.ch0",
             args={
                 "rd": 0,
                 "base": GATE_WEIGHT_BASE,
                 "size": GATE_PROJ_WEIGHT_DATA.numel() * torch.float8_e4m3fn.itemsize,
-                "flag": 0,
             },
         ),
         Instruction(
-            mnemonic="dma.load.mxu0",
+            mnemonic="dma.load.mxu0.ch1",
             args={
                 "rd": 1,
                 "base": UP_WEIGHT_BASE,
                 "size": UP_PROJ_WEIGHT_DATA.numel() * torch.float8_e4m3fn.itemsize,
-                "flag": 1,
             },
         ),
-        Instruction(mnemonic="dma.wait", args={"flag": 0}),
-        Instruction(mnemonic="dma.wait", args={"flag": 1}),
+        Instruction(mnemonic="dma.wait.ch0", args={}),
+        Instruction(mnemonic="dma.wait.ch1", args={}),
         # Load activation to MRF
         Instruction(
-            mnemonic="dma.load",
+            mnemonic="dma.load.ch0",
             args={
                 "rd": 0,
                 "base": ACTIVATION_DATA_BASE,
                 "size": ACTIVATION_DATA.numel() * torch.float8_e4m3fn.itemsize,
-                "flag": 0,
             },
         ),
-        Instruction(mnemonic="dma.wait", args={"flag": 0}),
+        Instruction(mnemonic="dma.wait.ch0", args={}),
         # Gate projection: activation @ gate_weight -> MRF 1
         Instruction(mnemonic="matmul.mxu0", args={"rd": 1, "rs1": 0, "rs2": 0}),
         # Up projection: activation @ up_weight -> MRF 2
@@ -66,15 +63,14 @@ class GemmaMlpProgram(Program):
         Instruction(mnemonic="vmul", args={"vrd": 6, "vs1": 1, "vs2": 2}),
         # Store result
         Instruction(
-            mnemonic="dma.store",
+            mnemonic="dma.store.ch2",
             args={
                 "rs1": 6,
                 "base": OUTPUT_DATA_BASE,
                 "size": 64 * 16 * torch.bfloat16.itemsize,
-                "flag": 2,
             },
         ),
-        Instruction(mnemonic="dma.wait", args={"flag": 2}),
+        Instruction(mnemonic="dma.wait.ch2", args={}),
     ]
 
     memory_regions: List[Tuple[int, torch.Tensor]] = [

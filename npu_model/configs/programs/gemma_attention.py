@@ -43,46 +43,42 @@ class GemmaAttentionProgram(Program):
     instructions: List[Instruction] = [
         # Load K and V into MXU1 weight buffer (indices 0 and 1)
         Instruction(
-            mnemonic="dma.load.mxu1",
+            mnemonic="dma.load.mxu1.ch0",
             args={
                 "rd": 0,
                 "base": KEY_BASE,
                 "size": KEY_DATA.numel() * torch.float8_e4m3fn.itemsize,
-                "flag": 0,
             },
         ),
         Instruction(
-            mnemonic="dma.load.mxu1",
+            mnemonic="dma.load.mxu1.ch1",
             args={
                 "rd": 1,
                 "base": VALUE_BASE,
                 "size": VALUE_DATA.numel() * torch.float8_e4m3fn.itemsize,
-                "flag": 1,
             },
         ),
-        Instruction(mnemonic="dma.wait", args={"flag": 0}),
-        Instruction(mnemonic="dma.wait", args={"flag": 1}),
+        Instruction(mnemonic="dma.wait.ch0", args={}),
+        Instruction(mnemonic="dma.wait.ch1", args={}),
         # Load Q into MRF 0 and the scaling matrix into MRF 2
         Instruction(
-            mnemonic="dma.load",
+            mnemonic="dma.load.ch2",
             args={
                 "rd": 0,
                 "base": QUERY_BASE,
                 "size": QUERY_DATA.numel() * torch.float8_e4m3fn.itemsize,
-                "flag": 2,
             },
         ),
         Instruction(
-            mnemonic="dma.load",
+            mnemonic="dma.load.ch3",
             args={
                 "rd": 2,
                 "base": SCALE_BASE,
                 "size": SCALE_DATA.numel() * torch.bfloat16.itemsize,
-                "flag": 3,
             },
         ),
-        Instruction(mnemonic="dma.wait", args={"flag": 2}),
-        Instruction(mnemonic="dma.wait", args={"flag": 3}),
+        Instruction(mnemonic="dma.wait.ch2", args={}),
+        Instruction(mnemonic="dma.wait.ch3", args={}),
         # scores = Q @ K   -> MRF 3
         Instruction(mnemonic="matmul.mxu0", args={"rd": 3, "rs1": 0, "rs2": 0}),
         # scores_scaled = scores * scale
@@ -99,15 +95,14 @@ class GemmaAttentionProgram(Program):
         Instruction(mnemonic="matmul.mxu0", args={"rd": 9, "rs1": 8, "rs2": 1}),
         # Store result
         Instruction(
-            mnemonic="dma.store",
+            mnemonic="dma.store.ch4",
             args={
                 "rs1": 9,
                 "base": OUTPUT_BASE,
                 "size": SEQ_LEN * HEAD_DIM * torch.bfloat16.itemsize,
-                "flag": 4,
             },
         ),
-        Instruction(mnemonic="dma.wait", args={"flag": 4}),
+        Instruction(mnemonic="dma.wait.ch4", args={}),
     ]
 
     memory_regions: List[Tuple[int, torch.Tensor]] = [

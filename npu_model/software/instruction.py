@@ -1,4 +1,8 @@
+import re
 from typing import Callable
+
+
+_DMA_CHANNEL_RE = re.compile(r"\.ch(?P<channel>\d+)$")
 
 
 class Instruction:
@@ -22,7 +26,40 @@ class Instruction:
         self.args = args
         self.delay = delay
 
+    def dma_channel(self) -> int:
+        match = _DMA_CHANNEL_RE.search(self.mnemonic)
+        if match is not None:
+            return int(match.group("channel"))
+        if "flag" in self.args:
+            return self.args["flag"]
+        raise KeyError(f"DMA instruction '{self.mnemonic}' does not encode a channel")
+
     def __str__(self) -> str:
+        display_mnemonic = self.mnemonic
+        if display_mnemonic.startswith("dma.") and ".ch" not in display_mnemonic:
+            try:
+                display_mnemonic = f"{display_mnemonic}.ch{self.dma_channel()}"
+            except KeyError:
+                pass
+
+        if self.mnemonic.startswith("dma.load.mxu") and "rd" in self.args:
+            return (
+                f"{display_mnemonic} w{self.args['rd']}, "
+                f"{self.args['base']}, {self.args['size']}"
+            )
+        if self.mnemonic.startswith("dma.load") and "rd" in self.args:
+            return (
+                f"{display_mnemonic} m{self.args['rd']}, "
+                f"{self.args['base']}, {self.args['size']}"
+            )
+        if self.mnemonic.startswith("dma.store") and "rs1" in self.args:
+            return (
+                f"{display_mnemonic} m{self.args['rs1']}, "
+                f"{self.args['base']}, {self.args['size']}"
+            )
+        if self.mnemonic.startswith("dma.wait"):
+            return display_mnemonic
+
         args_str = []
         for key, value in self.args.items():
             args_str.append(f"{key}={value}")

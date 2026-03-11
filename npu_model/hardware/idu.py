@@ -141,10 +141,11 @@ class InstructionDecode(Module):
 
         # if we dispatched a DMA instruction, set flag as busy here
         if exu_type == InstructionType.DMA:
+            channel = self.uop.insn.dma_channel()
             assert (
-                not self.arch_state.check_flag(self.uop.insn.args["flag"])
-            ), f"Flag {self.uop.insn.args['flag']} is already set, erroneous program"
-            self.arch_state.set_flag(self.uop.insn.args["flag"])
+                not self.arch_state.check_flag(channel)
+            ), f"Flag {channel} is already set, erroneous program"
+            self.arch_state.set_flag(channel)
         self.uop = None
 
     def claim_uop(self, ifu_output: StageData["Uop | None"]) -> None:
@@ -156,7 +157,7 @@ class InstructionDecode(Module):
         exu_type = instr_definition.instruction_type
 
         if exu_type == InstructionType.BARRIER:
-            if self.arch_state.check_flag(uop.insn.args["flag"]):
+            if self.arch_state.check_flag(uop.insn.dma_channel()):
                 self._stalled = True
                 return True
             else:

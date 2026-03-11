@@ -31,7 +31,7 @@ class ArchState:
             torch.zeros(self.cfg.wb_width, dtype=torch.uint8)
             for _ in range(self.cfg.num_wb_registers)
         ]
-        self.flags: list[bool] = [False] * 3
+        self.flags: list[bool] = [False] * self.cfg.num_dma_channels
 
     def reset(self) -> None:
         for i in range(len(self.xrf)):
@@ -42,6 +42,8 @@ class ArchState:
             self.wb["mxu0"][i].fill_(0)
         for i in range(len(self.wb["mxu1"])):
             self.wb["mxu1"][i].fill_(0)
+        for i in range(len(self.flags)):
+            self.flags[i] = False
         self.pc = 0
         self.npc = 0
 

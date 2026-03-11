@@ -56,7 +56,7 @@ The hardware model uses a **tick-based simulation** approach with reverse pipeli
 - **Execution Unit Types**:
   - **ScalarExecutionUnit**: Single-cycle scalar operations (add, sub, branches)
   - **MatrixExecutionUnit**: Multi-cycle matrix operations (matmul)
-  - **DmaExecutionUnit**: Memory transfer operations with flag-based synchronization
+  - **DmaExecutionUnit**: Memory transfer operations with channelized `dma.*.ch<N>` synchronization
 
 - **Architectural State**:
   - Scalar register file (XRF)

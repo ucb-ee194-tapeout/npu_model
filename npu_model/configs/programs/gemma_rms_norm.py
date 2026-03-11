@@ -24,35 +24,32 @@ class GemmaRmsNormProgram(Program):
 
     instructions: List[Instruction] = [
         Instruction(
-            mnemonic="dma.load",
+            mnemonic="dma.load.ch0",
             args={
                 "rd": 0,
                 "base": INPUT_BASE,
                 "size": INPUT_DATA.numel() * torch.bfloat16.itemsize,
-                "flag": 0,
             },
         ),
         Instruction(
-            mnemonic="dma.load",
+            mnemonic="dma.load.ch1",
             args={
                 "rd": 2,
                 "base": EPS_BASE,
                 "size": INPUT_DATA.numel() * torch.bfloat16.itemsize,
-                "flag": 1,
             },
         ),
         Instruction(
-            mnemonic="dma.load",
+            mnemonic="dma.load.ch2",
             args={
                 "rd": 8,
                 "base": DIVISOR_BASE,
                 "size": INPUT_DATA.numel() * torch.bfloat16.itemsize,
-                "flag": 2,
             },
         ),
-        Instruction(mnemonic="dma.wait", args={"flag": 0}),
-        Instruction(mnemonic="dma.wait", args={"flag": 1}),
-        Instruction(mnemonic="dma.wait", args={"flag": 2}),
+        Instruction(mnemonic="dma.wait.ch0", args={}),
+        Instruction(mnemonic="dma.wait.ch1", args={}),
+        Instruction(mnemonic="dma.wait.ch2", args={}),
 
         # x_sq = x * x
         Instruction(mnemonic="vmul", args={"vrd": 3, "vs1": 0, "vs2": 0}),
@@ -70,15 +67,14 @@ class GemmaRmsNormProgram(Program):
         Instruction(mnemonic="vmul", args={"vrd": 1, "vs1": 0, "vs2": 7}),
 
         Instruction(
-            mnemonic="dma.store",
+            mnemonic="dma.store.ch0",
             args={
                 "rs1": 1,
                 "base": OUTPUT_BASE,
                 "size": INPUT_DATA.numel() * torch.bfloat16.itemsize,
-                "flag": 0,
             },
         ),
-        Instruction(mnemonic="dma.wait", args={"flag": 0}),
+        Instruction(mnemonic="dma.wait.ch0", args={}),
     ]
 
     memory_regions: List[Tuple[int, torch.Tensor]] = [
