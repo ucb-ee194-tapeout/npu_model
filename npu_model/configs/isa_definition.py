@@ -9,6 +9,7 @@ Scalar operations
 """
 
 PIPELINE_LATENCY = 2
+NUM_DMA_CHANNELS = 8
 
 # Mask for 64-bit unsigned comparison (RISC-V RV64)
 _MASK64 = 0xFFFFFFFFFFFFFFFF
@@ -389,7 +390,10 @@ Memory operations
 """
 
 
-@instr("dma.load", instruction_type=InstructionType.DMA)
+@instr(
+    ["dma.load", *[f"dma.load.ch{channel}" for channel in range(NUM_DMA_CHANNELS)]],
+    instruction_type=InstructionType.DMA,
+)
 def dma_load(state: ArchState, args: dict[str, int]) -> None:
     """
     DMA load from memory to matrix registers.
@@ -410,7 +414,13 @@ def dma_load(state: ArchState, args: dict[str, int]) -> None:
     state.write_mrf_u8(args["rd"], data)
 
 
-@instr("dma.load.mxu0", instruction_type=InstructionType.DMA)
+@instr(
+    [
+        "dma.load.mxu0",
+        *[f"dma.load.mxu0.ch{channel}" for channel in range(NUM_DMA_CHANNELS)],
+    ],
+    instruction_type=InstructionType.DMA,
+)
 def dma_load_mxu0(state: ArchState, args: dict[str, int]) -> None:
     """
     DMA load from memory to weight buffer at MXU0.
@@ -431,7 +441,13 @@ def dma_load_mxu0(state: ArchState, args: dict[str, int]) -> None:
     state.write_wb_u8("mxu0", args["rd"], data)
 
 
-@instr("dma.load.mxu1", instruction_type=InstructionType.DMA)
+@instr(
+    [
+        "dma.load.mxu1",
+        *[f"dma.load.mxu1.ch{channel}" for channel in range(NUM_DMA_CHANNELS)],
+    ],
+    instruction_type=InstructionType.DMA,
+)
 def dma_load_mxu1(state: ArchState, args: dict[str, int]) -> None:
     """
     DMA load from memory to weight buffer at MXU1.
@@ -452,7 +468,10 @@ def dma_load_mxu1(state: ArchState, args: dict[str, int]) -> None:
     state.write_wb_u8("mxu1", args["rd"], data)
 
 
-@instr("dma.store", instruction_type=InstructionType.DMA)
+@instr(
+    ["dma.store", *[f"dma.store.ch{channel}" for channel in range(NUM_DMA_CHANNELS)]],
+    instruction_type=InstructionType.DMA,
+)
 def dma_store(state: ArchState, args: dict[str, int]) -> None:
     """
     DMA store from matrix registers to memory.
@@ -463,7 +482,10 @@ def dma_store(state: ArchState, args: dict[str, int]) -> None:
     state.write_memory(base, data[:size])
 
 
-@instr("dma.wait", instruction_type=InstructionType.BARRIER)
+@instr(
+    ["dma.wait", *[f"dma.wait.ch{channel}" for channel in range(NUM_DMA_CHANNELS)]],
+    instruction_type=InstructionType.BARRIER,
+)
 def dma_wait(state: ArchState, args: dict[str, int]) -> None:
     """
     Wait for target DMA operations to complete.

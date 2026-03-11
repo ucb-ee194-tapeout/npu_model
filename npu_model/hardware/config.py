@@ -19,6 +19,8 @@ class ArchStateConfig:
     """ Number of weight buffer entries. """
     memory_size: int
     """ Size of memory in bytes. """
+    num_dma_channels: int = 8
+    """ Number of architecturally visible DMA channels. """
 
 
 class HardwareConfig:

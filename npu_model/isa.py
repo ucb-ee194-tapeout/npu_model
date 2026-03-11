@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from typing import Callable
 
 
@@ -31,15 +32,26 @@ class IsaSpec:
 
 
 def instr(mnemonic, instruction_type: InstructionType):
-    if not isinstance(mnemonic, str):
+    if isinstance(mnemonic, str):
+        mnemonics = [mnemonic]
+    elif isinstance(mnemonic, Iterable):
+        mnemonics = list(mnemonic)
+        if len(mnemonics) == 0 or not all(
+            isinstance(alias, str) for alias in mnemonics
+        ):
+            raise TypeError(
+                "@instr decorator iterable arguments must contain only strings"
+            )
+    else:
         raise TypeError("@instr decorator must be @instr(<your instruction>)")
 
     def effect(func: Callable) -> Callable:
-        IsaSpec.operations[mnemonic] = Operation(
-            mnemonic=mnemonic,
-            instruction_type=instruction_type,
-            effect=func,
-        )
+        for alias in mnemonics:
+            IsaSpec.operations[alias] = Operation(
+                mnemonic=alias,
+                instruction_type=instruction_type,
+                effect=func,
+            )
 
         return func
 
