@@ -11,3 +11,9 @@ wheels/
 
 # logs
 *.json
+
+# generated scala
+*.scala
+.bloop/
+.metals/
+.scala-build/

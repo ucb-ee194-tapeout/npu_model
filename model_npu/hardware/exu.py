@@ -196,4 +196,4 @@ class ScalarExecutionUnit(ExecutionUnit):
 
     @property
     def supported_instruction_types(self) -> List[InstructionType]:
-        return [InstructionType.SCALAR]
+        return [InstructionType.SCALAR, InstructionType.DELAY]

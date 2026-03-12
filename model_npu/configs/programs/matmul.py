@@ -1,4 +1,5 @@
 from typing import List, Tuple
+from model_npu.isa import ScalarArgs, VectorArgs, MatrixArgs, DmaArgs
 from ...software import Instruction, Program
 import torch
 
@@ -10,16 +11,17 @@ class MatmulProgram(Program):
 
     instructions: List[Instruction] = [
         Instruction(
-            mnemonic="dma.load", args={"rd": 2, "base": 0, "size": 2048, "flag": 0}
+            mnemonic="dma.load", args=DmaArgs(rd=2, base=0, size=2048, flag=0)
         ),  # a full 64x16 matrix of bf16s (0-2048)
-        Instruction(mnemonic="dma.wait", args={"flag": 0}),
+        Instruction(mnemonic="dma.wait", args=DmaArgs(rd=0, base=0, size=0, flag=0)),
         Instruction(
-            mnemonic="dma.load.mxu0", args={"rd": 1, "base": 2048, "size": 512, "flag": 0}
+            mnemonic="dma.load.mxu0",
+            args=DmaArgs(rd=1, base=2048, size=512, flag=0),
         ),  # a full 64x16 matrix of bf16s (ones)
-        Instruction(mnemonic="dma.wait", args={"flag": 0}),
-        Instruction(mnemonic="matmul.mxu0", args={"rd": 0, "rs1": 2, "rs2": 1}),
-        Instruction(mnemonic="matmul.mxu0", args={"rd": 0, "rs1": 2, "rs2": 1}),
-        Instruction(mnemonic="delay", args={"imm": 0}),
+        Instruction(mnemonic="dma.wait", args=DmaArgs(rd=0, base=0, size=0, flag=0)),
+        Instruction(mnemonic="matmul.mxu0", args=MatrixArgs(mrd=0, mrs1=2, mrs2=1)),
+        Instruction(mnemonic="matmul.mxu0", args=MatrixArgs(mrd=0, mrs1=2, mrs2=1)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=0)),
     ]
 
     memory_regions: List[Tuple[int, torch.Tensor]] = [
