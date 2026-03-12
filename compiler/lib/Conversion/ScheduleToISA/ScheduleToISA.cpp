@@ -96,9 +96,9 @@ struct LowerScheduleUKernelToISAPattern
         return rewriter.notifyMatchFailure(op, "gemma_mlp ukernel expects >=2 tensor inputs");
       }
       // Closely mirror model_npu/configs/programs/gemma_mlp.py.
-      rewriter.create<mlir::npu_isa::DmaLoadMxu1Op>(
+      rewriter.create<mlir::npu_isa::DmaLoadMxu0Op>(
           op.getLoc(), i64(rewriter, 0), i64(rewriter, 0x0000), i64(rewriter, 512), i64(rewriter, 0));
-      rewriter.create<mlir::npu_isa::DmaLoadMxu1Op>(
+      rewriter.create<mlir::npu_isa::DmaLoadMxu0Op>(
           op.getLoc(), i64(rewriter, 1), i64(rewriter, 0x0200), i64(rewriter, 512), i64(rewriter, 1));
       rewriter.create<mlir::npu_isa::DmaWaitOp>(op.getLoc(), i64(rewriter, 0));
       rewriter.create<mlir::npu_isa::DmaWaitOp>(op.getLoc(), i64(rewriter, 1));
@@ -130,9 +130,9 @@ struct LowerScheduleUKernelToISAPattern
         return rewriter.notifyMatchFailure(op, "gemma_attention ukernel expects >=2 tensor inputs");
       }
       // Closely mirror model_npu/configs/programs/gemma_attention.py.
-      rewriter.create<mlir::npu_isa::DmaLoadMxu1Op>(
+      rewriter.create<mlir::npu_isa::DmaLoadMxu0Op>(
           op.getLoc(), i64(rewriter, 0), i64(rewriter, 0x2000), i64(rewriter, 256), i64(rewriter, 0));
-      rewriter.create<mlir::npu_isa::DmaLoadMxu1Op>(
+      rewriter.create<mlir::npu_isa::DmaLoadMxu0Op>(
           op.getLoc(), i64(rewriter, 1), i64(rewriter, 0x3000), i64(rewriter, 256), i64(rewriter, 1));
       rewriter.create<mlir::npu_isa::DmaWaitOp>(op.getLoc(), i64(rewriter, 0));
       rewriter.create<mlir::npu_isa::DmaWaitOp>(op.getLoc(), i64(rewriter, 1));

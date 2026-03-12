@@ -22,12 +22,13 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from model_npu.configs.hardware.default import DefaultHardwareConfig
-from model_npu.configs.isa_definition import *  # noqa: F401,F403
-from model_npu.logging import LoggerConfig
-from model_npu.simulation import Simulation
-from model_npu.software.instruction import Instruction
-from model_npu.software.program import Program
+from npu_model.configs.hardware.default import DefaultHardwareConfig
+from npu_model.configs.isa_definition import *  # noqa: F401,F403
+from npu_model.configs.programs import *  # noqa: F401,F403
+from npu_model.logging import LoggerConfig
+from npu_model.simulation import Simulation
+from npu_model.software.instruction import Instruction
+from npu_model.software.program import Program
 
 
 _LINE_RE = re.compile(r"^([a-zA-Z0-9_.]+)(?:\s+(.*))?$")
@@ -67,13 +68,24 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Run simulator smoke test from textual ISA")
     parser.add_argument("isa_file", type=Path, help="Path to emitted textual ISA file")
     parser.add_argument("--max-cycles", type=int, default=10000)
+    parser.add_argument("--program", type=str, help="Optional: Target program class name to use for numerical validation")
     args = parser.parse_args()
 
     lines = args.isa_file.read_text().splitlines()
     instructions = parse_isa_lines(lines)
 
+    # Use program's memory regions if provided, otherwise use defaults
+    reference_program = None
+    if args.program:
+        try:
+            reference_program = eval(args.program)()
+            _SmokeProgram.memory_regions = reference_program.memory_regions
+        except NameError:
+            _SmokeProgram.memory_regions = make_default_memory_regions()
+    else:
+        _SmokeProgram.memory_regions = make_default_memory_regions()
+
     _SmokeProgram.instructions = instructions
-    _SmokeProgram.memory_regions = make_default_memory_regions()
 
     sim = Simulation(
         hardware_config=DefaultHardwareConfig(),
@@ -88,10 +100,42 @@ def main() -> int:
             "Increase max-cycles or verify emitted ISA."
         )
 
-    # Print a deterministic snippet for CI/log inspection.
-    snippet = sim.core.arch_state.read_mrf_bf16(0)[:2, :8]
-    print("Smoke completed. MRF0[0:2,0:8]=")
-    print(snippet)
+    # Check against golden result if reference program provided
+    if reference_program and hasattr(reference_program, "golden_result") and reference_program.golden_result:
+        print("Golden result provided - now performing correctness check:" + "\n")
+
+        output_base, golden_tensor = reference_program.golden_result
+        size = golden_tensor.numel() * golden_tensor.element_size()
+
+        try:
+            mem_data = sim.core.arch_state.read_memory(output_base, size)
+            actual = mem_data.view(golden_tensor.dtype).reshape(golden_tensor.shape).clone()
+
+            # Same logic as "scripts/test_programs.py"
+            if torch.allclose(actual.float(), golden_tensor.float(), rtol=1e-2, atol=1e-2):
+                max_diff = (actual.float() - golden_tensor.float()).abs().max()
+                print(f"PASS - Compiler output matches reference!" + "\n")
+                print(f"Max difference: {max_diff:.6e}")
+            else:
+                max_diff = (actual.float() - golden_tensor.float()).abs().max()
+                mean_diff = (actual.float() - golden_tensor.float()).abs().mean()
+                print(f"FAIL - Compiler output does NOT match!" + "\n")
+                print(f"Max difference: {max_diff:.6e}" + "\n")
+                print(f"Mean difference: {mean_diff:.6e}" + "\n")
+                print(f"Observed first 16 elements from {hex(output_base)}): {mem_data.flatten()[:16]}" + "\n")
+                print(f"Expected first 16 elements from {hex(output_base)}): {actual.flatten()[:16]}")
+                return 1
+
+        except Exception as e:
+            print(f"Error during correctness check: {e}")
+            return 1
+    else:
+        # No golden result provided. Print a deterministic snippet for CI/log inspection.
+        snippet = sim.core.arch_state.read_mrf_bf16(0)[:2, :8]
+        print("No golden result provided - fallback to default behavior:" + "\n")
+        print("Smoke completed. MRF0[0:2,0:8]=")
+        print(snippet)
+
     return 0
 
 
