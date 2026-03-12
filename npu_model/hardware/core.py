@@ -1,9 +1,9 @@
 from typing import List
 import torch
 
-from model_npu.software.program import Program
-from model_npu.logging.logger import Logger, LaneType
-from model_npu.hardware.arch_state import ArchState
+from npu_model.software.program import Program
+from npu_model.logging.logger import Logger, LaneType
+from npu_model.hardware.arch_state import ArchState
 
 from .hardware import Module
 from .config import HardwareConfig

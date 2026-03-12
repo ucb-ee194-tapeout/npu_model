@@ -1,7 +1,7 @@
-from model_npu.hardware.config import HardwareConfig
-from model_npu.logging import LoggerConfig, Logger
-from model_npu.hardware import Core
-from model_npu.software import Program
+from npu_model.hardware.config import HardwareConfig
+from npu_model.logging import LoggerConfig, Logger
+from npu_model.hardware import Core
+from npu_model.software import Program
 
 
 class Simulation:
