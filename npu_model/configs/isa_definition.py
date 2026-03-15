@@ -379,7 +379,7 @@ def vmax(state: ArchState, args: dict[str, int]) -> None:
 def vrowmax(state: ArchState, args: dict[str, int]) -> None:
     """Row-wise max: compute max across each row, broadcast to all columns."""
     x = state.read_mrf_bf16(args["vs1"])  # (64, 16)
-    row_max = x.max(dim=1, keepdim=True)  # (64, 1)
+    row_max = x.max(dim=1, keepdim=True).values  # (64, 1)
     # Broadcast to (64, 16)
     result = row_max.expand(64, 16).contiguous()
     state.write_mrf_bf16(args["vrd"], result)
@@ -387,33 +387,40 @@ def vrowmax(state: ArchState, args: dict[str, int]) -> None:
 
 @instr("vcast.down", instruction_type=InstructionType.VECTOR)
 def vcast_down(state: ArchState, args: dict[str, int]) -> None:
-    """Convert bfloat16 to float8: vrd = fp8(vs1)."""
-    x_bf16 = state.read_mrf_bf16(args["vs1"])  # (64, 16) = 1024 elements
-    x_fp8 = x_bf16.to(torch.float8_e4m3fn)     # 1024 fp8 elements
+    """Convert bfloat16 to float8: vrd = fp8(vs1).
+    Row-wise operation: downcast 16 bf16 elements per row to 16 fp8 elements,
+    then zero-pad remaining 16 columns.
+    Input: (64, 16) bf16 → Output: (64, 32) fp8 with data in first 16 cols.
+    """
+    x_bf16 = state.read_mrf_bf16(args["vs1"])  # (64, 16) bf16
+    x_fp8 = x_bf16.to(torch.float8_e4m3fn)     # (64, 16) fp8
 
-    # Pad with zeros to fill fp8 register (needs 2048 elements)
-    fp8_capacity = (state.cfg.mrf_depth * state.cfg.mrf_width) // torch.float8_e4m3fn.itemsize
-    x_fp8_padded = torch.zeros(fp8_capacity, dtype=torch.float8_e4m3fn)
-    x_fp8_padded[:x_fp8.numel()] = x_fp8.flatten()
+    # Pad each row from 16 to 32 columns to fill fp8 register
+    n_rows = state.cfg.mrf_depth  # 64
+    n_cols_target = state.cfg.mrf_width // torch.float8_e4m3fn.itemsize  # 32
+    n_cols_actual = x_fp8.shape[1]  # 16
 
-    # Reshape to (64, 32)
-    x_fp8_reshaped = x_fp8_padded.reshape(state.cfg.mrf_depth, state.cfg.mrf_width // torch.float8_e4m3fn.itemsize)
-    state.write_mrf_fp8(args["vrd"], x_fp8_reshaped)
+    # Create padded array: (64, 32) with zeros
+    x_fp8_padded = torch.zeros((n_rows, n_cols_target), dtype=torch.float8_e4m3fn)
+    # Copy actual data into first 16 columns of each row
+    x_fp8_padded[:, :n_cols_actual] = x_fp8
+
+    state.write_mrf_fp8(args["vrd"], x_fp8_padded)
 
 
 @instr("vcast.up", instruction_type=InstructionType.VECTOR)
 def vcast_up(state: ArchState, args: dict[str, int]) -> None:
-    """Convert float8 to bfloat16: vrd = bf16(vs1)."""
-    x_fp8 = state.read_mrf_fp8(args["vs1"])  # (64, 32) = 2048 elements
+    """Convert float8 to bfloat16: vrd = bf16(vs1).
+    Row-wise operation: upcast first 16 fp8 elements per row to 16 bf16 elements.
+    """
+    x_fp8 = state.read_mrf_fp8(args["vs1"])  # (64, 32) fp8
 
-    # Only convert as many elements as fit in bf16 register (1024 elements)
-    bf16_capacity = (state.cfg.mrf_depth * state.cfg.mrf_width) // torch.bfloat16.itemsize
-    x_fp8_trimmed = x_fp8.flatten()[:bf16_capacity]  # Take first 1024 elements
-    x_bf16 = x_fp8_trimmed.to(torch.bfloat16)  # 1024 bf16 elements
+    # Take only first 16 columns per row (max that fits in bf16 row)
+    # Each row: 16 fp8 (16 bytes) → 16 bf16 (32 bytes)
+    x_fp8_first_16 = x_fp8[:, :16]  # (64, 16) fp8
+    x_bf16 = x_fp8_first_16.to(torch.bfloat16)  # (64, 16) bf16
 
-    # Reshape to (64, 16) to match bf16 register shape
-    x_bf16_reshaped = x_bf16.reshape(state.cfg.mrf_depth, state.cfg.mrf_width // torch.bfloat16.itemsize)
-    state.write_mrf_bf16(args["vrd"], x_bf16_reshaped)
+    state.write_mrf_bf16(args["vrd"], x_bf16)
 
 
 @instr("vreduce.sum", instruction_type=InstructionType.VECTOR)
