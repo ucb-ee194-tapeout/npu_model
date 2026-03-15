@@ -83,7 +83,7 @@ class ArchState:
         )
 
     def write_mrf_fp8(self, vd: int, value: torch.Tensor) -> None:
-        assert value.dtype == torch.uint8
+        assert value.dtype == torch.float8_e4m3fn
         assert (
             value.numel()
             == self.cfg.mrf_depth * self.cfg.mrf_width // torch.float8_e4m3fn.itemsize

@@ -235,3 +235,69 @@ def gemma_attention_forward(
     attn_output = attn_output.reshape(*input_shape, -1).contiguous()
     attn_output = torch.matmul(attn_output, o_proj_weight.T)
     return attn_output, attn_weights
+
+def gemma_generic_layer(
+    hidden_states: torch.Tensor,
+    q_proj_weight: torch.Tensor,
+    k_proj_weight: torch.Tensor,
+    v_proj_weight: torch.Tensor,
+    o_proj_weight: torch.Tensor,
+    gate_proj_weight: torch.Tensor,
+    up_proj_weight: torch.Tensor,
+    down_proj_weight: torch.Tensor,
+):
+    seq_len = hidden_states.shape[0]
+    d_model = hidden_states.shape[1]
+    d_head = q_proj_weight.shape[1]
+    d_ff = gate_proj_weight.shape[1]
+
+    # Convert to float32 first
+    hidden_states = hidden_states.float()
+    q_proj_weight = q_proj_weight.float()
+    k_proj_weight = k_proj_weight.float()
+    v_proj_weight = v_proj_weight.float()
+    o_proj_weight = o_proj_weight.float()
+    gate_proj_weight = gate_proj_weight.float()
+    up_proj_weight = up_proj_weight.float()
+    down_proj_weight = down_proj_weight.float()
+
+    # 1. Apply rmsnorm to the input
+    hs_norm = norm(hidden_states)
+
+    # 2. Compute QKV
+    Q = torch.matmul(hs_norm, q_proj_weight)
+    K = torch.matmul(hs_norm, k_proj_weight)
+    V = torch.matmul(hs_norm, v_proj_weight)
+
+    # 3. Compute Attention. Note that we're assuming a single head for simplicity
+    attn_scores = torch.matmul(Q, K.T) / (d_head ** 0.5)
+    attn_probs = torch.nn.functional.softmax(attn_scores, dim=1)
+    attn_out = torch.matmul(attn_probs, V)
+
+    # 4. Project back to d_model
+    attn_out = torch.matmul(attn_out, o_proj_weight)
+
+    # 5. Residual connection
+    hs_intermediate = hidden_states + attn_out
+
+    # 6. Apply rmsnorm to hs_intermediate
+    hs_norm = norm(hs_intermediate)
+
+    # 7. Perform gate/up projection
+    gate = torch.matmul(hs_norm, gate_proj_weight)
+    up = torch.matmul(hs_norm, up_proj_weight)
+
+    # 8. Apply GELU to gate
+    gate = gelu_impl(gate)
+
+    # 9. Element-wise multiply of gate and up
+    mlp_out = gate * up
+
+    # 10. Perform down projection
+    mlp_out = torch.matmul(mlp_out, down_proj_weight)
+
+    # 11. Residual connection
+    hs_final = hs_intermediate + mlp_out
+
+    # Done
+    return hs_final
