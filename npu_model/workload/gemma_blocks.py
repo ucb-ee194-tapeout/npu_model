@@ -236,7 +236,7 @@ def gemma_attention_forward(
     attn_output = torch.matmul(attn_output, o_proj_weight.T)
     return attn_output, attn_weights
 
-def gemma_layer_generic_fp8(
+def gemma_generic_layer(
     hidden_states: torch.Tensor,
     q_proj_weight: torch.Tensor,
     k_proj_weight: torch.Tensor,
@@ -274,30 +274,30 @@ def gemma_layer_generic_fp8(
     attn_probs = torch.nn.functional.softmax(attn_scores, dim=1)
     attn_out = torch.matmul(attn_probs, V)
 
-    # # 4. Project back to d_model
-    # attn_out = torch.matmul(attn_out, o_proj_weight)
+    # 4. Project back to d_model
+    attn_out = torch.matmul(attn_out, o_proj_weight)
 
-    # # 5. Residual connection
-    # hs_intermediate = hidden_states + attn_out
+    # 5. Residual connection
+    hs_intermediate = hidden_states + attn_out
 
-    # # 6. Apply rmsnorm to hs_intermediate
-    # hs_norm = norm(hs_intermediate)
+    # 6. Apply rmsnorm to hs_intermediate
+    hs_norm = norm(hs_intermediate)
 
-    # # 7. Perform gate/up projection
-    # gate = torch.matmul(hs_norm, gate_proj_weight)
-    # up = torch.matmul(hs_norm, up_proj_weight)
+    # 7. Perform gate/up projection
+    gate = torch.matmul(hs_norm, gate_proj_weight)
+    up = torch.matmul(hs_norm, up_proj_weight)
 
-    # # 8. Apply GELU to gate
-    # gate = gelu_impl(gate)
+    # 8. Apply GELU to gate
+    gate = gelu_impl(gate)
 
-    # # 9. Element-wise multiply of gate and up
-    # mlp_out = gate * up
+    # 9. Element-wise multiply of gate and up
+    mlp_out = gate * up
 
-    # # 10. Perform down projection
-    # mlp_out = torch.matmul(mlp_out, down_proj_weight)
+    # 10. Perform down projection
+    mlp_out = torch.matmul(mlp_out, down_proj_weight)
 
-    # # 11. Residual connection
-    # hs_final = hs_intermediate + mlp_out
+    # 11. Residual connection
+    hs_final = hs_intermediate + mlp_out
 
     # Done
-    return attn_out.to(torch.float8_e4m3fn)
+    return hs_final
