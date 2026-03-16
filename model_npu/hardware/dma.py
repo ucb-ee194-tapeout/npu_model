@@ -69,7 +69,7 @@ class DmaExecutionUnit(ExecutionUnit):
             # Accept new instruction
             if uop is not None:
                 # tag instruction with execution delay
-                uop.execute_delay = 10 + uop.insn.args["size"]  # FIXME: verify this
+                uop.execute_delay = 10 + uop.insn.args["size"] // 8  # 8 bytes/cycle bandwidth
                 # uop.execute_delay = 10
                 self.in_flight.append(uop)
                 self._total_instructions += 1

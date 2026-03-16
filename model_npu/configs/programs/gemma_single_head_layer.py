@@ -211,9 +211,9 @@ class GemmaSingleHeadLayerProgram(Program):
         Instruction(mnemonic="vrcp", args={"vrd": 19, "vs1": 18}),
         # softmax_scores = exp_scores * inv_col_sum
         Instruction(mnemonic="vmul", args={"vrd": 20, "vs1": 17, "vs2": 19}),
-        # attn_out = softmax_scores @ V -> MRF 21 (
+        # attn_out = softmax_scores @ V -> MRF 21
         Instruction(mnemonic="matmul.mxu0", args={"rd": 21, "rs1": 20, "rs2": 1}),
-        # Load up_weight and down_weight into MXU0 weight buffer
+        # Load up_weight into slot 0 while attn_out executes (safe: attn_out reads slot 1)
         Instruction(
             mnemonic="dma.load.mxu0",
             args={
@@ -223,25 +223,27 @@ class GemmaSingleHeadLayerProgram(Program):
                 "flag": 0,
             },
         ),
+        Instruction(mnemonic="dma.wait", args={"flag": 0}),
+        # up_out = attn_out @ up_weight -> MRF 22 (MXU in-order: attn_out done before this)
+        Instruction(mnemonic="matmul.mxu0", args={"rd": 22, "rs1": 21, "rs2": 0}),
+        # Load down_weight into slot 1 (safe: attn_out done, up_out reads slot 0)
+        # Overlaps with relu VPU ops below
         Instruction(
             mnemonic="dma.load.mxu0",
             args={
                 "rd": 1,
                 "base": DOWN_WEIGHT_BASE,
                 "size": DOWN_WEIGHT_DATA.numel() * torch.float8_e4m3fn.itemsize,
-                "flag": 1,
+                "flag": 0,
             },
         ),
-        Instruction(mnemonic="dma.wait", args={"flag": 0}),
-        Instruction(mnemonic="dma.wait", args={"flag": 1}),
-        # up_out = attn_out @ up_weight -> MRF 22 
-        Instruction(mnemonic="matmul.mxu0", args={"rd": 22, "rs1": 21, "rs2": 0}),
         # relu(x) = 0.5 * (x + |x|), where |x| = sqrt(x^2)
         Instruction(mnemonic="vmul", args={"vrd": 23, "vs1": 22, "vs2": 22}),
         Instruction(mnemonic="vsqrt", args={"vrd": 23, "vs1": 23}),
         Instruction(mnemonic="vadd", args={"vrd": 22, "vs1": 22, "vs2": 23}),
         Instruction(mnemonic="vmul", args={"vrd": 22, "vs1": 22, "vs2": 14}),
-        # down_out = relu_out @ down_weight -> MRF 24 
+        Instruction(mnemonic="dma.wait", args={"flag": 0}),
+        # down_out = relu_out @ down_weight -> MRF 24
         Instruction(mnemonic="matmul.mxu0", args={"rd": 24, "rs1": 22, "rs2": 1}),
         # RMS norm on down_out -> MRF 0
         Instruction(mnemonic="vmul", args={"vrd": 5, "vs1": 24, "vs2": 24}),
