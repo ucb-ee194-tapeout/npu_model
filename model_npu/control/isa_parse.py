@@ -15,6 +15,7 @@ _COL_HEADERS = [
     "src1",
     "src2",
     "dst",
+    "imm",
     "msrc1",
     "msrc2",
     "mdst",
@@ -41,6 +42,7 @@ _DEFAULT = {
     "src1": "X",
     "src2": "X",
     "dst": "X",
+    "imm": "IMM_X",
     "msrc1": "X",
     "msrc2": "X",
     "mdst": "X",
@@ -138,7 +140,7 @@ def instr(name=None, *, instruction_type=None):
         category, subtype = functional_unit.instruction_type(tree)
         mxu_0_valid = mxu_1_valid = scalar_valid = False
         vpu_valid = dma_valid = xlu_valid = False
-
+        imm = "IMM_X"
         match category:
             case "MATRIX":
                 match subtype:
@@ -148,6 +150,17 @@ def instr(name=None, *, instruction_type=None):
                         mxu_1_valid = True
             case "SCALAR":
                 scalar_valid = True
+                match subtype:
+                    case "R":
+                        imm = "IMM_X"
+                    case "I":
+                        imm = "IMM_I"
+                    case "U":
+                        imm = "IMM_U"
+                    case "B":
+                        imm = "IMM_B"
+                    case "J":
+                        imm = "IMM_J"
             case "VECTOR":
                 vpu_valid = True
             case "DMA":
@@ -194,6 +207,7 @@ def instr(name=None, *, instruction_type=None):
                 "src1": str(src1),
                 "src2": str(src2),
                 "dst": _bool(rd),
+                "imm": imm,
                 "msrc1": mrs1,
                 "msrc2": mrs2,
                 "mdst": _bool(mrd),
