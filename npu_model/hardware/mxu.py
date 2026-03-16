@@ -126,7 +126,7 @@ class MatrixExecutionUnitSystolic(ExecutionUnit):
 
     @property
     def supported_instruction_types(self) -> List[InstructionType]:
-        return [InstructionType.MATRIX_SYSTOLIC, InstructionType.MATRIX]
+        return [InstructionType.MATRIX.MATRIX_SYSTOLIC, InstructionType.MATRIX]
 
 
 class MatrixExecutionUnitInner(ExecutionUnit):
@@ -246,4 +246,4 @@ class MatrixExecutionUnitInner(ExecutionUnit):
 
     @property
     def supported_instruction_types(self) -> List[InstructionType]:
-        return [InstructionType.MATRIX_INNER, InstructionType.MATRIX]
+        return [InstructionType.MATRIX.MATRIX_IPT, InstructionType.MATRIX]

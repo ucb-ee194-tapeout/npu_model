@@ -21,10 +21,13 @@ from npu_model.simulation import Simulation
 
 from npu_model.configs.programs import *  # noqa: F401, F403
 from npu_model.configs.hardware import *  # noqa: F401, F403
-from npu_model.configs.isa_definition import *  # noqa: F401, F403
+from npu_model.configs.isa_definition import define_isa  # noqa: F401, F403
 
 
 def main():
+    from npu_model.isa import instr
+
+    define_isa(instr)
     """Main entry point."""
     parser = argparse.ArgumentParser(
         description="NPU Performance Model Simulator",

@@ -5,6 +5,7 @@ import math
 import torch
 
 from ...software import Instruction, Program
+from npu_model.isa import ScalarArgs, DmaArgs, MatrixArgs, VectorArgs
 
 
 SEQ_LEN = 64
@@ -41,73 +42,63 @@ class GemmaAttentionProgram(Program):
     """
 
     instructions: List[Instruction] = [
-        # Load K and V into MXU1 weight buffer (indices 0 and 1)
         Instruction(
             mnemonic="dma.load.mxu1",
-            args={
-                "rd": 0,
-                "base": KEY_BASE,
-                "size": KEY_DATA.numel() * torch.float8_e4m3fn.itemsize,
-                "flag": 0,
-            },
+            args=DmaArgs(
+                rd=0,
+                base=KEY_BASE,
+                size=KEY_DATA.numel() * torch.float8_e4m3fn.itemsize,
+                flag=0,
+            ),
         ),
         Instruction(
             mnemonic="dma.load.mxu1",
-            args={
-                "rd": 1,
-                "base": VALUE_BASE,
-                "size": VALUE_DATA.numel() * torch.float8_e4m3fn.itemsize,
-                "flag": 1,
-            },
+            args=DmaArgs(
+                rd=1,
+                base=VALUE_BASE,
+                size=VALUE_DATA.numel() * torch.float8_e4m3fn.itemsize,
+                flag=1,
+            ),
         ),
-        Instruction(mnemonic="dma.wait", args={"flag": 0}),
-        Instruction(mnemonic="dma.wait", args={"flag": 1}),
-        # Load Q into MRF 0 and the scaling matrix into MRF 2
+        Instruction(mnemonic="dma.wait", args=DmaArgs(flag=0)),
+        Instruction(mnemonic="dma.wait", args=DmaArgs(flag=1)),
         Instruction(
             mnemonic="dma.load",
-            args={
-                "rd": 0,
-                "base": QUERY_BASE,
-                "size": QUERY_DATA.numel() * torch.float8_e4m3fn.itemsize,
-                "flag": 2,
-            },
+            args=DmaArgs(
+                rd=0,
+                base=QUERY_BASE,
+                size=QUERY_DATA.numel() * torch.float8_e4m3fn.itemsize,
+                flag=2,
+            ),
         ),
         Instruction(
             mnemonic="dma.load",
-            args={
-                "rd": 2,
-                "base": SCALE_BASE,
-                "size": SCALE_DATA.numel() * torch.bfloat16.itemsize,
-                "flag": 3,
-            },
+            args=DmaArgs(
+                rd=2,
+                base=SCALE_BASE,
+                size=SCALE_DATA.numel() * torch.bfloat16.itemsize,
+                flag=3,
+            ),
         ),
-        Instruction(mnemonic="dma.wait", args={"flag": 2}),
-        Instruction(mnemonic="dma.wait", args={"flag": 3}),
-        # scores = Q @ K   -> MRF 3
-        Instruction(mnemonic="matmul.mxu0", args={"rd": 3, "rs1": 0, "rs2": 0}),
-        # scores_scaled = scores * scale
-        Instruction(mnemonic="vmul", args={"vrd": 4, "vs1": 3, "vs2": 2}),
-        # exp_scores = exp(scores_scaled)
-        Instruction(mnemonic="vexp", args={"vrd": 5, "vs1": 4}),
-        # row_sum = sum(exp_scores) (broadcast row-wise)
-        Instruction(mnemonic="vreduce.sum", args={"vrd": 6, "vs1": 5}),
-        # inv_row_sum = 1 / row_sum
-        Instruction(mnemonic="vrcp", args={"vrd": 7, "vs1": 6}),
-        # softmax_scores = exp_scores * inv_row_sum
-        Instruction(mnemonic="vmul", args={"vrd": 8, "vs1": 5, "vs2": 7}),
-        # attn_output = softmax_scores @ V  -> MRF 9
-        Instruction(mnemonic="matmul.mxu0", args={"rd": 9, "rs1": 8, "rs2": 1}),
-        # Store result
+        Instruction(mnemonic="dma.wait", args=DmaArgs(flag=2)),
+        Instruction(mnemonic="dma.wait", args=DmaArgs(flag=3)),
+        Instruction(mnemonic="matmul.mxu0", args=MatrixArgs(rd=3, rs1=0, rs2=0)),
+        Instruction(mnemonic="vmul", args=VectorArgs(vrd=4, vs1=3, vs2=2)),
+        Instruction(mnemonic="vexp", args=VectorArgs(vrd=5, vs1=4)),
+        Instruction(mnemonic="vreduce.sum", args=VectorArgs(vrd=6, vs1=5)),
+        Instruction(mnemonic="vrcp", args=VectorArgs(vrd=7, vs1=6)),
+        Instruction(mnemonic="vmul", args=VectorArgs(vrd=8, vs1=5, vs2=7)),
+        Instruction(mnemonic="matmul.mxu0", args=MatrixArgs(rd=9, rs1=8, rs2=1)),
         Instruction(
             mnemonic="dma.store",
-            args={
-                "rs1": 9,
-                "base": OUTPUT_BASE,
-                "size": SEQ_LEN * HEAD_DIM * torch.bfloat16.itemsize,
-                "flag": 4,
-            },
+            args=DmaArgs(
+                rs1=9,
+                base=OUTPUT_BASE,
+                size=SEQ_LEN * HEAD_DIM * torch.bfloat16.itemsize,
+                flag=4,
+            ),
         ),
-        Instruction(mnemonic="dma.wait", args={"flag": 4}),
+        Instruction(mnemonic="dma.wait", args=DmaArgs(flag=4)),
     ]
 
     memory_regions: List[Tuple[int, torch.Tensor]] = [
