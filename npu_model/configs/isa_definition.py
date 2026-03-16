@@ -3,50 +3,16 @@ from typing import Callable
 import torch
 from dataclasses import dataclass
 from npu_model.isa import (
-    ScalarArgs,
-    VectorArgs,
-    MatrixArgs,
-    DmaArgs,
     InstructionType,
+    Args,
+    ScalarArgs, 
+    MatrixArgs,
+    VectorArgs,
+    DmaArgs
+    
 )
 
 from npu_model.hardware.arch_state import ArchState
-
-
-@dataclass
-class Args:
-    pass
-
-
-@dataclass
-class ScalarArgs(Args):
-    rd: int = 0
-    rs1: int = 0
-    rs2: int = 0
-    imm: int = 0
-
-
-@dataclass
-class VectorArgs(Args):
-    vrd: int = 0
-    vrs1: int = 0
-    vrs2: int = 0
-
-
-@dataclass
-class MatrixArgs(Args):
-    mrd: int = 0
-    mrs1: int = 0
-    mrs2: int = 0
-
-
-@dataclass
-class DmaArgs(Args):
-    rd: int = 0
-    rs1: int = 0
-    base: int = 0
-    size: int = 0
-    flag: int = 0
 
 
 """
@@ -304,83 +270,83 @@ def define_isa(instr: Callable) -> None:
 
     @instr("vadd", instruction_type=InstructionType.VECTOR)
     def vadd(state: ArchState, args: VectorArgs) -> None:
-        a = state.read_mrf_bf16(args.mrs1)
-        b = state.read_mrf_bf16(args.mrs2)
-        state.write_mrf_bf16(args.mrd, (a + b).to(torch.bfloat16))
+        a = state.read_mrf_bf16(args.vrs1)
+        b = state.read_mrf_bf16(args.vrs2)
+        state.write_mrf_bf16(args.vrd, (a + b).to(torch.bfloat16))
 
 
     @instr("vsub", instruction_type=InstructionType.VECTOR)
     def vsub(state: ArchState, args: VectorArgs) -> None:
-        a = state.read_mrf_bf16(args.mrs1)
-        b = state.read_mrf_bf16(args.mrs2)
-        state.write_mrf_bf16(args.mrd, (a - b).to(torch.bfloat16))
+        a = state.read_mrf_bf16(args.vrs1)
+        b = state.read_mrf_bf16(args.vrs2)
+        state.write_mrf_bf16(args.vrd, (a - b).to(torch.bfloat16))
 
 
     @instr("vmul", instruction_type=InstructionType.VECTOR)
     def vmul(state: ArchState, args: VectorArgs) -> None:
-        a = state.read_mrf_bf16(args.mrs1)
-        b = state.read_mrf_bf16(args.mrs2)
+        a = state.read_mrf_bf16(args.vrs1)
+        b = state.read_mrf_bf16(args.vrs2)
         result = (a * b).to(torch.bfloat16)
-        state.write_mrf_bf16(args.mrd, result)
+        state.write_mrf_bf16(args.vrd, result)
 
 
     @instr("vsqrt", instruction_type=InstructionType.VECTOR)
     def vsqrt(state: ArchState, args: VectorArgs) -> None:
-        x = state.read_mrf_bf16(args.mrs1)
-        state.write_mrf_bf16(args.mrd, torch.sqrt(x).to(torch.bfloat16))
+        x = state.read_mrf_bf16(args.vrs2)
+        state.write_mrf_bf16(args.vrd, torch.sqrt(x).to(torch.bfloat16))
 
 
     @instr("vrcp", instruction_type=InstructionType.VECTOR)
     def vrcp(state: ArchState, args: VectorArgs) -> None:
         """Elementwise reciprocal: 1 / x."""
-        x = state.read_mrf_bf16(args.mrs1)
-        state.write_mrf_bf16(args.mrd, torch.reciprocal(x).to(torch.bfloat16))
+        x = state.read_mrf_bf16(args.vrs2)
+        state.write_mrf_bf16(args.vrd, torch.reciprocal(x).to(torch.bfloat16))
 
 
     @instr("vexp", instruction_type=InstructionType.VECTOR)
     def vexp(state: ArchState, args: VectorArgs) -> None:
-        x = state.read_mrf_bf16(args.mrs1)
-        state.write_mrf_bf16(args.mrd, torch.exp(x).to(torch.bfloat16))
+        x = state.read_mrf_bf16(args.vrs2)
+        state.write_mrf_bf16(args.vrd, torch.exp(x).to(torch.bfloat16))
 
 
     @instr("vlog2", instruction_type=InstructionType.VECTOR)
     def vlog2(state: ArchState, args: VectorArgs) -> None:
-        x = state.read_mrf_bf16(args.mrs1)
-        state.write_mrf_bf16(args.mrd, torch.log2(x).to(torch.bfloat16))
+        x = state.read_mrf_bf16(args.vrs2)
+        state.write_mrf_bf16(args.vrd, torch.log2(x).to(torch.bfloat16))
 
 
     @instr("vexp2", instruction_type=InstructionType.VECTOR)
     def vexp2(state: ArchState, args: VectorArgs) -> None:
-        x = state.read_mrf_bf16(args.mrs1)
-        state.write_mrf_bf16(args.mrd, torch.exp2(x).to(torch.bfloat16))
+        x = state.read_mrf_bf16(args.vrs2)
+        state.write_mrf_bf16(args.vrd, torch.exp2(x).to(torch.bfloat16))
 
 
     @instr("vsin", instruction_type=InstructionType.VECTOR)
     def vsin(state: ArchState, args: VectorArgs) -> None:
-        x = state.read_mrf_bf16(args.mrs1)
-        state.write_mrf_bf16(args.mrd, torch.sin(x).to(torch.bfloat16))
+        x = state.read_mrf_bf16(args.vrs2)
+        state.write_mrf_bf16(args.vrd, torch.sin(x).to(torch.bfloat16))
 
 
     @instr("vcos", instruction_type=InstructionType.VECTOR)
     def vcos(state: ArchState, args: VectorArgs) -> None:
-        x = state.read_mrf_bf16(args.mrs1)
-        state.write_mrf_bf16(args.mrd, torch.cos(x).to(torch.bfloat16))
+        x = state.read_mrf_bf16(args.vrs2)
+        state.write_mrf_bf16(args.vrd, torch.cos(x).to(torch.bfloat16))
 
 
     @instr("vtanh", instruction_type=InstructionType.VECTOR)
     def vtanh(state: ArchState, args: VectorArgs) -> None:
-        x = state.read_mrf_bf16(args.mrs1)
-        state.write_mrf_bf16(args.mrd, torch.tanh(x).to(torch.bfloat16))
+        x = state.read_mrf_bf16(args.vrs2)
+        state.write_mrf_bf16(args.vrd, torch.tanh(x).to(torch.bfloat16))
 
 
     @instr("vreduce.sum", instruction_type=InstructionType.VECTOR)
     def vreduce_sum(state: ArchState, args: VectorArgs) -> None:
         """Reduce sum over second-to-last (across columns) dimension. For (rows, cols) in, gives (1, cols) broadcast."""
-        x = state.read_mrf_bf16(args.mrs1)
+        x = state.read_mrf_bf16(args.vrs2)
         # sum_val = torch.sum(x.float(), dim=0, keepdim=True)
         # out = sum_val.expand_as(x).to(torch.bfloat16)
         state.write_mrf_bf16(
-            args.mrd,
+            args.vrd,
             torch.sum(x.float(), dim=0, keepdim=True).expand_as(x).to(torch.bfloat16),
         )
 
@@ -389,9 +355,9 @@ def define_isa(instr: Callable) -> None:
     def vrot_reduce_sum(state: ArchState, args: VectorArgs) -> None:
         """Reduce sum over last (across rows) dimension. For (rows, cols) in, gives (rows, 1) broadcast."""
         # TODO: implementation cost?
-        x = state.read_mrf_bf16(args.mrs1)
+        x = state.read_mrf_bf16(args.vrs2)
         state.write_mrf_bf16(
-            args.mrd,
+            args.vrd,
             torch.sum(x.float(), dim=-1, keepdim=True).expand_as(x).to(torch.bfloat16),
         )
 
@@ -402,7 +368,7 @@ def define_isa(instr: Callable) -> None:
         Vector/matrix move between matrix registers.
         """
         src = state.read_mrf_f32(args.vrs1)
-        state.write_mrf_f32(args.mrd, src)
+        state.write_mrf_f32(args.vrd, src)
 
 
     """

@@ -39,8 +39,7 @@ class InstructionDecode(Module):
         # Build a mapping from EXU type to EXU instances
         self.exu_map: dict[InstructionType, list[ExecutionUnit]] = {}
         for exu in exus:
-            exu_types = exu.supported_instruction_types
-            for t in exu_types:
+            for t in exu.supported_instruction_types:
                 if t not in self.exu_map:
                     self.exu_map[t] = []
                 self.exu_map[t].append(exu)

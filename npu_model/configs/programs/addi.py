@@ -1,5 +1,5 @@
 from typing import List
-from npu_model.isa import ScalarArgs, VectorArgs, MatrixArgs, DmaArgs
+from npu_model.isa import *
 from ...software import (
     Instruction,
     Program,
@@ -20,5 +20,5 @@ class AddiProgram(Program):
         Instruction(mnemonic="matmul.mxu1", args=MatrixArgs(mrd=1, mrs1=1, mrs2=1)),
         Instruction(mnemonic="addi", args=ScalarArgs(rd=4, rs1=4, imm=1)),
         Instruction(mnemonic="addi", args=ScalarArgs(rd=5, rs1=5, imm=1)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=0)),
+        Instruction(mnemonic="delay", args=ScalarArgs()),
     ]

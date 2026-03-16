@@ -1,5 +1,5 @@
 from typing import Callable
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, is_dataclass
 
 
 @dataclass
@@ -29,7 +29,8 @@ class Instruction:
         self.delay = delay
 
     def __str__(self) -> str:
-        args_str = [f"{k}={v}" for k, v in asdict(self.args).items()]
+        args_dict = asdict(self.args) if is_dataclass(self.args) else self.args
+        args_str = [f"{k}={v}" for k, v in args_dict.items()]
         return f"{self.mnemonic} {', '.join(args_str)}"
 
 
