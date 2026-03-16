@@ -3,6 +3,7 @@ from typing import Callable
 import inspect
 import ast
 from model_npu.control.passes import register, mem, functional_unit
+import textwrap
 
 # Global registry accumulating decode table rows
 _decode_table: list[dict] = []
@@ -111,7 +112,8 @@ def instr(name=None, *, instruction_type=None):
     def decorator(fn):
         instr_name = (fn.__name__).upper()
 
-        src = inspect.getsource(fn)
+        src = textwrap.dedent(inspect.getsource(fn))
+
         tree = ast.parse(src)
 
         # Valid
