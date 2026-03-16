@@ -1,5 +1,5 @@
 from typing import List, Tuple
-from model_npu.isa import ScalarArgs, VectorArgs, MatrixArgs, DmaArgs
+from npu_model.isa import ScalarArgs, VectorArgs, MatrixArgs, DmaArgs
 from ...software import Instruction, Program
 import torch
 
