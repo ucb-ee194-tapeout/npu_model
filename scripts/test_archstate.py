@@ -1,6 +1,6 @@
 import torch
-from model_npu.hardware.arch_state import ArchState
-from model_npu.hardware.config import ArchStateConfig
+from npu_model.hardware.arch_state import ArchState
+from npu_model.hardware.config import ArchStateConfig
 
 if __name__ == "__main__":
     cfg = ArchStateConfig(

@@ -2,7 +2,7 @@ from typing import Callable
 
 import torch
 from dataclasses import dataclass
-from model_npu.isa import (
+from npu_model.isa import (
     ScalarArgs,
     VectorArgs,
     MatrixArgs,
@@ -10,7 +10,7 @@ from model_npu.isa import (
     InstructionType,
 )
 
-from model_npu.hardware.arch_state import ArchState
+from npu_model.hardware.arch_state import ArchState
 
 
 @dataclass

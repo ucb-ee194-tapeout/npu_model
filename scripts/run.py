@@ -15,17 +15,17 @@ import argparse
 
 import torch
 
-import model_npu
-from model_npu.logging import LoggerConfig
-from model_npu.simulation import Simulation
+import npu_model
+from npu_model.logging import LoggerConfig
+from npu_model.simulation import Simulation
 
-from model_npu.configs.programs import *  # noqa: F401, F403
-from model_npu.configs.hardware import *  # noqa: F401, F403
-from model_npu.configs.isa_definition import define_isa  # noqa: F401, F403
+from npu_model.configs.programs import *  # noqa: F401, F403
+from npu_model.configs.hardware import *  # noqa: F401, F403
+from npu_model.configs.isa_definition import define_isa  # noqa: F401, F403
 
 
 def main():
-    from model_npu.isa import instr
+    from npu_model.isa import instr
 
     define_isa(instr)
     """Main entry point."""
@@ -71,14 +71,14 @@ Examples:
     except NameError:
         print(f"Hardware config '{args.hardware_config}' not found.")
         print("available options are:")
-        print(f"  {', '.join(model_npu.configs.hardware.__all__)}")
+        print(f"  {', '.join(npu_model.configs.hardware.__all__)}")
         return
     try:
         program = eval(args.program)()
     except NameError:
         print(f"Program '{args.program}' not found.")
         print("available options are:")
-        print(f"  {', '.join(model_npu.configs.programs.__all__)}")
+        print(f"  {', '.join(npu_model.configs.programs.__all__)}")
         return
     sim = Simulation(
         hardware_config=hardware_config,

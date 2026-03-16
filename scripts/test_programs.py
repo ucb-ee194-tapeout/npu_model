@@ -2,7 +2,7 @@
 """
 Test execution of all registered programs.
 
-Runs each program from model_npu.configs.programs with the default hardware
+Runs each program from npu_model.configs.programs with the default hardware
 config and a bounded cycle count. Suitable for local runs and CI (e.g. GitHub Actions).
 
 Usage:
@@ -21,15 +21,15 @@ if __name__ == "__main__":
     if str(repo_root) not in sys.path:
         sys.path.insert(0, str(repo_root))
 
-import model_npu
+import npu_model
 import torch
-from model_npu.logging import LoggerConfig
-from model_npu.simulation import Simulation
+from npu_model.logging import LoggerConfig
+from npu_model.simulation import Simulation
 
 # Register all programs and hardware configs (same as run.py)
-from model_npu.configs.programs import *  # noqa: F401, F403
-from model_npu.configs.hardware import *  # noqa: F401, F403
-from model_npu.configs.isa_definition import *  # noqa: F401, F403
+from npu_model.configs.programs import *  # noqa: F401, F403
+from npu_model.configs.hardware import *  # noqa: F401, F403
+from npu_model.configs.isa_definition import *  # noqa: F401, F403
 
 
 def main():
@@ -54,15 +54,15 @@ def main():
     args = parser.parse_args()
 
     program_names = getattr(
-        model_npu.configs.programs, "__all__", []
+        npu_model.configs.programs, "__all__", []
     )
     if not program_names:
-        print("No programs found in model_npu.configs.programs", file=sys.stderr)
+        print("No programs found in npu_model.configs.programs", file=sys.stderr)
         sys.exit(1)
 
     try:
         hardware_config_cls = getattr(
-            model_npu.configs.hardware, args.hardware_config
+            npu_model.configs.hardware, args.hardware_config
         )
     except AttributeError:
         print(
@@ -71,7 +71,7 @@ def main():
         )
         print(
             "Available:",
-            ", ".join(getattr(model_npu.configs.hardware, "__all__", [])),
+            ", ".join(getattr(npu_model.configs.hardware, "__all__", [])),
             file=sys.stderr,
         )
         sys.exit(1)
@@ -79,7 +79,7 @@ def main():
     failed = []
     for name in sorted(program_names):
         try:
-            program_cls = getattr(model_npu.configs.programs, name)
+            program_cls = getattr(npu_model.configs.programs, name)
             program = program_cls()
         except Exception as e:
             failed.append((name, e))
