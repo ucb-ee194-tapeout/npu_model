@@ -1,9 +1,9 @@
 from typing import Callable, Optional
 import inspect
 import ast
-from model_npu.software.instruction import Args
+from npu_model.software.instruction import Args
 from dataclasses import dataclass
-from model_npu.control.passes import register, mem, functional_unit
+from npu_model.control.passes import register, mem, functional_unit
 
 
 class Scalar:

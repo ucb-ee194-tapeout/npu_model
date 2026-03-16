@@ -1,5 +1,5 @@
 import ast
-from model_npu.control.passes.functional_unit import instruction_type
+from npu_model.control.passes.functional_unit import instruction_type
 
 
 def extract_assignments(tree: ast.Module):
