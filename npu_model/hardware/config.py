@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from model_npu.isa import IsaSpec
+from npu_model.isa import IsaSpec
 
 
 @dataclass

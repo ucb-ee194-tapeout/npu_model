@@ -1,7 +1,7 @@
 import torch
 
-from model_npu.isa import instr, InstructionType
-from model_npu.hardware.arch_state import ArchState
+from npu_model.isa import instr, InstructionType
+from npu_model.hardware.arch_state import ArchState
 
 
 """
