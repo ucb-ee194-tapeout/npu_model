@@ -1,102 +1,89 @@
 # System Parameters
 
-This section covers the overall system design parameters and definition of key terms.
+## Frozen Architectural Shape
 
-## Data Types
+| Parameter | Value | Meaning |
+|---|---:|---|
+| `INSN_WIDTH` | `32` bits | Fixed instruction width |
+| `INSN_ALIGN` | `4` bytes | Instruction alignment |
+| `NUM_XREG` | `32` | Scalar register count |
+| `CONTROL_FLOW_DELAY_SLOTS` | `2` | Required branch / jump delay slots |
+| `NUM_EREG` | `32` | Scale register count |
+| `EREG_BITS` | `8` | Bits per scale register |
+| `NUM_MREG` | `64` | Tensor register count |
+| `MREG_ROWS` | `32` | Rows per tensor register |
+| `MREG_ROW_BYTES` | `32` bytes | Bytes per tensor-register row |
+| `MREG_BYTES` | `1024` bytes | Bytes per tensor register |
+| `MXU_COUNT` | `2` | Architected MXU count |
+| `WEIGHT_SLOTS_PER_MXU` | `2` | Weight slots per MXU |
+| `WEIGHT_SLOT_BYTES` | `1024` bytes | Bytes per MXU weight slot |
+| `ACCUM_BUFFER_ROWS` | `32` | Rows per MXU accumulation buffer |
+| `ACCUM_BUFFER_COLS_BF16` | `32` | BF16 columns per MXU accumulation buffer |
+| `ACCUM_BUFFER_BYTES` | `2048` bytes | Bytes per MXU accumulation buffer |
+| `MXU0_ARRAY_ROWS` | `32` | Rows in the `mxu0` systolic fabric |
+| `MXU0_ARRAY_COLS` | `32` | Columns in the `mxu0` systolic fabric |
+| `MXU1_ARRAY_ROWS` | `32` | Rows in the `mxu1` reduction-tree fabric |
+| `MXU1_ARRAY_COLS` | `32` | Columns in the `mxu1` reduction-tree fabric |
+| `VPU_LANES_BF16` | `16` | BF16 lanes in the baseline VPU |
+| `DMA_CHANNELS` | `8` | Architected DMA channels |
+| `DMA_ALIGN` | `32` bytes | DMA alignment and granularity |
+| `IMEM_BASE` | `0x0002_0000` | IMEM base address |
+| `IMEM_SIZE` | `64 KiB` | IMEM capacity |
+| `VMEM_BASE` | `0x2000_0000` | VMEM base address |
+| `VMEM_SIZE` | `1 MiB` | VMEM capacity |
+| `DRAM_BASE` | `0x8000_0000` | DRAM base address |
+| `DRAM_SIZE` | `16 GiB` | DRAM capacity |
 
-The data types that are used in this document and operated by the Accelerator include:
+## Frozen Timing Classes and Bandwidth Fragments
 
-- Boolean (1-bit) number
-- Unsigned 32-bit integer number
-- Signed 32-bit integer number
-- 32-bit floating point number
-- 16-bit floating point number
-- 16-bit Google Brain floating point number
-- 8-bit floating point number
+| Parameter | Value | Meaning |
+|---|---:|---|
+| `MXU0_MATMUL_LATENCY_CYCLES` | `32` | One `mxu0` matmul launch latency class |
+| `MXU1_MATMUL_LATENCY_CYCLES` | `32` | One `mxu1` matmul launch latency class |
+| `VPU_SIMPLE_OP_LATENCY_CYCLES` | `2` | Pipelineable VPU latency class |
+| `VPU_NON_PIPELINEABLE_OP_LATENCY_CYCLES` | `8` | Non-pipelineable VPU latency class |
+| `XLU_TRANSFORM_LATENCY_CYCLES` | `4` | XLU latency class |
+| `OFFCHIP_LINK_WIDTH_BITS` | `32` | DRAM-link beat width |
+| `OFFCHIP_LINK_CORE_CYCLES_PER_BEAT` | `2` | Off-chip serialized beat time |
+| `DMA_OFFCHIP_COMMAND_WORDS` | `2` | DRAM-side DMA command overhead |
+| `VMEM_BUS_WIDTH_BITS` | `512` | VMEM beat width |
+| `VMEM_BUS_CORE_CYCLES_PER_BEAT` | `1` | VMEM beat time |
+| `VMEM_TENSOR_ALIGN` | `32` bytes | VMEM alignment for tensor-facing transfers |
+| `TRACE_TICKS_PER_CYCLE` | `1` | Trace timestamp granularity |
 
-The standard name, short hand name, notations, and size of these data types are defined in the table below:
+## Software-Model Initialization Parameters
 
-| Name | Short Hand Name | Notation | Size (bits) |
-|------|-----------------|----------|-------------|
-| Boolean | boolean | bool | 1 |
-| Unsigned 32-bit integer | uint32 | u32 | 32 |
-| Signed 32-bit integer | int32 | i32 | 32 |
-| IEEE 754 Single Precision Floating Point (binary32) | float32 | fp32 | 32 |
-| IEEE 754 Half Precision Floating Point (binary16) | float16 | fp16 | 16 |
-| Brain Floating Point | bfloat16 | bf16 | 16 |
-| OCP 8-bit Floating Point (E4M3) | float8_e4m3 | fp8 | 8 |
-| OCP 8-bit Floating Point (E5M2) | float8_e5m2 | fp8_e5m2 | 8 |
+| Parameter | Value | Meaning |
+|---|---:|---|
+| `INIT_SEED` | `0x50E11234` | Deterministic pseudo-random initialization seed |
+| `RANDOMIZE_DRAM` | `true` | Randomize DRAM at power-on in the Python model |
+| `RANDOMIZE_VMEM` | `true` | Randomize VMEM at power-on in the Python model |
+| `RANDOMIZE_SCALAR_REGISTERS` | `true` | Randomize scalar registers except `x0` |
+| `RANDOMIZE_SCALE_REGISTERS` | `true` | Randomize scale registers |
+| `RANDOMIZE_TENSOR_REGISTERS` | `true` | Randomize tensor registers |
+| `RANDOMIZE_WEIGHT_SLOTS` | `true` | Randomize MXU weight-slot state |
+| `RANDOMIZE_ACCUM_BUFFERS` | `true` | Randomize MXU accumulation-buffer state |
+| `RANDOMIZE_DMA_BASE` | `true` | Randomize `dma.base` at power-on in the Python model |
 
+## Derived Whole-Register Views
 
-### Float32 Type
+The frozen tensor-register views are:
 
-![](/docs/images/datatype_fp32.png)
+- `32 x 32 FP8_E4M3` in one `m` register
+- `32 x 16 BF16` in one `m` register
+- one full `32 x 32 BF16` tile occupies two consecutive `m` registers
 
-The IEEE 754 float32 format (officially known as binary32) allocates its 32 bits as follows: 
+The frozen MXU-local views are:
 
-- 1 sign bit (S): Determines whether the number is positive (0) or negative (1).
-- 8 exponent bits (E): Store the exponent value using an offset-binary representation with a bias of 127.
-- 23 mantissa (or significand/fraction) bits (M): Represent the fractional part of the number, with an implicit leading bit (usually 1 for normal numbers).
+- one `32 x 32 FP8` weight tile per weight slot
+- one `32 x 32 BF16` accumulation tile per accumulation buffer
 
-### Float16 Type
+## Derived Throughput Roofs
 
-![](/docs/images/datatype_fp16.png)
+At the normalized performance-model level:
 
-The IEEE 754 float16 format (officially known as binary16) allocates its 16 bits as follows:
-- 1 sign bit (S): Determines whether the number is positive (0) or negative (1).
-- 5 exponent bits (E): Store the exponent value using an offset-binary representation with a bias of 15.
-- 10 mantissa (or significand/fraction) bits (M): Represent the fractional part of the number, with an implicit leading bit (usually 1 for normal numbers).
-
-### BFloat16 Type
-
-![](/docs/images/datatype_bf16.png)
-
-The bfloat16 format (Brain Floating Point) allocates its 16 bits as follows:
-- 1 sign bit (S): Determines whether the number is positive (0) or negative (1).
-- 8 exponent bits (E): Store the exponent value using an offset-binary representation with a bias of 127 (the same exponent size and bias as float32).
-- 7 mantissa (or significand/fraction) bits (M): Represent the fractional part of the number, with an implicit leading bit (usually 1 for normal numbers).
-
-### Float8 E4M3 Type
-
-![](/docs/images/datatype_fp8_e4m3.png)
-
-The FP8 e4m3 format allocates its 8 bits as follows:
-- 1 sign bit (S): Determines whether the number is positive (0) or negative (1).
-- 4 exponent bits (E): Store the exponent value using an offset-binary representation with a bias of 7.
-- 3 mantissa (or significand/fraction) bits (M): Represent the fractional part of the number, with an implicit leading bit (usually 1 for normal numbers).
-
-
-### Float8 E5M2 Type
-
-![](/docs/images/datatype_fp8_e5m2.png)
-
-The FP8 e5m2 format allocates its 8 bits as follows:
-- 1 sign bit (S): Determines whether the number is positive (0) or negative (1).
-- 5 exponent bits (E): Store the exponent value using an offset-binary representation with a bias of 15.
-- 2 mantissa (or significand/fraction) bits (M): Represent the fractional part of the number, with an implicit leading bit (usually 1 for normal numbers).
-
-## Design Parameters
-
-Table below summarizes the key design parameters.
-
-| Parameter | Value | Unit | Description |
-|---|---|---|---|
-| **SoC Parameters** |  |  |  |
-| SERTL_WIDTH | 32 | bits | Number of off-chip serial TileLink pins in one direction |
-| SERTL_FREQ | 200 | MHz | Off-chip serial TileLink frequency |
-| CORE_FREQ | 400 | MHz | Core clock frequency |
-| **Accelerator Datapath Parameters** |  |  |  |
-| ML | 2 | - | Number of matrix execution units |
-| NL | 16 | - | Number of inner-product trees within each MXU |
-| DL | 32 | - | Number of elements reduced by each inner-product tree |
-| DVL | 16 | - | Number of elements processed by VPU in parallel |
-| MT | 64 | - | Depth (number of rows) of the matrix register file |
-| NUM_MREG | 64 | - | Number of matrix registers |
-| NUM_WB | 2 | - | Number of weight buffer entries |
-
-The total off-chip memory bandwidth is given by `SERTL_WIDTH * SERTL_FREQ / 8 (MBps)`.
-The total computation throughput of MAC operation is given by `2 * ML * NL * DL (FLOPs/cycle)`.
-
-> **Design Rationale**
->
-> In our design, MT corresponds to the latency of arithmetic instructions: each instruction at least takes MT cycles to read from the registers, process, and write back. To reduce the required instruction throughput on the front end, this number should be as large as possible. However, this number also corresponds to the sequence length tilling size of the workload (on the M dimension). During action model inference, the sequence length is 51. Therefore, setting the value larger than 64 would mean a large amount of cycles wasted.
+- DRAM roof: `2 B/cycle`
+- VMEM roof: `64 B/cycle`
+- `mxu0` peak: `32 * 32 * 32 * 2 / 32 = 2048 FLOPs/cycle`
+- `mxu1` peak: `32 * 32 * 32 * 2 / 32 = 2048 FLOPs/cycle`
+- total MXU peak: `4096 FLOPs/cycle`

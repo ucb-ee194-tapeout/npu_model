@@ -1,25 +1,183 @@
-# Instruction Set
+# Functional Units
 
-The Accelerator is programmed using a static scheduled architecture with no runtime data dependency checking. All functional units are therefore scheduled explicitly by software.
+## Top-Level Organization
 
-This kind of architecture is designed from the characteristic that the target workload exhibits:
-- Coarse-grained (very large data blocks) data-parallel computation.
-- High degrees of predictable instruction-level parallelism.
-- Relatively simple and streamlined control flow.
+The baseline microarchitecture is organized around:
 
-These properties enable efficient static scheduling by the compiler while reducing hardware complexity associated with dynamic scheduling, hazard detection, and issue control.
+- an instruction frontend
+- a scalar execution path
+- a scale register file
+- a tensor register file and tensor interconnect
+- two MXUs
+- one VPU
+- one XLU
+- an instruction-memory path
+- a VMEM subsystem
+- a DMA engine complex connecting `DRAM` and `VMEM`
+- a host-visible control and status block
 
-## Delay and Latency
+## Frontend
 
-The execution of floating-point instructions can be defined in terms of delay slots and functional unit latency. The number of delay slots is equivalent to the number of additional cycles required after the source operands are read for the result to be available for reading. For a single-cycle type instruction, operands are read on cycle i and produce a result that can be read on cycle i + 1. For a 4-cycle instruction, operands are read on cycle i and produce a result that can be read on cycle i + 4. Delay slots are equivalent to execution or result latency.
+The frontend baseline is:
 
-## List of Instructions
+- single-stream instruction fetch
+- single instruction decode
+- single issue decision per cycle
+- fixed-width `32`-bit fetch from `IMEM`
 
-To keep a single consistent implementation, please refer to the functional and performance model for the instruction definitions:
+The frontend phase model used by the software model and trace infrastructure is:
 
-https://github.com/ucb-ee194-tapeout/npu_model/blob/main/model_npu/configs/isa_definition.py
+- `IFU`: fetched-instruction stage
+- `IDU`: decode and issue stage
+- `EXU`: execution-unit stage
 
+## Execution-Unit Overlap Model
 
-## Instruction Encoding
+The baseline implementation supports concurrent long-chime unit activity.
 
-Each instruction is encoded as a 32-bit word.
+Requirements:
+
+- `mxu0`, `mxu1`, `vpu`, `xlu`, and DMA transfers may be active concurrently
+- only one new instruction may issue in a cycle
+- issue stalls when the targeted unit cannot accept a new instruction
+- issue does not perform dynamic reordering to bypass stalled older instructions
+- execution timing is determined by frontend ordering, unit availability, architecturally
+  defined blocking instructions, and fixed instruction latency classes
+
+## Decode Responsibilities
+
+The decode path shall recognize:
+
+- scalar `R`, `I`, `S`, `SB`, `U`, and `UJ` instructions
+- tensor `VLS`, `VR`, and `VI` instructions
+- scalar `delay`
+- DMA transfer and DMA control families
+
+Minimum decode outputs include:
+
+- scalar fields: `rd`, `rs1`, `rs2`, immediate
+- tensor fields: `vd`, `vs1`, `vs2`, subopcode
+- reconstructed weight-slot and DMA-channel selectors where applicable
+- target execution unit
+- legality classification
+
+Decode must enforce the reserved-zero rules defined by the ISA, including:
+
+- unary `VPU` operations: `vs2 = 0`
+- `XLU` operations: `vs2 = 0`
+- `vmatpush.weight.*`: `vs2 = 0` and `vd[5:1] = 0`
+- `vmatpush.acc.*`: `vs2 = 0` and `vd[5:1] = 0`
+- `vmatpop.*`: `vs1 = 0` and `vs2[5:1] = 0`
+- `vmatmul.*`: `vd[5:1] = 0` and `vs2[5:1] = 0`
+- `dma.config.chN` and `dma.wait.chN`: `rd = x0`
+- `dma.wait.chN`: `rs1 = x0`
+
+## Delay-Slot Handling
+
+The microarchitecture preserves the architectural two-delay-slot rule without
+speculation.
+
+Implementation direction:
+
+- the control block tracks unresolved control-flow shadows in program order
+- sequential fetch continues until the youngest resolved shadow has observed its two
+  required delay slots
+- once the youngest resolved shadow has consumed its delay slots, its redirect is
+  applied
+- a branch or jump decoded in a delay-slot position is illegal and shall terminate
+  execution before any younger redirect is applied
+
+## Scalar Arithmetic and Logical Unit
+
+The scalar path is responsible for:
+
+- integer ALU operations
+- branch and jump target generation
+- scalar loads and stores to `VMEM`
+- `seld` and `seli`
+- `dma.base` programming
+- halt-status generation
+
+The intended scalar implementation slice is partitioned into:
+
+- scalar decoder
+- scalar register file
+- scale-register write path
+- scalar ALU / compare datapath
+- branch and jump target unit
+- VMEM-facing scalar LSU
+- scalar control block
+
+## Matrix Execution Units
+
+The two MXUs share the same architectural interface but intentionally differ internally.
+
+Baseline intent:
+
+- `mxu0`: systolic-array accumulation
+- `mxu1`: inner-product-tree accumulation
+
+Shared requirements:
+
+- whole-register activation source
+- resident local weight-slot source
+- `BF16` architectural accumulation
+- one local `32 x 32 BF16` accumulation buffer per MXU
+- tensor-register-only accumulator preload and spill path
+- local quantization path for `vmatpop.fp8.acc.*`
+- ability to overlap with scalar and other long-chime units
+
+`mxu0` requirements:
+
+- internal `32 x 32` systolic fabric
+- architectural `32 x 32` matmul implemented directly by that fabric
+- deterministic launch latency class of `32` cycles
+
+`mxu1` requirements:
+
+- internal `32 x 32` reduction-tree or equivalent throughput-matched fabric
+- deterministic launch latency class of `32` cycles
+
+## Vector Processing Unit
+
+The VPU baseline implements the following whole-register operations:
+
+- `vadd.bf16`
+- `vredsum.bf16`
+- `vsub.bf16`
+- `vmin.bf16`
+- `vmax.bf16`
+- `vmul.bf16`
+- `vmov`
+- `vrecip.bf16`
+- `vexp`
+- `vrelu`
+
+Timing requirements:
+
+- pipelineable elementwise operations use the `2`-cycle latency class
+- non-pipelineable operations such as `vexp` and `vrecip.bf16` use the `8`-cycle
+  latency class
+- the baseline lane count is `16 BF16` lanes
+
+## Tensor Transform / Reduction Unit
+
+The XLU baseline implements:
+
+- `vtrpose.xlu`
+- `vreduce.max.xlu`
+- `vreduce.sum.xlu`
+
+Timing requirement:
+
+- each XLU operation uses the `4`-cycle latency class
+
+## Structural-Conflict Handling
+
+Structural conflicts shall be handled by stalls or arbitration.
+
+They shall not create:
+
+- partial architectural row retirement
+- partial architectural tile retirement
+- architecturally visible younger-over-older preemption

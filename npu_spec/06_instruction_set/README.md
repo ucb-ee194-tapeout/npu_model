@@ -1,202 +1,384 @@
-# Functional Units
-
-This section outlines the design of the functional units.
-
-## Control Unit (CTRL)
-
-The control unit fetches instructions from the local instruction memory, decodes the instruction as control signals, and dispatches them to the functional units.
-
-### Pipelining
-
-The static scheduling architecture provides benefits on simplifying the pipeline design:
-
-- Control of the pipeline is simplified by eliminating pipeline interlocks.
-- Branch latency hidden by branch delay slots. Serial instructions proceed through the pipeline with a fixed relative phase difference between micro-ops.
-
-The pipeline stages are divided into three phases:
-
-- Instruction Fetch (IF)
-- Instruction Decode (ID)
-- Execute (EX)
-
-#### Instruction Fetch (IF)
-
-The fetch phases of the pipeline are:
-
-- IFG: Instruction address generate and send.
-- IFR: Instruction receive.
-
-During the IFG stage, the program address is generated from either the program counter (PC) or the branch target, and is sent to the instruction memory. During IFR, the result instruction is returned from the memory.
-
-#### Instruction Decode (ID)
-
-The decode stage only contain one phase:
-
-- ID: instruction decode and dispatch.
-
-During the ID0 stage, the source registers, destination registers, and associated control signals are decoded for the execution, and the instruction is dispatched to the corresponding functional unit.
-
-#### Execute (EX)
-
-The execution latency is determined by the type of instructions.
-
-> Design Rationale
->
-> In an ideal case, to keep all functional units busy, we could employ a VLIW-style architecture as the instruction interface of the control logic. In this scheme, a 2D grid of functional units and time slots are filled with the scheduled instruction operations. However, an issue of this VLIW-style design is that there will be many empty slots. For example, if a single matrix operation lasts for 64 cycles, then there will be 63 empty slots after the matmul instruction for that functional unit. This drastically increases the required instruction memory size and instruction fetch throughput.
-> Instead, we serialize the VLIW instruction bundles as serial instructions with delay annotations. Each cycle, we only fetch one instruction. If the instruction is annotated with a delay, we stall for that amount of cycles before dispatching this instruction to the functional units.
-> Assuming that most of the instructions are long-latency, we should be able to serialize the program without creating extra overhead.
-
-![](/docs/images/vliw_and_serialized_execution.png)
-
-
-### Branch Instructions
-
-Branch instructions execute in one EX stage, but due to pipeline latency between IFG and EX0, there are two architectural delay slots after any branch. The two instructions immediately following a branch always execute, regardless of whether the branch is taken.
-
-> Design Rationale
->
-> Two delay slots preserve a simple control pipeline while keeping branch behavior deterministic and compiler-schedulable.
-
-### Memory Stalls
-
-The DMA is interfacing with the external memory system, where variations and perturbations happen. Therefore, all memory accesses need to be guarded by a memory barrier instruction. A memory stall occurs when the data is not available after our predicted amount of delays, when program reaches the barrier instruction. The memory stall prevents the next instruction from being dispatched. The in-flight instructions can still continue their execution, draining the execute pipelines.
-
-
-## Scalar Arithmetic and Logical Unit (SALU)
-
-SALU is a simple scalar integer unit used for address calculation, loop control, predication updates, and CSR manipulation. The SALU implements operations similar to a RISC-V RV64I processor.
-
-The latency of the operations are all single-cycle. Results are readable next cycle unless otherwise specified by instruction latency tables.
-
-> Design Rationale
->
-> Without SALU, the programming model cannot cleanly express address generation and control without pushing complexity to the host CPU. SALU is intentionally minimal to preserve static scheduling and small area.
-
-
-## Matrix Execution Unit (MXU)
-
-This section outlines the structure of the two matrix multiply units. MXU0 is implemented as a systolic array, and MXU1 is implemented as parallel inner-product trees. Both units are designed to operate in a weight-stationary dataflow (weight tile is loaded and reused over multiple cycles). Weight-stationary dataflow is selected since it provides a better balance between the required read and write bandwidth between the PE and the register file.
-In weight-stationary dataflow, weight tiles are loaded into the two architectural weight buffers w0 and w1 (each 32×16 FP8). During MXU operation, one WB entry is “active” (feeding the compute array/trees) while the other may be filled by DMA, enabling architectural double buffering.
-
-> Design rationale
->
-> For weight buffer, restricting WB to two entries keeps area small while still enabling overlap of compute with weight fetch. The explicit dma_wait points ensure correctness when a kernel depends on fresh weights.
->
-> For MXU datapath design, the main design goal here is to minimize the energy consumption of the matrix unit. These two matrix units reflect the two approaches to perform the accumulation of the matrix multiplication:
-> - In-place accumulation. The multiply result is added to the previous partial result by a 2:1 adder.
-> - Reduction. Multiple multiply results are added together via an adder tree. This is commonly used to perform dot products.
->
-> The tradeoff between the two accumulation designs is at the data width and number of copies of the adders and the accumulation register. For the in-place accumulation design, we need to expand the mantissa for a small amount to account for the overflow/underflow of adding two numbers; whereas for the reduction tree we need to keep a larger amount of extra bits to account for this multi-number addition. However, for a N2 throughput PE array, the in-place adder and accumulation register structure needs to be duplicated N2 times; but a reduction tree design only requires N copies of the tree adders and accumulation registers. Note that the total number of adders required in both designs are the same (or at least similar), and the difference lies in the bit width required in each adder. We use these two matrix units to serve as a point of comparison to compare and contract their characteristics.
-
-### Systolic Array (MXU0)
-
-This matrix unit design implements a 32 x 16 dimension systolic array with weight-stationary dataflow. Each tile in the array is capable of computing one low-precision floating point multiplication and one accumulation per cycle. Since the systolic array operates in weight-stationary dataflow, the summed result is propagated to the next cell. This MXU is therefore capable of performing 32 x 16 = 512 multiply-accumulate (MAC) operation, giving us a throughput of 1024 FLOPs/cycle.
-
-
-### Parallel Inner-product Tree (MXU1)
-
-This matrix unit design consists of 16 inner-product reduction trees. Each tree is capable of computing 32 pairs of low-precision floating point multiplication and sum the results as a single scalar value per cycle. This MXU is therefore capable of performing 16 x 32 = 512 MAC operation, giving us a throughput of 1024 FLOPs/cycle.
-
-The MXU operates on a weight-stationary dataflow schedule. The weights values are loaded to the weight registers and are reused for multiple cycles.
-
-Before initiating a matrix multiply instruction, the weight needs to be loaded to the weight buffer registers located near each tree. There are two sources to load the weight:
-- Loading from DRAM (`dma.load.mxu0.ch<N> {w0-3}, <address>, <size>`). In this case, DMA will be configured to load a chunk of weight data from DRAM directly to the weight registers. The matrix multiplication can be started after the DMA barrier instruction has been satisfied.
-- Loading from the activation register (`vmov.m.w {w0-3}, <vsrc>`). In this case, a special move instruction is used to transfer weight data from one of the activation registers. Since the latency is known, no barrier needs to be used. The matrix multiplication instruction can be dispatched after a fixed amount of delay. The first 16 rows of the source matrix register will be moved to the weight buffer.
-
-The content in the accumulation register can be reset to zero, for the case when a new matrix multiplication is started; or loaded from the matrix register, for the case where we keep accumulating the partial product from a previous operation.
-During each cycle of a matrix multiply instruction, a tile of the activation operand with shape (2, 32) will be loaded from the matrix register file to the tree, computing a partial sum of shape (2, 16). This partial sum will then be immediately moved out from the accumulation buffer back to one of the matrix registers. This operation continues for 32 cycles, fully consuming the content within one matrix register.
-
-
-## Vector Processing Unit (VPU)
-
-The vector processing unit handles all the floating point operations other than GEMM. These operations include:
-
-- Addition
-
-  vd = vs1 + vs2
-
-- Subtraction
-
-  vd = vs1 - vs2
-
-- Multiplication
-
-  vd = vs1 * vs2
-
-- Reciprocal
-
-  vd = 1 / vs
-
-- Square root
-
-  vd = sqrt(vs)
-
-- Log of 2
-
-  vd = log2(vs)
-
-- Exponential of 2
-
-  vd = 2 ^ vs
-
-- Natural exponential
-
-  vd  = e ^ vs
-
-- Sine
-
-  vd = sin(vs)
-
-- Cosine
-
-  vd = cos(vs)
-
-- Hyperbolic tangent
-
-  vd = tanh(vs)
-
-
-## Cross-lane Transpose Unit (XLU)
-
-The cross-lane transpose unit handles matrix transpose operation.
-The core of the XLU is a 16 x 64 systolic shift unit. When pushing data into the XLU, the instruction specifies a source tensor register. The BF16 elements from that source register are then shifted into the XLU rightward for 64 cycles. The rightmost 16 columns of the shift unit also contain a downward path. When popping the data elements out of the XLU, the rightmost 16x16 tile will be moved downwards and loaded to the first 16 rows of the destination register. To fully compute a transpose of the source (16 x 64) matrix, 4 register and 4 pop instructions are required.
-
-
-## Direct Memory Access Load-Store Unit (DMA)
-
-The direct memory access load-store unit is in charge of handling the memory transfer between the off-chip memory and either the matrix register file or the weight buffer. Each DMA operation transfers a tile of 2D matrix. The data will be tiled to appropriate tiled layouts in memory by the compiler, so DMA only needs to implement unit-stride contiguous transfer.
-
-After a DMA instruction is issued, the DMA unit will generate multiple requests and send them out to the memory bus.
-
-### Terminology
-
-We define an operation to be a single load/store instruction intended to operate on all data in a single matrix register. We define a transaction to be a single ready-valid handshake on the bus on which the DMA is attached. A transaction issues a single cycle TileLink request, whose logical transfer size is equal to the width of the bus (i.e. beatBytes). The downstream, or the memory-side managers will respond one TileLink response per TileLink request in order (TODO: check). 
-
-### Architecture
-
-The DMA should expose 8 operation interfaces to a program. This allows up to 8 concurrent operations (not transactions) to be issued at the same time. Each interface has a busy flag, raised on the cycle the after operation-issuing operation performs its handshake, and lowered on the cycle after the last response transaction corresponding to the operation is received.
-
-The latency of any DMA operation should be assumed to be variable; therefore, any instructions involving a data hazard with a matrix register currently used by the DMA must be fenced. Although DMA operations are intended to be served in order (FCFS), the actual order at which they complete should not be assumed either.
-
-Transfer size: for both load and store, a transfer size in bytes will also be provided. The operation always starts from the first element in the register, and operates on the data in range [0, size-1]. The size will always be divisible by row size, which means the size will be row granularity, and  there will not be partial rows.
-
-Load instructions specify an interface ID, and take a 64-bit source DRAM address, a destination matrix register name or weight buffer entry, and a transfer size (`dma.load.ch<N> <vdest>, <address>, <size>`, and `dma.loadweight.ch<N> <vdest>, <address>, <size>`). The DMA should retrieve the contents at the DRAM address, assumed to be bus-aligned, in unit stride until the number of bytes required to fill exactly one matrix register has been requested. The operation should happen asynchronously, meaning the control flow is free to move on after the single-cyle issue.
-
-Store instructions specify an interface ID, and take a 32-bit destination DRAM address, a source matrix register name, and a transfer size (`dma.store.ch<N> <vsource>, <address>, <size>`). The DMA should retrieve all contents of the matrix register and store to the DRAM address in unit stride. Similar to the load instruction, the store instruction is also asynchronous.
-Fence instructions specify the target interface (`dma.wait.ch<N>`). When the busy flag for the given interface is high, the DMA should stall the control flow until the given interface lowers its busy flag. If the busy flag is already low at instruction issue time, the DMA should immediately return a response. Up to one fence can be in progress (by design).
-
-### Microarchitecture
-
-Towards the core front end, the DMA should expose a valid-only input interface for instruction issue. It should also expose a valid-only output interface for fence response.
-
-Towards the downstream memory, the DMA should expose a single TileLink client with 6 bits source ID (for up to 64 in-flight memory transactions). Other parameters of the client will be diplomatically negotiated downstream.
-
-The DMA should keep an 8-entry operation queue that stores received load and store instructions. This queue should enqueue and dequeue operations in core issue order. Note that fence instructions are not queued; they should be kept track of independently. The queue is dequeued from when the corresponding operation has just received its final response transaction. It’s software’s responsibility to ensure the queue does not overflow, which can be guaranteed if all interface IDs are fenced before being reused.
-
-We define a request head and a response head to the queue. The request head points to the current active operation, denoting the current operation for which requests are being issued. Once all requests have been issued for an operation, the request head moves to the next item in the queue. Note that this means not all responses need to be received for the DMA to move onto another operation. Once all responses have been received for an operation, the response head moves on.
-
-We keep track of 3 states: the request transaction counter, the response transaction counter, and the in-flight counter. Both the request and response counters will wrap when they respectively reach the number of transactions required to serve a matrix register.
-
-Upon reset, all counters are set to 0. When the request head points at an invalid entry, the request counter is kept at 0 (it should wrap for any head change by design). Similarly, the response counter is kept at 0 when the response head is invalid. Any time the DMA TileLink interface performs a handshake (fire) on the A channel, the request counter is incremented; ditto for the D channel/response counter. The A channel should stay valid until the request counter wraps or maximum in-flights are reached (more below); the D channel should stay always ready. 
-
-All TileLink requests will carry a source ID. It’s important that no in-flight source IDs are reused for compliance; as a result, there is a limit to the maximum number of TileLink request transactions that are in flight (defined to be requests for which a response hasn’t yet been received) equal to the number of possible source IDs. Given a 6-bit source ID, up to 64 requests can be in flight. We therefore track this limit using the in-flight counter. This counter is incremented when A fires, decremented when D fires, or kept as-is when both fires (or both don’t). While we can simply cycle through 0~63 for each request regardless of operation or in-flights, we must deassert request valid when the in-flight counter reaches 64 (inclusive - 7 bit counter required).
+# Penguin-TPU Green Card
+
+Conventions used in the opcode tables:
+
+- Bit positions use the RISC-V convention, with bit `31` the MSB and bit `0`
+  the LSB.
+- `Hex value` is written as `opcode_hex/funct3_hex/funct7_or_imm_hex` when that
+  decomposition exists.
+- `*` in the `Hex value` column means the field is operand-dependent rather than
+  part of the opcode match.
+- `pending` means the instruction family is architecturally allocated and its
+  assembly-visible behavior is frozen, but the exact bit packing is not yet
+  frozen in the encoding supplement.
+- Verilog-style descriptions use architectural state names such as `x[...]`,
+  `m[...]`, `e[...]`, `pc`, `VMEM[...]`, and `mxuN.acc`.
+
+## 1. Register Set
+
+The baseline scalar procedure-call convention follows standard `RV32I` ABI
+practice for the `x` register file. No procedure-call ABI has been frozen yet
+for `m`, `e`, or MXU-local state; this card uses the conservative convention
+`Caller` for those architected state elements.
+
+| Register | ABI Name | Description | Saver |
+|-------|---|---|---|
+| `pc`  | `pc` | Architectural program counter, stored as an instruction-word index | N/A |
+| `x0`  | `zero` | Constant zero | Fixed |
+| `x1`  | `ra` | Return address | Caller |
+| `x2`  | `sp` | Stack pointer | Callee |
+| `x3`  | `gp` | Global pointer | Fixed |
+| `x4`  | `tp` | Thread pointer | Fixed |
+| `x5`  | `t0` | Temporary register 0 | Caller |
+| `x6`  | `t1` | Temporary register 1 | Caller |
+| `x7`  | `t2` | Temporary register 2 | Caller |
+| `x8`  | `s0/fp` | Saved register 0 / frame pointer | Callee |
+| `x9`  | `s1` | Saved register 1 | Callee |
+| `x10` | `a0` | Argument / return value 0 | Caller |
+| `x11` | `a1` | Argument / return value 1 | Caller |
+| `x12` | `a2` | Argument 2 | Caller |
+| `x13` | `a3` | Argument 3 | Caller |
+| `x14` | `a4` | Argument 4 | Caller |
+| `x15` | `a5` | Argument 5 | Caller |
+| `x16` | `a6` | Argument 6 | Caller |
+| `x17` | `a7` | Argument 7 | Caller |
+| `x18` | `s2` | Saved register 2 | Callee |
+| `x19` | `s3` | Saved register 3 | Callee |
+| `x20` | `s4` | Saved register 4 | Callee |
+| `x21` | `s5` | Saved register 5 | Callee |
+| `x22` | `s6` | Saved register 6 | Callee |
+| `x23` | `s7` | Saved register 7 | Callee |
+| `x24` | `s8` | Saved register 8 | Callee |
+| `x25` | `s9` | Saved register 9 | Callee |
+| `x26` | `s10` | Saved register 10 | Callee |
+| `x27` | `s11` | Saved register 11 | Callee |
+| `x28` | `t3` | Temporary register 3 | Caller |
+| `x29` | `t4` | Temporary register 4 | Caller |
+| `x30` | `t5` | Temporary register 5 | Caller |
+| `x31` | `t6` | Temporary register 6 | Caller |
+| `m0-m63` | `-` | Flat tensor register file, `4096` bytes per register | Caller |
+| `e0-e31` | `-` | Whole-tensor scale register file, one `FP8_E8M0` exponent per register | Caller |
+| `mxu0.w0` | `-` | MXU0 FP8 weight slot 0 | Caller |
+| `mxu0.w1` | `-` | MXU0 FP8 weight slot 1 | Caller |
+| `mxu1.w0` | `-` | MXU1 FP8 weight slot 0 | Caller |
+| `mxu1.w1` | `-` | MXU1 FP8 weight slot 1 | Caller |
+| `mxu0.acc0` | `-` | MXU0 local `64 x 64 BF16` accumulation buffer 0 | Caller |
+| `mxu0.acc1` | `-` | MXU0 local `64 x 64 BF16` accumulation buffer 1 | Caller |
+| `mxu1.acc0` | `-` | MXU1 local `64 x 64 BF16` accumulation buffer 0 | Caller |
+| `mxu1.acc1` | `-` | MXU1 local `64 x 64 BF16` accumulation buffer 1 | Caller |
+| `dma.base` | `-` | DMA base address | Caller |
+
+## 2. Core Instruction Formats
+
+### 2.1 Scalar RV32I-Compatible Formats
+The following ASCII layout diagrams mirror the standard RISC-V bit positions
+(RV32, MSB is bit `31`, LSB is bit `0`). `SB` below corresponds to the RISC-V `B`
+format (branches), and `UJ` corresponds to the RISC-V `J` format (jumps).
+
+<style>
+  .rv32i-format-table th, .rv32i-format-table td {
+    border: 1px solid #999;
+    padding: 2px 6px;
+    text-align: center;
+  }
+  /* Remove outer "top border" and "left border" only */
+  .rv32i-format-table thead th {
+    border-top: none;
+    border-left: none;
+    border-right: none;
+    font-weight: 200;
+  }
+  .rv32i-format-table thead th:first-child,
+  .rv32i-format-table tbody td:first-child {
+    border-left: none;
+    border-top: none;
+    border-bottom: none;
+    text-align: right;
+  }
+</style>
+
+<table class="rv32i-format-table" style="border-collapse: collapse; width: 100%;">
+  <thead>
+    <tr>
+      <th></th>
+      <th>
+        <div style="display:flex; justify-content:space-between; width:100%;">
+          <span>31</span>
+          <span>25</span>
+        </div>
+      </th>
+      <th style="text-align:left; white-space:nowrap;">
+        <div style="display:flex; justify-content:space-between; width:100%;">
+          <span>24</span>
+          <span>20</span>
+        </div>
+      </th>
+      <th style="text-align:left; white-space:nowrap;">
+        <div style="display:flex; justify-content:space-between; width:100%;">
+          <span>19</span>
+          <span>15</span>
+        </div>
+      </th>
+      <th style="text-align:left; white-space:nowrap;">
+        <div style="display:flex; justify-content:space-between; width:100%;">
+          <span>14</span>
+          <span>12</span>
+        </div>
+      </th>
+      <th style="text-align:left; white-space:nowrap;">
+        <div style="display:flex; justify-content:space-between; width:100%;">
+          <span>11</span>
+          <span>7</span>
+        </div>
+      </th>
+      <th style="text-align:left; white-space:nowrap;">
+        <div style="display:flex; justify-content:space-between; width:100%;">
+          <span>6</span>
+          <span>0</span>
+        </div>
+      </th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>R</td>
+      <td>funct7</td>
+      <td>rs2</td>
+      <td>rs1</td>
+      <td>funct3</td>
+      <td>rd</td>
+      <td>opcode</td>
+    </tr>
+    <tr>
+      <td>I</td>
+      <td colspan=2>imm[11:0]</td>
+      <td>rs1</td>
+      <td>funct3</td>
+      <td>rd</td>
+      <td>opcode</td>
+    </tr>
+    <tr>
+      <td>S</td>
+      <td>imm[11:5]</td>
+      <td>rs2</td>
+      <td>rs1</td>
+      <td>funct3</td>
+      <td>imm[4:0]</td>
+      <td>opcode</td>
+    </tr>
+    <tr>
+      <td>SB</td>
+      <td>imm[12|10:5]</td>
+      <td>rs2</td>
+      <td>rs1</td>
+      <td>funct3</td>
+      <td>imm[4:1|11]</td>
+      <td>opcode</td>
+    </tr>
+    <tr>
+      <td>U</td>
+      <td colspan="4" style="text-align:center;">imm[31:12]</td>
+      <td>rd</td>
+      <td>opcode</td>
+    </tr>
+    <tr>
+      <td>UJ</td>
+      <td colspan="4" style="text-align:center;">imm[20|10:1|11|19:12]</td>
+      <td>rd</td>
+      <td>opcode</td>
+    </tr>
+  </tbody>
+</table>
+
+
+
+### 2.5 Tensor operation
+
+<table class="rv32i-format-table" style="border-collapse: collapse; width: 100%;">
+  <thead>
+    <tr>
+      <th></th>
+      <th>
+        <div style="display:flex; justify-content:space-between; width:100%;">
+          <span>31</span>
+          <span>25</span>
+        </div>
+      </th>
+      <th>
+        <div style="display:flex; justify-content:space-between; width:100%;">
+          <span>24</span>
+          <span>20</span>
+        </div>
+      </th>
+      <th style="text-align:left; white-space:nowrap;">
+        <div style="display:flex; justify-content:space-between; width:100%;">
+          <span>19</span>
+        </div>
+      </th>
+      <th style="text-align:left; white-space:nowrap;">
+        <div style="display:flex; justify-content:space-between; width:100%;">
+          <span>18</span>
+          <span>16</span>
+        </div>
+      </th>
+      <th style="text-align:left; white-space:nowrap;">
+        <div style="display:flex; justify-content:space-between; width:100%;">
+          <span>15</span>
+        </div>
+      </th>
+      <th style="text-align:left; white-space:nowrap;">
+        <div style="display:flex; justify-content:space-between; width:100%;">
+          <span>14</span>
+          <span>13</span>
+        </div>
+      </th>
+      <th style="text-align:left; white-space:nowrap;">
+        <div style="display:flex; justify-content:space-between; width:100%;">
+          <span>12</span>
+          <span>7</span>
+        </div>
+      </th>
+      <th style="text-align:left; white-space:nowrap;">
+        <div style="display:flex; justify-content:space-between; width:100%;">
+          <span>6</span>
+          <span>0</span>
+        </div>
+      </th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>VLS</td>
+      <td colspan=2>imm[11:0]</td>
+      <td colspan=3>rs1</td>
+      <td>f2</td>
+      <td>vd</td>
+      <td>opcode</td>
+    </tr>
+    <tr>
+      <td>VR</td>
+      <td>funct7</td>
+      <td colspan=2>vs2</td>
+      <td colspan=3>vs1</td>
+      <td>vd</td>
+      <td>opcode</td>
+    </tr>
+    <tr>
+      <td>VI</td>
+      <td colspan=4>imm[15:0]</td>
+      <td colspan=2>f3</td>
+      <td>vd</td>
+      <td>opcode</td>
+    </tr>
+  </tbody>
+</table>
+
+Software may rely on the mnemonic repertoire and architectural semantics of
+those instruction families, but not yet on a frozen bit-exact subformat.
+
+## 3. Instructions
+
+Rows are ordered by hex value.
+
+| Mnemonic                 | Fmt      | Opcode    | Funct3 or Funct2        | Funct7 or Imm    | Hex Value  | Name                              | Description (in Verilog) |
+|--------------------------|----------|-----------|-------------------------|------------------|------------|-----------------------------------|--------------------------|
+| `lb`                     | `I`      | `0000011` | `000`                   |                  | `03/0`     | Load Byte                         | `x[rd] = {{24{VMEM[x[rs1] + imm][7]}}, VMEM[x[rs1] + imm]}` |
+| `lh`                     | `I`      | `0000011` | `001`                   |                  | `03/1`     | Load Halfword                     | `x[rd] = {{16{VMEM[x[rs1] + imm][15]}}, VMEM[x[rs1] + imm]}` |
+| `lw`                     | `I`      | `0000011` | `010`                   |                  | `03/2`     | Load Word                         | `x[rd] = VMEM[x[rs1] + imm]` |
+| `lbu`                    | `I`      | `0000011` | `100`                   |                  | `03/4`     | Load Byte Unsigned                | `x[rd] = {24'b0, VMEM[x[rs1] + imm]}` |
+| `lhu`                    | `I`      | `0000011` | `101`                   |                  | `03/5`     | Load Halfword Unsigned            | `x[rd] = {16'b0, VMEM[x[rs1] + imm]}` |
+| `seld`                   | `I`      | `0000011` | `110`                   |                  | `03/6`     | Scale Factor Load                 | `e[rd] = VMEM[x[rs1] + imm];` |
+| `seli`                   | `I`      | `0000011` | `111`                   |                  | `03/7`     | Scale Factor Load Immediate       | `e[rd] = imm;` |
+| `vload`                  | `VLS`    | `0000111` | `00`                    |                  | `07/0`     | Tensor Load                       | `m[vd] = VMEM[x[rs1] + (imm12 << 5)];` |
+| `vstore`                 | `VLS`    | `0000111` | `01`                    |                  | `07/1`     | Tensor Store                      | `VMEM[x[rs1] + (imm12 << 5)] = m[vd];` |
+| `fence`                  | `I`      | `0001111` | `000`                   | `000000000000`   | `0F/0/000` | Fence                             | `np-op` |
+| `addi`                   | `I`      | `0010011` | `000`                   |                  | `13/0`     | Add Immediate                     | `x[rd] = x[rs1] + imm` |
+| `slli`                   | `I`      | `0010011` | `001`                   | `0000000_shamt`  | `13/1/00`  | Shift Left Logical Immediate      | `x[rd] = x[rs1] << shamt` |
+| `slti`                   | `I`      | `0010011` | `010`                   |                  | `13/2`     | Set Less Than Immediate           | `x[rd] = ($signed(x[rs1]) < $signed(imm))` |
+| `sltiu`                  | `I`      | `0010011` | `011`                   |                  | `13/3`     | Set Less Than Immediate Unsigned  | `x[rd] = (x[rs1] < $unsigned($signed(imm)))` |
+| `xori`                   | `I`      | `0010011` | `100`                   |                  | `13/4`     | XOR Immediate                     | `x[rd] = x[rs1] ^ imm` |
+| `srli`                   | `I`      | `0010011` | `101`                   | `0000000_shamt`  | `13/5/00`  | Shift Right Logical Immediate     | `x[rd] = x[rs1] >> shamt` |
+| `srai`                   | `I`      | `0010011` | `101`                   | `0100000_shamt`  | `13/5/20`  | Shift Right Arithmetic Immediate  | `x[rd] = $signed(x[rs1]) >>> shamt` |
+| `ori`                    | `I`      | `0010011` | `110`                   |                  | `13/6`     | OR Immediate                      | `x[rd] = x[rs1] \| imm` |
+| `andi`                   | `I`      | `0010011` | `111`                   |                  | `13/7`     | AND Immediate                     | `x[rd] = x[rs1] & imm` |
+| `auipc`                  | `U`      | `0010111` |                         |                  | `17`       | Add Upper Immediate to PC         | `x[rd] = pc + {imm[31:12], 12'b0}` |
+| `sb`                     | `S`      | `0100011` | `000`                   |                  | `23/0`     | Store Byte                        | `VMEM[x[rs1] + imm] = x[rs2][7:0]` |
+| `sh`                     | `S`      | `0100011` | `001`                   |                  | `23/1`     | Store Halfword                    | `VMEM[x[rs1] + imm] = x[rs2][15:0]` |
+| `sw`                     | `S`      | `0100011` | `010`                   |                  | `23/2`     | Store Word                        | `VMEM[x[rs1] + imm] = x[rs2]` |
+| `add`                    | `R`      | `0110011` | `000`                   | `0000000`        | `33/0/00`  | Add                               | `x[rd] = x[rs1] + x[rs2]` |
+| `sub`                    | `R`      | `0110011` | `000`                   | `0100000`        | `33/0/20`  | Subtract                          | `x[rd] = x[rs1] - x[rs2]` |
+| `sll`                    | `R`      | `0110011` | `001`                   | `0000000`        | `33/1/00`  | Shift Left Logical                | `x[rd] = x[rs1] << x[rs2][4:0]` |
+| `slt`                    | `R`      | `0110011` | `010`                   | `0000000`        | `33/2/00`  | Set Less Than                     | `x[rd] = ($signed(x[rs1]) < $signed(x[rs2]))` |
+| `sltu`                   | `R`      | `0110011` | `011`                   | `0000000`        | `33/3/00`  | Set Less Than Unsigned            | `x[rd] = (x[rs1] < x[rs2])` |
+| `xor`                    | `R`      | `0110011` | `100`                   | `0000000`        | `33/4/00`  | XOR                               | `x[rd] = x[rs1] ^ x[rs2]` |
+| `srl`                    | `R`      | `0110011` | `101`                   | `0000000`        | `33/5/00`  | Shift Right Logical               | `x[rd] = x[rs1] >> x[rs2][4:0]` |
+| `sra`                    | `R`      | `0110011` | `101`                   | `0100000`        | `33/5/20`  | Shift Right Arithmetic            | `x[rd] = $signed(x[rs1]) >>> x[rs2][4:0]` |
+| `or`                     | `R`      | `0110011` | `110`                   | `0000000`        | `33/6/00`  | OR                                | `x[rd] = x[rs1] \| x[rs2]` |
+| `and`                    | `R`      | `0110011` | `111`                   | `0000000`        | `33/7/00`  | AND                               | `x[rd] = x[rs1] & x[rs2]` |
+| `lui`                    | `U`      | `0110111` |                         |                  | `37`       | Load Upper Immediate              | `x[rd] = {imm[31:12], 12'b0}` |
+| `vadd.bf16`              | `VR`     | `1010111` |                         | `0000000`        | `57/00`    | Vector Add                        | `m[vd] = m[vs1].view(bf16) + m[vs2].view(bf16);` |
+| `vredsum.bf16`           | `VR`     | `1010111` |                         | `0000001`        | `57/01`    | Vector Sublane Reduction Sum      | `m[vd][0, :] = m[vs1].view(bf16).sum(dim=0);` |
+| `vsub.bf16`              | `VR`     | `1010111` |                         | `0000010`        | `57/02`    | Vector Subtract                   | `m[vd] = m[vs1].view(bf16) - m[vs2].view(bf16);` |
+| `vmin.bf16`              | `VR`     | `1010111` |                         | `0000100`        | `57/04`    | Vector Minimum                    | `m[vd] = min(m[vs1].view(bf16), m[vs2].view(bf16));` |
+| `vmax.bf16`              | `VR`     | `1010111` |                         | `0000110`        | `57/06`    | Vector Maximum                    | `m[vd] = max(m[vs1].view(bf16), m[vs2].view(bf16));` |
+| `vmul.bf16`              | `VR`     | `1010111` |                         | `0100100`        | `57/24`    | Vector Multiply                   | `m[vd] = m[vs1].view(bf16) * m[vs2].view(bf16));` |
+| `vmov`                   | `VR`     | `1010111` |                         | `1000000`        | `57/40`    | Vector Move                       | `m[vd] = m[vs1];` |
+| `vrecip.bf16`            | `VR`     | `1010111` |                         | `1000001`        | `57/41`    | Vector Reciprocal                 | `m[vd] = 1.f / m[vs1];` |
+| `vexp`                   | `VR`     | `1010111` |                         | `1000010`        | `57/42`    | Vector Exponential                | `m[vd] = bf16_exp(m[vs1]);` |
+| `vrelu`                  | `VR`     | `1010111` |                         | `1000100`        | `57/44`    | Vector ReLU                       | `m[vd] = bf16_relu(m[vs1]);` |
+| `vli.all`                | `VI`     | `1011111` | `000`                   |                  | `5F/0`     | Vector Load Immediate             | `m[vd][:] = imm;` |
+| `vli.row`                | `VI`     | `1011111` | `001`                   |                  | `5F/1`     | Vector Load Immediate             | `m[vd][0, :] = imm;` |
+| `vli.col`                | `VI`     | `1011111` | `010`                   |                  | `5F/2`     | Vector Load Immediate             | `m[vd][:, 0] = imm;` |
+| `vli.one`                | `VI`     | `1011111` | `011`                   |                  | `5F/3`     | Vector Load Immediate             | `m[vd][0, 0] = imm;` |
+| `beq`                    | `B`      | `1100011` | `000`                   |                  | `63/0`     | Branch Equal                      | `if (x[rs1] == x[rs2]) pc = pc + imm after 2 delay slots` |
+| `bne`                    | `B`      | `1100011` | `001`                   |                  | `63/1`     | Branch Not Equal                  | `if (x[rs1] != x[rs2]) pc = pc + imm after 2 delay slots` |
+| `blt`                    | `B`      | `1100011` | `100`                   |                  | `63/4`     | Branch Less Than                  | `if ($signed(x[rs1]) < $signed(x[rs2])) pc = pc + imm after 2 delay slots` |
+| `bge`                    | `B`      | `1100011` | `101`                   |                  | `63/5`     | Branch Greater Or Equal           | `if ($signed(x[rs1]) >= $signed(x[rs2])) pc = pc + imm after 2 delay slots` |
+| `bltu`                   | `B`      | `1100011` | `110`                   |                  | `63/6`     | Branch Less Than Unsigned         | `if (x[rs1] < x[rs2]) pc = pc + imm after 2 delay slots` |
+| `bgeu`                   | `B`      | `1100011` | `111`                   |                  | `63/7`     | Branch Greater Or Equal Unsigned  | `if (x[rs1] >= x[rs2]) pc = pc + imm after 2 delay slots` |
+| `jalr`                   | `I`      | `1100111` | `000`                   |                  | `67/0`     | Jump And Link Register            | `next_pc = x[rs1] + imm; x[rd] = pc + 1; pc = next_pc after 2 delay slots` |
+| `delay`                  | `I`      | `1100111` | `001`                   |                  | `67/1`     | Frontend Delay                    | `hold decode issue for imm cycles;` |
+| `vtrpose.xlu`            | `VR`     | `1101011` |                         | `0000000`        | `6B/00`    | Matrix Transpose                  | `m[vd] = m[vs1].T;` |
+| `vreduce.max.xlu`        | `VR`     | `1101011` |                         | `0000001`        | `6B/01`    | Row Reduce Maximum                | `m[vd][:, 0] = m[vs1].view(bf16).max(dim=1);` |
+| `vreduce.sum.xlu`        | `VR`     | `1101011` |                         | `0000010`        | `6B/02`    | Row Reduce Sum                    | `m[vd][:, 0] = m[vs1].view(bf16).sum(dim=1);` |
+| `jal`                    | `J`      | `1101111` |                         |                  | `6F`       | Jump And Link                     | `x[rd] = pc + 1; pc = pc + imm after 2 delay slots` |
+| `ecall`                  | `I`      | `1110011` | `000`                   | `000000000000`   | `73/0/000` | Environment Call                  | `halt_reason = ECALL; halt = 1'b1;` |
+| `ebreak`                 | `I`      | `1110011` | `000`                   | `000000000001`   | `73/0/001` | Breakpoint                        | `halt_reason = EBREAK; halt = 1'b1;` |
+| `vmatpush.weight.mxu0`   | `VR`     | `1110111` |                         | `0000000`        | `77/00`    | Push Tensor To MXU0 Weight Slot   | `mxu0.w[vd] = m[vs];` |
+| `vmatpush.weight.mxu1`   | `VR`     | `1110111` |                         | `0000001`        | `77/01`    | Push Tensor To MXU1 Weight Slot   | `mxu1.w[vd] = m[vs];` |
+| `vmatpush.acc.fp8.mxu0`  | `VR`     | `1110111` |                         | `0000010`        | `77/02`    | Push Tensor To MXU0 Accumulator   | `mxu0.acc[vd[0]] = dequantize(m[vs]);` |
+| `vmatpush.acc.fp8.mxu1`  | `VR`     | `1110111` |                         | `0000011`        | `77/03`    | Push Tensor To MXU1 Accumulator   | `mxu1.acc[vd[0]] = dequantize(m[vs]);` |
+| `vmatpush.acc.bf16.mxu0` | `VR`     | `1110111` |                         | `0000100`        | `77/04`    | Push Tensor To MXU0 Accumulator   | `mxu0.acc[vd[0]] = {m[vs], m[vs+1]};` |
+| `vmatpush.acc.bf16.mxu1` | `VR`     | `1110111` |                         | `0000101`        | `77/05`    | Push Tensor To MXU1 Accumulator   | `mxu1.acc[vd[0]] = {m[vs], m[vs+1]};` |
+| `vmatpop.fp8.acc.mxu0`   | `VR`     | `1110111` |                         | `0000110`        | `77/06`    | Pop MXU0 FP8 Accumulator View     | `m[vd] = quantize_fp8(mxu0.acc[vs2[0]]);` |
+| `vmatpop.fp8.acc.mxu1`   | `VR`     | `1110111` |                         | `0000111`        | `77/07`    | Pop MXU1 FP8 Accumulator View     | `m[vd] = quantize_fp8(mxu1.acc[vs2[0]]);` |
+| `vmatpop.bf16.acc.mxu0`  | `VR`     | `1110111` |                         | `0001000`        | `77/08`    | Pop MXU0 BF16 Accumulator         | `{m[vd], m[vd + 1]} = mxu0.acc[vs2[0]];` |
+| `vmatpop.bf16.acc.mxu1`  | `VR`     | `1110111` |                         | `0001001`        | `77/09`    | Pop MXU1 BF16 Accumulator         | `{m[vd], m[vd + 1]} = mxu1.acc[vs2[0]];` |
+| `vmatmul.mxu0`           | `VR`     | `1110111` |                         | `0001010`        | `77/10`    | MXU0 Matmul                       | `mxu0.acc[vd[0]] = m[vs1] @ mxu0.w[vs2[0]];` |
+| `vmatmul.mxu1`           | `VR`     | `1110111` |                         | `0001011`        | `77/11`    | MXU1 Matmul                       | `mxu1.acc[vd[0]] = m[vs1] @ mxu1.w[vs2[0]];` |
+| `vmatmul.acc.mxu0`       | `VR`     | `1110111` |                         | `0001100`        | `77/12`    | MXU0 Matmul Accumulate            | `mxu0.acc[vd[0]] = mxu0.acc[vd[0]] + m[vs1] @ mxu0.w[vs2[0]];` |
+| `vmatmul.acc.mxu1`       | `VR`     | `1110111` |                         | `0001101`        | `77/13`    | MXU1 Matmul Accumulate            | `mxu1.acc[vd[0]] = mxu1.acc[vd[0]] + m[vs1] @ mxu1.w[vs2[0]];` |
+| `dma.load.ch<N>`         | `R`      | `1111011` | `000 ~ 111`             | `0000000`        | `7B/00`    | DMA Load                          | `issue_dma_load(channel=N, vmem_addr=x[rd], dram_addr=x[rs1]+base, size=x[rs2]);` |
+| `dma.store.ch<N>`        | `R`      | `1111011` | `000 ~ 111`             | `0000001`        | `7B/01`    | DMA Store                         | `issue_dma_store(channel=N, vmem_addr=x[rs1]+base, dram_addr=x[rd], size=x[rs2]);` |
+| `dma.config.ch<N>`       | `I`      | `1111111` | `000 ~ 111`             | `0000000`        | `7F/00`    | DMA Load                          | `dma.base = x[rs1]` |
+| `dma.wait.ch<N>`         | `I`      | `1111111` | `000 ~ 111`             | `0000001`        | `7F/01`    | DMA Wait                          | `wait_until_dma_channel_idle(channel=N);` |
+
+
+## 4. Architectural Design Parameters
+
+| Item | Value |
+|---|---:|
+| Instruction width | `32` bits |
+| Instruction alignment | `4` bytes |
+| Control-flow delay slots | `2` |
+| Scalar registers | `32` |
+| Tensor registers | `64` |
+| Scale registers | `32` |
+| Tensor register storage | `64 rows x 64 bytes = 4096 bytes` |
+| MXU count | `2` |
+| MXU weight slots per MXU | `2` |
+| MXU accumulator storage | `64 x 64 BF16` |
+| DMA channels | `8` |
+| `IMEM` base | `0x0002_0000` |
+| `VMEM` base | `0x2000_0000` |
+| `DRAM` base | `0x8000_0000` |
