@@ -1,4 +1,5 @@
 from typing import List
+import math
 
 from .exu import ExecutionUnit
 from ..logging.logger import Logger, LaneType
@@ -69,8 +70,12 @@ class DmaExecutionUnit(ExecutionUnit):
             # Accept new instruction
             if uop is not None:
                 # tag instruction with execution delay
-                uop.execute_delay = 10 + uop.insn.args["size"]  # FIXME: verify this
-                # uop.execute_delay = 10
+                uop.execute_delay = max(
+                    1,
+                    math.ceil(
+                        uop.insn.args["size"] / self.config.vmem_bytes_per_cycle
+                    ),
+                )
                 self.in_flight.append(uop)
                 self._total_instructions += 1
 

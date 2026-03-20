@@ -15,10 +15,10 @@ class HardwareParams:
     output_dtype_width: int = 2
     """ Width of output data type in bytes. """
 
-    MT: int = 64
+    MT: int = 32
     """ Number of rows in a matrix register file. """
 
-    NT: int = 16
+    NT: int = 32
     """ Number of inner-product tree, or width of systolic array, equals NL. """
 
     KT: int = 32
@@ -324,8 +324,8 @@ def main():
     cfg = HardwareParams(
         input_dtype_width=1,  # FP8
         output_dtype_width=2,  # BF16
-        MT=64,  # 64 rows in a matrix register
-        NT=16,  # 16 inner-product trees
+        MT=32,  # 32 rows in a matrix register
+        NT=32,  # 32 inner-product trees
         KT=32,  # 32 elements per tree
     )
 
