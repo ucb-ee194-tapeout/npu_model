@@ -1,63 +1,79 @@
 # Introduction
 
-This section contains the high-level overview of our design.
-
 ## Overview
 
-In modern physical AI systems, Vision-Language-Action (VLA) models have emerged as a dominant paradigm for semantic perception, reasoning, and embodied control. Unlike traditional model-based control pipelines, VLA policies are built upon large transformer architectures that directly map multi-modal inputs to robot actions. These models process high-dimensional visual and language tokens through dense matrix multiplications, resulting in substantial low-precision floating-point compute demand.
+The Tapeout NPU is a statically scheduled accelerator-oriented machine with a scalar
+control path and a tile-oriented tensor datapath.
 
-However, VLA inference differs fundamentally from datacenter LLM/VLM workloads. Since the model is deployed at edge on-board the robot, the inference is typically single-batch with fixed sequence length, as camera resolution and prompt formats remain constant during deployment. Unlike autoregressive LLM decoding, VLA policies generally operate without causal attention masks and resemble a “prefill-only” execution pattern. This removes token-by-token generation dynamics but emphasizes high-throughput, latency-bounded full-sequence 2D matrix computations.
+The baseline machine contains:
 
-Together, these characteristics create a unique design point: high arithmetic intensity, deterministic workload structure, strict real-time latency constraints, and aggressive energy efficiency requirements. These factors motivate specialized hardware accelerators optimized specifically for edge-deployed VLA inference rather than repurposed datacenter-oriented architectures.
+- one scalar integer register file of `32` registers, `x0` through `x31`
+- one tensor register file of `64` registers, `m0` through `m63`
+- one scale register file of `32` registers, `e0` through `e31`
+- two architecturally visible matrix execution units, `mxu0` and `mxu1`
+- one vector processing unit, `vpu`
+- one tensor transform / reduction unit, `xlu`
+- one instruction memory, `IMEM`
+- one on-chip tensor / vector memory, `VMEM`
+- one off-chip backing memory, `DRAM`
+- eight architected DMA channels between `DRAM` and `VMEM`
 
-To this extent, we propose the Physical AI Accelerator (referred as “Accelerator” in the following context). The design is specialized for deterministic, energy-efficient execution of VLA policies.
+## Design Principles
 
-The proposed architecture is guided by the following principles:
-- Energy-efficient low-precision floating-point datapath design.
-- Fully deterministic execution within on-chip SRAM boundaries.
-- Throughput-matched 2D matrix functional units optimized for dense GEMM, attention, and activation layers in VLA workload.
-- Static-scheduled instruction architecture, enabling predictable timing, reduced control overhead, and compiler-managed resource orchestration.
+The baseline is guided by the following principles:
 
+- static scheduling rather than dynamic dependency checking
+- single-issue in-order fetch / decode / issue
+- deterministic on-chip timing for a fixed configuration
+- explicit overlap of long-chime functional units
+- one narrow asynchronous boundary at `DRAM <-> VMEM`
+- simple software-model, compiler, and RTL alignment
 
-## Design Features
+## High-Level Execution Model
 
-Features of the design include:
-- Statically scheduled instruction
-  - Latency of the arithmetic functional units are fully deterministic, allowing programs to be optimized during compilation time.
-- Long-chime operations.
-  - Each instruction launches a multi-cycle operation that sweeps through the matrix tiles.
-  - Greatly reduces instruction throughput requirement and allows latency hiding of scalar instructions.
-- Branch delay slot.
-  - Hides functional unit pipeline latency.
-- High throughput matrix execution unit with two accumulation designs.
-  - Direct comparison between systolic array units and parallel inner-product trees for area and energy efficiency.
-- Low precision floating point MACs.
+The frontend is intentionally narrow:
 
+- one fixed-width `32`-bit instruction stream
+- one fetch stream
+- at most one new instruction issued per cycle
 
-## System Architecture
+Execution is overlap-oriented rather than superscalar:
 
+- long-chime tensor instructions may remain active for multiple cycles after issue
+- younger instructions may still issue to other available units
+- issue stalls only on structural conflicts and architecturally defined blocking
+  conditions
+- architectural state updates become visible when the producing instruction completes
 
-Main blocks on the chip include:
-- Saturn-V Tile, containing a Rocket/Shuttle RISC-V application core with Saturn RISC-V vector datapath.
-- Accelerator Tile, containing the Accelerator described in this document.
-- System memory bus interconnect.
-- Scratchpad memory that is accessed by both tiles for fast instruction / data memory operation.
-- Peripheral devices including UART and JTAG for system debugging.
-- Serial TileLink for off-chip DRAM access.
+Control flow is explicit and compiler-visible:
 
-The Accelerator is contained in its own tile, operating in parallel with the Saturn-V Tile. The Saturn core acts as the host processor. It configures the accelerator via MMIO-mapped control and status registers, loads kernel programs into the Accelerator instruction memory, and triggers execution.
+- branches and jumps have exactly `2` architecturally visible delay slots
+- a control-transfer instruction appearing in a delay slot is illegal
 
-Once launched, the Accelerator operates independently. It directly fetches instructions from its local instruction memory and dispatches instructions to the internal functional units. Upon kernel completion, the Accelerator updates its status registers and halts, signaling completion to the Saturn core for further command or task scheduling.
+## Baseline Tile Geometry
 
+The local baseline uses `32 x 32` architectural tensor tiles.
 
-## Accelerator Architecture
+This affects all major tensor-facing structures:
 
-Within its tile, the Accelerator employs a static-scheduled instruction architecture designed for deterministic execution and bounded latency. A lightweight control unit fetches instructions from instruction memory and orchestrates all execution units in a deterministic manner.
+- MXU arithmetic operates on `32 x 32` tiles
+- each tensor register stores one `32 x 32 FP8` tile or one `32 x 16 BF16` half-tile
+- each MXU accumulation buffer stores one `32 x 32 BF16` tile
+- the baseline VPU operates on a `32 x 16 BF16` whole-register view using `16 BF16`
+  lanes
 
-These functional units include:
-- Two Matrix Execution Units (MXU) with different datapath designs
-- One Vector Processing Unit (VPU)
-- One Cross-lane Transpose Unit (XLU)
-- One Direct Memory Access (DMA) Unit
-- One Scalar Arithmetic and Logic Unit (SALU)
+## Memory-System Shape
 
+The architecture exposes three disjoint memory regions:
+
+- `IMEM` at `0x0002_0000`, used for instruction fetch
+- `VMEM` at `0x2000_0000`, used for on-chip tensor and scalar data access
+- `DRAM` at `0x8000_0000`, used for off-chip backing storage
+
+The intended architectural dataflow is:
+
+- scalar loads and stores access `VMEM` only
+- tensor `vload` and `vstore` access `VMEM` only
+- DMA is the only architected `DRAM <-> VMEM` path
+- all other tensor motion is explicit on-chip movement between register files and MXU
+  local state
