@@ -222,13 +222,13 @@ def matmul_mxu0(state: ArchState, args: dict[str, int]) -> None:
 
     product_fp16 = activation_fp16 @ weight_fp16
 
-    acc_bf16 = state.read_mrf_bf16(args["rd"])
+    acc_bf16 = state.read_mrf_bf16_tile(args["rd"])
     acc_fp16 = acc_bf16.to(torch.float16)
 
     accumulation_fp16 = acc_fp16 + product_fp16
 
     output_bf16 = accumulation_fp16.to(torch.bfloat16)
-    state.write_mrf_bf16(args["rd"], output_bf16)
+    state.write_mrf_bf16_tile(args["rd"], output_bf16)
 
 
 @instr("matmul.mxu1", instruction_type=InstructionType.MATRIX_INNER)
@@ -241,13 +241,13 @@ def matmul_mxu1(state: ArchState, args: dict[str, int]) -> None:
 
     product_fp16 = activation_fp16 @ weight_fp16
 
-    acc_bf16 = state.read_mrf_bf16(args["rd"])
+    acc_bf16 = state.read_mrf_bf16_tile(args["rd"])
     acc_fp16 = acc_bf16.to(torch.float16)
 
     accumulation_fp16 = acc_fp16 + product_fp16
 
     output_bf16 = accumulation_fp16.to(torch.bfloat16)
-    state.write_mrf_bf16(args["rd"], output_bf16)
+    state.write_mrf_bf16_tile(args["rd"], output_bf16)
 
 
 """
@@ -389,6 +389,186 @@ Memory operations
 """
 
 
+def _tensor_register_bytes(state: ArchState) -> int:
+    return state.cfg.mrf_depth * state.cfg.mrf_width // torch.uint8.itemsize
+
+
+def _vls_base_register(args: dict[str, int]) -> int:
+    if "rs1" in args:
+        return args["rs1"]
+    if "base" in args:
+        return args["base"]
+    if "vs1" in args:
+        return args["vs1"]
+    raise KeyError("vload/vstore requires rs1, base, or vs1")
+
+
+def _vls_offset(args: dict[str, int]) -> int:
+    if "imm" in args:
+        return args["imm"]
+    if "imm12" in args:
+        return args["imm12"]
+    return args.get("offset", 0)
+
+
+def _vls_address(state: ArchState, args: dict[str, int]) -> int:
+    return state.read_xrf(_vls_base_register(args)) + (_vls_offset(args) << 5)
+
+
+def _acc_dest_index(args: dict[str, int]) -> int:
+    if "vd" in args:
+        return args["vd"]
+    raise KeyError("MXU local write requires a destination accumulator selector")
+
+
+def _acc_source_index(args: dict[str, int]) -> int:
+    if "vs2" in args:
+        return args["vs2"]
+    if "vs1" in args:
+        return args["vs1"]
+    if "vd" in args:
+        return args["vd"]
+    raise KeyError("MXU local read requires an accumulator selector")
+
+
+@instr("vload", instruction_type=InstructionType.VECTOR)
+def vload(state: ArchState, args: dict[str, int]) -> None:
+    """
+    Load one full tensor register from VMEM.
+    """
+    base = _vls_address(state, args)
+    data = state.read_memory(base, _tensor_register_bytes(state)).to(torch.uint8)
+    state.write_mrf_u8(args["vd"], data)
+
+
+@instr("vstore", instruction_type=InstructionType.VECTOR)
+def vstore(state: ArchState, args: dict[str, int]) -> None:
+    """
+    Store one full tensor register to VMEM.
+    """
+    base = _vls_address(state, args)
+    register_index = args.get("vd", args.get("rs2", args.get("vs1")))
+    data = state.mrf[register_index].view(torch.uint8)
+    state.write_memory(base, data)
+
+
+@instr("vmatpush.weight.mxu0", instruction_type=InstructionType.VECTOR)
+def vmatpush_weight_mxu0(state: ArchState, args: dict[str, int]) -> None:
+    state.write_wb_u8("mxu0", args["vd"], state.mrf[args["vs1"]].view(torch.uint8))
+
+
+@instr("vmatpush.weight.mxu1", instruction_type=InstructionType.VECTOR)
+def vmatpush_weight_mxu1(state: ArchState, args: dict[str, int]) -> None:
+    state.write_wb_u8("mxu1", args["vd"], state.mrf[args["vs1"]].view(torch.uint8))
+
+
+@instr("vmatpush.acc.fp8.mxu0", instruction_type=InstructionType.VECTOR)
+def vmatpush_acc_fp8_mxu0(state: ArchState, args: dict[str, int]) -> None:
+    state.write_acc_bf16(
+        "mxu0",
+        _acc_dest_index(args),
+        state.read_mrf_fp8(args["vs1"]).to(torch.bfloat16),
+    )
+
+
+@instr("vmatpush.acc.fp8.mxu1", instruction_type=InstructionType.VECTOR)
+def vmatpush_acc_fp8_mxu1(state: ArchState, args: dict[str, int]) -> None:
+    state.write_acc_bf16(
+        "mxu1",
+        _acc_dest_index(args),
+        state.read_mrf_fp8(args["vs1"]).to(torch.bfloat16),
+    )
+
+
+@instr("vmatpush.acc.bf16.mxu0", instruction_type=InstructionType.VECTOR)
+def vmatpush_acc_bf16_mxu0(state: ArchState, args: dict[str, int]) -> None:
+    state.write_acc_bf16(
+        "mxu0", _acc_dest_index(args), state.read_mrf_bf16_tile(args["vs1"])
+    )
+
+
+@instr("vmatpush.acc.bf16.mxu1", instruction_type=InstructionType.VECTOR)
+def vmatpush_acc_bf16_mxu1(state: ArchState, args: dict[str, int]) -> None:
+    state.write_acc_bf16(
+        "mxu1", _acc_dest_index(args), state.read_mrf_bf16_tile(args["vs1"])
+    )
+
+
+@instr("vmatpop.fp8.acc.mxu0", instruction_type=InstructionType.VECTOR)
+def vmatpop_fp8_acc_mxu0(state: ArchState, args: dict[str, int]) -> None:
+    quantized = state.read_acc_bf16("mxu0", _acc_source_index(args)).to(
+        torch.float8_e4m3fn
+    )
+    state.write_mrf_u8(args["vd"], quantized.view(torch.uint8))
+
+
+@instr("vmatpop.fp8.acc.mxu1", instruction_type=InstructionType.VECTOR)
+def vmatpop_fp8_acc_mxu1(state: ArchState, args: dict[str, int]) -> None:
+    quantized = state.read_acc_bf16("mxu1", _acc_source_index(args)).to(
+        torch.float8_e4m3fn
+    )
+    state.write_mrf_u8(args["vd"], quantized.view(torch.uint8))
+
+
+@instr("vmatpop.bf16.acc.mxu0", instruction_type=InstructionType.VECTOR)
+def vmatpop_bf16_acc_mxu0(state: ArchState, args: dict[str, int]) -> None:
+    state.write_mrf_bf16_tile(
+        args["vd"], state.read_acc_bf16("mxu0", _acc_source_index(args))
+    )
+
+
+@instr("vmatpop.bf16.acc.mxu1", instruction_type=InstructionType.VECTOR)
+def vmatpop_bf16_acc_mxu1(state: ArchState, args: dict[str, int]) -> None:
+    state.write_mrf_bf16_tile(
+        args["vd"], state.read_acc_bf16("mxu1", _acc_source_index(args))
+    )
+
+
+@instr("vmatpop.mxu0", instruction_type=InstructionType.VECTOR)
+def vmatpop_mxu0(state: ArchState, args: dict[str, int]) -> None:
+    state.write_mrf_bf16_tile(
+        args["vd"], state.read_acc_bf16("mxu0", _acc_source_index(args))
+    )
+
+
+@instr("vmatpop.mxu1", instruction_type=InstructionType.VECTOR)
+def vmatpop_mxu1(state: ArchState, args: dict[str, int]) -> None:
+    state.write_mrf_bf16_tile(
+        args["vd"], state.read_acc_bf16("mxu1", _acc_source_index(args))
+    )
+
+
+def _vmatmul(state: ArchState, unit: str, args: dict[str, int], accumulate: bool) -> None:
+    activation_fp16 = state.read_mrf_fp8(args["vs1"]).to(torch.float16)
+    weight_fp16 = state.read_wb_fp8(unit, args["vs2"]).to(torch.float16)
+    result_fp16 = activation_fp16 @ weight_fp16
+    if accumulate:
+        result_fp16 = result_fp16 + state.read_acc_bf16(unit, _acc_dest_index(args)).to(
+            torch.float16
+        )
+    state.write_acc_bf16(unit, _acc_dest_index(args), result_fp16.to(torch.bfloat16))
+
+
+@instr("vmatmul.mxu0", instruction_type=InstructionType.MATRIX_SYSTOLIC)
+def vmatmul_mxu0(state: ArchState, args: dict[str, int]) -> None:
+    _vmatmul(state, "mxu0", args, accumulate=False)
+
+
+@instr("vmatmul.mxu1", instruction_type=InstructionType.MATRIX_INNER)
+def vmatmul_mxu1(state: ArchState, args: dict[str, int]) -> None:
+    _vmatmul(state, "mxu1", args, accumulate=False)
+
+
+@instr("vmatmul.acc.mxu0", instruction_type=InstructionType.MATRIX_SYSTOLIC)
+def vmatmul_acc_mxu0(state: ArchState, args: dict[str, int]) -> None:
+    _vmatmul(state, "mxu0", args, accumulate=True)
+
+
+@instr("vmatmul.acc.mxu1", instruction_type=InstructionType.MATRIX_INNER)
+def vmatmul_acc_mxu1(state: ArchState, args: dict[str, int]) -> None:
+    _vmatmul(state, "mxu1", args, accumulate=True)
+
+
 @instr("dma.load", instruction_type=InstructionType.DMA)
 def dma_load(state: ArchState, args: dict[str, int]) -> None:
     """
@@ -398,13 +578,12 @@ def dma_load(state: ArchState, args: dict[str, int]) -> None:
     size = args["size"]
     data = state.read_memory(base, size)
     # zero pad the data to the size of the MRF
-    if data.numel() < state.cfg.mrf_depth * state.cfg.mrf_width // torch.uint8.itemsize:
+    if data.numel() < _tensor_register_bytes(state):
         data = torch.nn.functional.pad(
             data,
             (
                 0,
-                state.cfg.mrf_depth * state.cfg.mrf_width // torch.uint8.itemsize
-                - data.numel(),
+                _tensor_register_bytes(state) - data.numel(),
             ),
         )
     state.write_mrf_u8(args["rd"], data)

@@ -84,8 +84,10 @@ Examples:
     )
     sim.run(max_cycles=args.max_cycles)
 
-    # print DRAM contents
-    print(sim.core.arch_state.read_memory(0x3000, 64 * 16 * 1).view(torch.bfloat16))
+    if hasattr(program, "golden_result") and program.golden_result:
+        output_base, golden_tensor = program.golden_result
+        size = golden_tensor.numel() * golden_tensor.element_size()
+        print(sim.core.arch_state.read_memory(output_base, size).view(golden_tensor.dtype))
 
 
 if __name__ == "__main__":

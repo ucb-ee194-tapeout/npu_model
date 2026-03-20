@@ -14,19 +14,19 @@ class DMAStallProgram(Program):
     instructions: List[Instruction] = [
         # Load things w/ Matmul
         Instruction(
-            mnemonic="dma.load", args={"rd": 2, "base": 0, "size": 2048, "flag": 0}
-        ),  # a full 64x16 matrix of bf16s (0-2048)
+            mnemonic="dma.load", args={"rd": 2, "base": 0, "size": 1024, "flag": 0}
+        ),
         Instruction(
-            mnemonic="dma.load.mxu0", args={"rd": 1, "base": 2048, "size": 512, "flag": 1}
-        ),  # a full 64x16 matrix of bf16s (ones)
+            mnemonic="dma.load.mxu0", args={"rd": 1, "base": 1024, "size": 1024, "flag": 1}
+        ),
         Instruction(mnemonic="dma.wait", args={"flag": 1}), # Wait to get these things
         
         # Do unnecessary loads
         Instruction(
-            mnemonic="dma.load", args={"rd": 3, "base": 0, "size": 2048, "flag": 0}
+            mnemonic="dma.load", args={"rd": 3, "base": 0, "size": 1024, "flag": 0}
         ),
         Instruction(
-            mnemonic="dma.load.mxu0", args={"rd": 0, "base": 2048, "size": 512, "flag": 1}
+            mnemonic="dma.load.mxu0", args={"rd": 0, "base": 1024, "size": 1024, "flag": 1}
         ),
 
         # Do matmul
@@ -39,9 +39,6 @@ class DMAStallProgram(Program):
     ]
 
     memory_regions: List[Tuple[int, torch.Tensor]] = [
-        # A = 64x32 matrix with increasing values
-        (0, (torch.eye(64, 32, dtype=torch.float8_e4m3fn))),
-        # B = 32x16 matrix (identity-like: first 16 columns of 32x32 identity)
-        # So result is (64x32) @ (32x16) -> (64x16)
-        (2048, (torch.eye(32, 16, dtype=torch.float8_e4m3fn))),
+        (0, torch.eye(32, 32, dtype=torch.float8_e4m3fn)),
+        (1024, torch.eye(32, 32, dtype=torch.float8_e4m3fn)),
     ]
