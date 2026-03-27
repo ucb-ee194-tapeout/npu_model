@@ -30,10 +30,10 @@ class DMAStallProgram(Program):
             mnemonic="dma.load.mxu0", args=DmaArgs(rd=0, base=2048, size=512, flag=1)
         ),
         # Do matmul
-        Instruction(mnemonic="matmul.mxu0", args=MatrixArgs(mrd=0, mrs1=2, mrs2=1)),
-        Instruction(mnemonic="matmul.mxu0", args=MatrixArgs(mrd=0, mrs1=2, mrs2=1)),
-        Instruction(mnemonic="matmul.mxu0", args=MatrixArgs(mrd=0, mrs1=2, mrs2=1)),
-        Instruction(mnemonic="matmul.mxu0", args=MatrixArgs(mrd=0, mrs1=2, mrs2=1)),
+        Instruction(mnemonic="matmul.mxu0", args=MatrixArgs(rd=0, rs1=2, rs2=1)),
+        Instruction(mnemonic="matmul.mxu0", args=MatrixArgs(rd=0, rs1=2, rs2=1)),
+        Instruction(mnemonic="matmul.mxu0", args=MatrixArgs(rd=0, rs1=2, rs2=1)),
+        Instruction(mnemonic="matmul.mxu0", args=MatrixArgs(rd=0, rs1=2, rs2=1)),
         Instruction(mnemonic="dma.wait", args=DmaArgs(flag=1)),  # Wait to finish loads
         Instruction(mnemonic="delay", args=ScalarArgs(imm=0)),
     ]

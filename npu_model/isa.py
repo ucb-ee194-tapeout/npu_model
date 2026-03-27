@@ -1,4 +1,4 @@
-from typing import Callable, Optional
+from typing import Callable, Optional, Any
 import inspect
 import ast
 from npu_model.software.instruction import Args
@@ -105,16 +105,35 @@ class ScalarArgs(Args):
 
 @dataclass
 class VectorArgs(Args):
+    # Legacy names
     vrd: int = 0
     vrs1: int = 0
     vrs2: int = 0
+    # Upstream/new ISA names
+    vd: int = 0
+    vs1: int = 0
+    vs2: int = 0
+    rs1: int = 0
+    rs2: int = 0
+    base: int = 0
+    offset: int = 0
+    imm12: int = 0
+    imm: int = 0
 
 
 @dataclass
 class MatrixArgs(Args):
+    # Legacy names
     mrd: int = 0
     mrs1: int = 0
     mrs2: int = 0
+    # Upstream/new ISA names
+    vd: int = 0
+    vs1: int = 0
+    vs2: int = 0
+    rd: int = 0
+    rs1: int = 0
+    rs2: int = 0
 
 
 @dataclass
@@ -124,6 +143,34 @@ class DmaArgs(Args):
     base: int = 0
     size: int = 0
     flag: int = 0
+
+
+def _args_getattr(args: Any, key: str) -> Any:
+    if isinstance(args, dict):
+        return args[key]
+    if hasattr(args, key):
+        return getattr(args, key)
+    raise KeyError(key)
+
+
+def _args_has(args: Any, key: str) -> bool:
+    if isinstance(args, dict):
+        return key in args
+    return hasattr(args, key)
+
+
+def _args_get(args: Any, key: str, default: Any = None) -> Any:
+    if isinstance(args, dict):
+        return args.get(key, default)
+    if hasattr(args, key):
+        return getattr(args, key)
+    return default
+
+
+# Keep dataclass arg objects compatible with dict-style ISA accesses.
+Args.__getitem__ = lambda self, key: _args_getattr(self, key)  # type: ignore[attr-defined]
+Args.__contains__ = lambda self, key: _args_has(self, key)  # type: ignore[attr-defined]
+Args.get = lambda self, key, default=None: _args_get(self, key, default)  # type: ignore[attr-defined]
 
 
 class Operation:

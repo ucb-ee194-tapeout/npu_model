@@ -31,6 +31,16 @@ class ArchState:
             torch.zeros(self.cfg.wb_width, dtype=torch.uint8)
             for _ in range(self.cfg.num_wb_registers)
         ]
+        acc_cols = self.cfg.mrf_width // torch.bfloat16.itemsize * 2
+        self.acc: dict[str, list[torch.Tensor]] = {}
+        self.acc["mxu0"] = [
+            torch.zeros((self.cfg.mrf_depth, acc_cols), dtype=torch.bfloat16)
+            for _ in range(self.cfg.num_wb_registers)
+        ]
+        self.acc["mxu1"] = [
+            torch.zeros((self.cfg.mrf_depth, acc_cols), dtype=torch.bfloat16)
+            for _ in range(self.cfg.num_wb_registers)
+        ]
         self.flags: list[bool] = [False] * 3
 
     def reset(self) -> None:
@@ -42,6 +52,10 @@ class ArchState:
             self.wb["mxu0"][i].fill_(0)
         for i in range(len(self.wb["mxu1"])):
             self.wb["mxu1"][i].fill_(0)
+        for i in range(len(self.acc["mxu0"])):
+            self.acc["mxu0"][i].fill_(0)
+        for i in range(len(self.acc["mxu1"])):
+            self.acc["mxu1"][i].fill_(0)
         self.pc = 0
         self.npc = 0
 
@@ -130,6 +144,19 @@ class ArchState:
             .reshape(self.cfg.mrf_depth, self.cfg.mrf_width // torch.bfloat16.itemsize)
         )
 
+    def write_mrf_bf16_tile(self, vd: int, value: torch.Tensor) -> None:
+        cols_per_register = self.cfg.mrf_width // torch.bfloat16.itemsize
+        assert value.dtype == torch.bfloat16
+        assert value.shape == (self.cfg.mrf_depth, cols_per_register * 2)
+        self.write_mrf_bf16(vd, value[:, :cols_per_register].contiguous())
+        self.write_mrf_bf16(vd + 1, value[:, cols_per_register:].contiguous())
+
+    def read_mrf_bf16_tile(self, vs: int) -> torch.Tensor:
+        return torch.cat(
+            (self.read_mrf_bf16(vs), self.read_mrf_bf16(vs + 1)),
+            dim=1,
+        )
+
     def read_mrf_bf16_transposed(self, vs: int) -> torch.Tensor:
         """Read MRF as (cols, rows) for use after vtranspose."""
         n_cols = self.cfg.mrf_width // torch.bfloat16.itemsize
@@ -185,6 +212,14 @@ class ArchState:
         num_cols = (self.cfg.wb_width // torch.float8_e4m3fn.itemsize) // num_rows
 
         return self.wb[unit][ws].view(torch.float8_e4m3fn).reshape(num_rows, num_cols)
+
+    def write_acc_bf16(self, unit: str, wd: int, value: torch.Tensor) -> None:
+        assert value.dtype == torch.bfloat16
+        assert value.shape == self.acc[unit][wd].shape
+        self.acc[unit][wd][:] = value
+
+    def read_acc_bf16(self, unit: str, ws: int) -> torch.Tensor:
+        return self.acc[unit][ws].clone()
 
     def write_memory(self, base: int, data: torch.Tensor) -> None:
         data = data.flatten()

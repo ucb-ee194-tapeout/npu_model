@@ -56,9 +56,7 @@ class MatrixExecutionUnitSystolic(ExecutionUnit):
             # Accept new instruction
             if uop is not None:
                 # tag instruction with execution delay
-                uop.execute_delay = (
-                    self.config.arch_state_config.mrf_depth
-                )  # FIXME: verify this
+                uop.execute_delay = self.config.mxu0_matmul_latency_cycles
                 self.in_flight = uop
                 self._total_instructions += 1
                 # Log: end dispatch, start execute
@@ -176,9 +174,7 @@ class MatrixExecutionUnitInner(ExecutionUnit):
             # Accept new instruction
             if uop is not None:
                 # tag instruction with execution delay
-                uop.execute_delay = (
-                    self.config.arch_state_config.mrf_depth
-                )  # FIXME: verify this
+                uop.execute_delay = self.config.mxu1_matmul_latency_cycles
                 self.in_flight = uop
                 self._total_instructions += 1
                 # Log: end dispatch, start execute

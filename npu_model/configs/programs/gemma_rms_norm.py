@@ -6,14 +6,14 @@ from ...workload.gemma_blocks import gemma_rms_norm_forward
 from npu_model.configs.isa_definition import ScalarArgs, DmaArgs, MatrixArgs, VectorArgs
 
 
-# Input shape matches MRF: 64 rows, 16 bf16 per row
-INPUT_DATA = torch.randn(64, 16, dtype=torch.bfloat16)
+# Input shape matches one BF16 tensor register: 32 rows x 16 columns.
+INPUT_DATA = torch.randn(32, 16, dtype=torch.bfloat16)
 ROW_SIZE = INPUT_DATA.shape[-1]
 EPS = 1e-6
 INPUT_BASE = 0x0000
-EPS_BASE = 0x0800  # 2048 bytes after input
-DIVISOR_BASE = 0x1000  # 2048 bytes after eps
-OUTPUT_BASE = 0x1800  # 2048 bytes after divisor
+EPS_BASE = 0x0400  # 1024 bytes after input
+DIVISOR_BASE = 0x0800  # 1024 bytes after eps
+OUTPUT_BASE = 0x0C00  # 1024 bytes after divisor
 
 
 class GemmaRmsNormProgram(Program):
