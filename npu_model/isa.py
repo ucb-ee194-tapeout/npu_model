@@ -145,34 +145,6 @@ class DmaArgs(Args):
     flag: int = 0
 
 
-def _args_getattr(args: Any, key: str) -> Any:
-    if isinstance(args, dict):
-        return args[key]
-    if hasattr(args, key):
-        return getattr(args, key)
-    raise KeyError(key)
-
-
-def _args_has(args: Any, key: str) -> bool:
-    if isinstance(args, dict):
-        return key in args
-    return hasattr(args, key)
-
-
-def _args_get(args: Any, key: str, default: Any = None) -> Any:
-    if isinstance(args, dict):
-        return args.get(key, default)
-    if hasattr(args, key):
-        return getattr(args, key)
-    return default
-
-
-# Keep dataclass arg objects compatible with dict-style ISA accesses.
-Args.__getitem__ = lambda self, key: _args_getattr(self, key)  # type: ignore[attr-defined]
-Args.__contains__ = lambda self, key: _args_has(self, key)  # type: ignore[attr-defined]
-Args.get = lambda self, key, default=None: _args_get(self, key, default)  # type: ignore[attr-defined]
-
-
 class Operation:
     def __init__(
         self,

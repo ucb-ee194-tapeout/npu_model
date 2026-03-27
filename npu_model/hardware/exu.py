@@ -202,6 +202,7 @@ class ScalarExecutionUnit(ExecutionUnit):
             InstructionType.SCALAR.B,
             InstructionType.SCALAR.U,
             InstructionType.SCALAR.J,
+            InstructionType.SCALAR,
             InstructionType.BARRIER,
             InstructionType.DELAY,
         ]

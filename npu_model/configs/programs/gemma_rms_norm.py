@@ -3,7 +3,7 @@ from ...software import Instruction, Program
 import torch
 
 from ...workload.gemma_blocks import gemma_rms_norm_forward
-from npu_model.configs.isa_definition import ScalarArgs, DmaArgs, MatrixArgs, VectorArgs
+from npu_model.isa import ScalarArgs, DmaArgs, MatrixArgs, VectorArgs
 
 
 # Input shape matches one BF16 tensor register: 32 rows x 16 columns.
@@ -77,7 +77,10 @@ class GemmaRmsNormProgram(Program):
     memory_regions: List[Tuple[int, torch.Tensor]] = [
         (INPUT_BASE, INPUT_DATA),
         (EPS_BASE, torch.full(INPUT_DATA.shape, EPS, dtype=torch.bfloat16)),
-        (DIVISOR_BASE, torch.full(INPUT_DATA.shape, float(ROW_SIZE), dtype=torch.bfloat16)),
+        (
+            DIVISOR_BASE,
+            torch.full(INPUT_DATA.shape, float(ROW_SIZE), dtype=torch.bfloat16),
+        ),
     ]
 
     golden_result: tuple[int, torch.Tensor] = (
