@@ -56,7 +56,7 @@ for `m`, `e`, or MXU-local state; this card uses the conservative convention
 | `x29` | `t4` | Temporary register 4 | Caller |
 | `x30` | `t5` | Temporary register 5 | Caller |
 | `x31` | `t6` | Temporary register 6 | Caller |
-| `m0-m63` | `-` | Flat tensor register file, `4096` bytes per register | Caller |
+| `m0-m63` | `-` | Flat tensor register file, `1024` bytes per register | Caller |
 | `e0-e31` | `-` | Whole-tensor scale register file, one `FP8_E8M0` exponent per register | Caller |
 | `mxu0.w0` | `-` | MXU0 FP8 weight slot 0 | Caller |
 | `mxu0.w1` | `-` | MXU0 FP8 weight slot 1 | Caller |
