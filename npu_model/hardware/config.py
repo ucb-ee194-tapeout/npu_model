@@ -13,6 +13,8 @@ class ArchStateConfig:
     """ Read width of a weight buffer entry in bytes. """
     num_x_registers: int
     """ Number of scalar registers. """
+    num_e_registers: int
+    """Number of scaling factor registers."""
     num_m_registers: int
     """ Number of matrix registers. """
     num_wb_registers: int

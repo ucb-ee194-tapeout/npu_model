@@ -4,7 +4,7 @@ from ...software import (
     Program,
 )
 import torch
-
+from npu_model.isa import DmaArgs, MatrixArgs, VectorArgs, ScalarArgs
 from npu_model.workload.gemma_blocks import gemma_mlp_gate_up_forward
 
 
@@ -26,66 +26,63 @@ class GemmaMlpProgram(Program):
     """
 
     instructions: List[Instruction] = [
-        # Load gate and up weights into MXU0's weight buffer (matmul.mxu0 uses mxu0's WB)
+        # --- PHASE 1: Load Weights into MXU0 Weight Buffer ---
         Instruction(
             mnemonic="dma.load.mxu0",
-            args={
-                "rd": 0,
-                "base": GATE_WEIGHT_BASE,
-                "size": GATE_PROJ_WEIGHT_DATA.numel() * torch.float8_e4m3fn.itemsize,
-                "flag": 0,
-            },
+            args=DmaArgs(
+                rd=0,
+                base=GATE_WEIGHT_BASE,
+                size=GATE_PROJ_WEIGHT_DATA.numel() * 1,  # fp8 = 1 byte
+                flag=0,
+            ),
         ),
         Instruction(
             mnemonic="dma.load.mxu0",
-            args={
-                "rd": 1,
-                "base": UP_WEIGHT_BASE,
-                "size": UP_PROJ_WEIGHT_DATA.numel() * torch.float8_e4m3fn.itemsize,
-                "flag": 1,
-            },
+            args=DmaArgs(
+                rd=1, base=UP_WEIGHT_BASE, size=UP_PROJ_WEIGHT_DATA.numel() * 1, flag=1
+            ),
         ),
-        Instruction(mnemonic="dma.wait", args={"flag": 0}),
-        Instruction(mnemonic="dma.wait", args={"flag": 1}),
-        # Load activation to MRF
+        Instruction(mnemonic="dma.wait", args=DmaArgs(flag=0)),
+        Instruction(mnemonic="dma.wait", args=DmaArgs(flag=1)),
+        # --- PHASE 2: Load Activation to MRF ---
         Instruction(
             mnemonic="dma.load",
-            args={
-                "rd": 0,
-                "base": ACTIVATION_DATA_BASE,
-                "size": ACTIVATION_DATA.numel() * torch.float8_e4m3fn.itemsize,
-                "flag": 0,
-            },
+            args=DmaArgs(
+                rd=0,
+                base=ACTIVATION_DATA_BASE,
+                size=ACTIVATION_DATA.numel() * 1,
+                flag=0,
+            ),
         ),
-        Instruction(mnemonic="dma.wait", args={"flag": 0}),
-        # Gate projection: activation @ gate_weight -> MRF {2, 3}
-        Instruction(mnemonic="matmul.mxu0", args={"rd": 2, "rs1": 0, "rs2": 0}),
-        # Up projection: activation @ up_weight -> MRF {4, 5}
-        Instruction(mnemonic="matmul.mxu0", args={"rd": 4, "rs1": 0, "rs2": 1}),
-        Instruction(mnemonic="delay", args={"imm": 0}, delay=32),
-        # Simplified output: gate * up (GeGLU uses gate * silu(up)), half-tile at a time.
-        Instruction(mnemonic="vmul", args={"vrd": 6, "vs1": 2, "vs2": 4}),
-        Instruction(mnemonic="vmul", args={"vrd": 7, "vs1": 3, "vs2": 5}),
+        Instruction(mnemonic="dma.wait", args=DmaArgs(flag=0)),
+        # --- PHASE 3: Matrix Multiplications ---
+        # Gate projection: activation @ gate_weight -> Acc/MRF
+        # Note: Using MatrixArgs for matmul
+        Instruction(mnemonic="vmatmul.mxu0", args=MatrixArgs(vd=0, vs1=0, vs2=0)),
+        Instruction(mnemonic="vmatpop.bf16.acc.mxu0", args=VectorArgs(vd=2, vs1=0)),
+        # Up projection: activation @ up_weight -> Acc/MRF
+        Instruction(mnemonic="vmatmul.mxu0", args=MatrixArgs(vd=0, vs1=0, vs2=1)),
+        Instruction(mnemonic="vmatpop.bf16.acc.mxu0", args=VectorArgs(vd=4, vs1=0)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=0), delay=32),
+        # --- PHASE 4: Element-wise Multiplication (GeGLU Simplified) ---
+        # Using VectorArgs: corrected 'vrd' to 'vd'
+        Instruction(mnemonic="vmul", args=VectorArgs(vd=6, vs1=2, vs2=4)),
+        Instruction(mnemonic="vmul", args=VectorArgs(vd=7, vs1=3, vs2=5)),
+        # --- PHASE 5: Store Results ---
         Instruction(
             mnemonic="dma.store",
-            args={
-                "rs1": 6,
-                "base": OUTPUT_DATA_BASE,
-                "size": 32 * 16 * torch.bfloat16.itemsize,
-                "flag": 0,
-            },
+            args=DmaArgs(
+                rs1=6, base=OUTPUT_DATA_BASE, size=32 * 16 * 2, flag=0  # bf16 = 2 bytes
+            ),
         ),
         Instruction(
             mnemonic="dma.store",
-            args={
-                "rs1": 7,
-                "base": OUTPUT_DATA_BASE + 32 * 16 * torch.bfloat16.itemsize,
-                "size": 32 * 16 * torch.bfloat16.itemsize,
-                "flag": 1,
-            },
+            args=DmaArgs(
+                rs1=7, base=OUTPUT_DATA_BASE + (32 * 16 * 2), size=32 * 16 * 2, flag=1
+            ),
         ),
-        Instruction(mnemonic="dma.wait", args={"flag": 0}),
-        Instruction(mnemonic="dma.wait", args={"flag": 1}),
+        Instruction(mnemonic="dma.wait", args=DmaArgs(flag=0)),
+        Instruction(mnemonic="dma.wait", args=DmaArgs(flag=1)),
     ]
 
     memory_regions: List[Tuple[int, torch.Tensor]] = [

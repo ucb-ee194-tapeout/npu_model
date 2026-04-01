@@ -1,6 +1,10 @@
 from typing import List, Tuple
 from ...software import Instruction, Program
 import torch
+from npu_model.isa import (
+
+    VectorArgs,
+)
 
 
 class VectorArithmeticProgram(Program):
@@ -9,13 +13,11 @@ class VectorArithmeticProgram(Program):
     """
 
     instructions: List[Instruction] = [
-        Instruction("vload", {"vd": 0, "rs1": 0, "offset": 0}),
-
-        Instruction("vadd", {"vrd": 1, "vs1": 0, "vs2": 0}),
-        Instruction("vsub", {"vrd": 2, "vs1": 1, "vs2": 0}),
-        Instruction("vmul", {"vrd": 3, "vs1": 2, "vs2": 0}),
-
-        Instruction("vstore", {"vd": 3, "rs1": 0, "offset": 1}),
+        Instruction("vload", args=VectorArgs(vd=0, rs1=0, offset=0)),
+        Instruction("vadd", args=VectorArgs(vrd=1, vs1=0, vs2=0)),
+        Instruction("vsub", args=VectorArgs(vrd=2, vs1=1, vs2=0)),
+        Instruction("vmul", args=VectorArgs(vrd=3, vs1=2, vs2=0)),
+        Instruction("vstore", args=VectorArgs(vd=3, rs1=0, offset=1)),
     ]
 
     memory_regions: List[Tuple[int, torch.Tensor]] = [

@@ -1,8 +1,8 @@
 from typing import List, Tuple
 from ...software import Instruction, Program
 import torch
-
 from ...workload.gemma_blocks import gemma_rms_norm_forward
+from npu_model.isa import DmaArgs, MatrixArgs, VectorArgs, ScalarArgs
 
 
 # Input shape matches one BF16 tensor register: 32 rows x 16 columns.
@@ -25,66 +25,67 @@ class GemmaRmsNormProgram(Program):
     instructions: List[Instruction] = [
         Instruction(
             mnemonic="dma.load",
-            args={
-                "rd": 0,
-                "base": INPUT_BASE,
-                "size": INPUT_DATA.numel() * torch.bfloat16.itemsize,
-                "flag": 0,
-            },
+            args=DmaArgs(
+                rd=0,
+                base=INPUT_BASE,
+                size=INPUT_DATA.numel() * torch.bfloat16.itemsize,
+                flag=0,
+            ),
         ),
         Instruction(
             mnemonic="dma.load",
-            args={
-                "rd": 2,
-                "base": EPS_BASE,
-                "size": INPUT_DATA.numel() * torch.bfloat16.itemsize,
-                "flag": 1,
-            },
+            args=DmaArgs(
+                rd=2,
+                base=EPS_BASE,
+                size=INPUT_DATA.numel() * torch.bfloat16.itemsize,
+                flag=1,
+            ),
         ),
         Instruction(
             mnemonic="dma.load",
-            args={
-                "rd": 8,
-                "base": DIVISOR_BASE,
-                "size": INPUT_DATA.numel() * torch.bfloat16.itemsize,
-                "flag": 2,
-            },
+            args=DmaArgs(
+                rd=8,
+                base=DIVISOR_BASE,
+                size=INPUT_DATA.numel() * torch.bfloat16.itemsize,
+                flag=2,
+            ),
         ),
-        Instruction(mnemonic="dma.wait", args={"flag": 0}),
-        Instruction(mnemonic="dma.wait", args={"flag": 1}),
-        Instruction(mnemonic="dma.wait", args={"flag": 2}),
-
+        Instruction(mnemonic="dma.wait", args=DmaArgs(flag=0)),
+        Instruction(mnemonic="dma.wait", args=DmaArgs(flag=1)),
+        Instruction(mnemonic="dma.wait", args=DmaArgs(flag=2)),
         # x_sq = x * x
-        Instruction(mnemonic="vmul", args={"vrd": 3, "vs1": 0, "vs2": 0}),
+        Instruction(mnemonic="vmul", args=VectorArgs(vd=3, vs1=0, vs2=0)),
         # Row-wise sum via vrot.reduce.sum -> full (16,64), then reduce + broadcast
-        Instruction(mnemonic="vrot.reduce.sum", args={"vrd": 10, "vs1": 3}),
+        Instruction(mnemonic="vrot.reduce.sum", args=VectorArgs(vd=10, vs1=3)),
         # var = sum_sq / row_size = sum_sq * (1/row_size)
-        Instruction(mnemonic="vrcp", args={"vrd": 9, "vs1": 8}),  # 1/row_size
-        Instruction(mnemonic="vmul", args={"vrd": 4, "vs1": 10, "vs2": 9}),
+        Instruction(mnemonic="vrcp", args=VectorArgs(vd=9, vs1=8)),  # 1/row_size
+        Instruction(mnemonic="vmul", args=VectorArgs(vd=4, vs1=10, vs2=9)),
         # var_eps = var + eps
-        Instruction(mnemonic="vadd", args={"vrd": 5, "vs1": 4, "vs2": 2}),
+        Instruction(mnemonic="vadd", args=VectorArgs(vd=5, vs1=4, vs2=2)),
         # rsqrt = 1/sqrt(var_eps)
-        Instruction(mnemonic="vsqrt", args={"vrd": 6, "vs1": 5}),
-        Instruction(mnemonic="vrcp", args={"vrd": 7, "vs1": 6}),
+        Instruction(mnemonic="vsqrt", args=VectorArgs(vd=6, vs1=5)),
+        Instruction(mnemonic="vrcp", args=VectorArgs(vd=7, vs1=6)),
         # output = x * rsqrt
-        Instruction(mnemonic="vmul", args={"vrd": 1, "vs1": 0, "vs2": 7}),
-
+        Instruction(mnemonic="vmul", args=VectorArgs(vd=1, vs1=0, vs2=7)),
         Instruction(
             mnemonic="dma.store",
-            args={
-                "rs1": 1,
-                "base": OUTPUT_BASE,
-                "size": INPUT_DATA.numel() * torch.bfloat16.itemsize,
-                "flag": 0,
-            },
+            args=DmaArgs(
+                rs1=1,
+                base=OUTPUT_BASE,
+                size=INPUT_DATA.numel() * torch.bfloat16.itemsize,
+                flag=0,
+            ),
         ),
-        Instruction(mnemonic="dma.wait", args={"flag": 0}),
+        Instruction(mnemonic="dma.wait", args=DmaArgs(flag=0)),
     ]
 
     memory_regions: List[Tuple[int, torch.Tensor]] = [
         (INPUT_BASE, INPUT_DATA),
         (EPS_BASE, torch.full(INPUT_DATA.shape, EPS, dtype=torch.bfloat16)),
-        (DIVISOR_BASE, torch.full(INPUT_DATA.shape, float(ROW_SIZE), dtype=torch.bfloat16)),
+        (
+            DIVISOR_BASE,
+            torch.full(INPUT_DATA.shape, float(ROW_SIZE), dtype=torch.bfloat16),
+        ),
     ]
 
     golden_result: tuple[int, torch.Tensor] = (

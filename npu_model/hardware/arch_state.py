@@ -22,6 +22,7 @@ class ArchState:
             torch.zeros(self.cfg.mrf_depth * self.cfg.mrf_width, dtype=torch.uint8)
             for _ in range(self.cfg.num_m_registers)
         ]
+        self.erf: list[torch.uint8] = [0] * self.cfg.num_e_registers
         self.wb: dict[str, list[torch.Tensor]] = {}
         self.wb["mxu0"] = [
             torch.zeros(self.cfg.wb_width, dtype=torch.uint8)
@@ -41,7 +42,7 @@ class ArchState:
             torch.zeros((self.cfg.mrf_depth, acc_cols), dtype=torch.bfloat16)
             for _ in range(self.cfg.num_wb_registers)
         ]
-        self.flags: list[bool] = [False] * 3
+        self.flags: list[bool] = [False] * 8
 
     def reset(self) -> None:
         for i in range(len(self.xrf)):
@@ -77,6 +78,13 @@ class ArchState:
         self.xrf[rd] = value
         if self.logger:
             self.logger.log_arch_value("xrf", rd, value)
+
+    def write_erf(self, rd: int, value: int) -> None:
+        if rd < len(self.xrf) and self.xrf[rd] == value:
+            return
+        self.erf[rd] = value & 0xFF
+        if self.logger:
+            self.logger.log_arch_value("erf", rd, value & 0xFF)
 
     def read_xrf(self, rs: int) -> int:
         return self.xrf[rs]
@@ -227,13 +235,13 @@ class ArchState:
         assert (
             base + data.numel() <= self.cfg.memory_size
         ), f"Memory write out of bounds: {base} + {data.numel()} > {self.cfg.memory_size}"
-        self.mem[base:base + data.numel()] = data
+        self.mem[base : base + data.numel()] = data
 
     def read_memory(self, base: int, length: int) -> torch.Tensor:
         assert (
             base + length <= self.cfg.memory_size
         ), f"Memory read out of bounds: {base} + {length} > {self.cfg.memory_size}"
-        return self.mem[base:base + length]
+        return self.mem[base : base + length]
 
     def set_flag(self, flag: int) -> None:
         self.flags[flag] = True

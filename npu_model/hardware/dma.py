@@ -44,8 +44,8 @@ class DmaExecutionUnit(ExecutionUnit):
             self.logger.log_stage_end(uop.id, "E", lane=self.lane_id, cycle=self.cycle)
             self.logger.log_retire(uop.id)
             # clear the flag
-            self.arch_state.clear_flag(uop.insn.args["flag"])
-            print(f"DMA {self.name} cleared flag {uop.insn.args['flag']}")
+            self.arch_state.clear_flag(uop.insn.args.flag)
+            print(f"DMA {self.name} cleared flag {uop.insn.args.flag}")
             
             if len(self.in_flight) != 0:
                 #Log: start execute
@@ -73,7 +73,7 @@ class DmaExecutionUnit(ExecutionUnit):
                 uop.execute_delay = max(
                     1,
                     math.ceil(
-                        uop.insn.args["size"] / self.config.vmem_bytes_per_cycle
+                        uop.insn.args.size/ self.config.vmem_bytes_per_cycle
                     ),
                 )
                 self.in_flight.append(uop)
