@@ -11,3 +11,6 @@ wheels/
 
 # logs
 *.json
+
+# scala
+.metals
