@@ -162,7 +162,6 @@ class InstructionDecode(Module):
             else:
                 self._stalled = False
                 return False
-
         exu_list = self.exu_map[exu_type]
         target_exu = exu_list[0]
         if self.outputs[target_exu].should_stall():
