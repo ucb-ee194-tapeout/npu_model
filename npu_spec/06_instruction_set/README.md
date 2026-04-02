@@ -319,8 +319,8 @@ Rows are ordered by hex value.
 | `vadd.bf16`              | `VR`     | `1010111` |                         | `0000000`        | `57/00`    | Vector Add                        | `m[vd] = m[vs1].view(bf16) + m[vs2].view(bf16);` |
 | `vredsum.bf16`           | `VR`     | `1010111` |                         | `0000001`        | `57/01`    | Vector Sublane Reduction Sum      | `m[vd][0, :] = m[vs1].view(bf16).sum(dim=0);` |
 | `vsub.bf16`              | `VR`     | `1010111` |                         | `0000010`        | `57/02`    | Vector Subtract                   | `m[vd] = m[vs1].view(bf16) - m[vs2].view(bf16);` |
-| `vmin.bf16`              | `VR`     | `1010111` |                         | `0000100`        | `57/04`    | Vector Minimum                    | `m[vd] = min(m[vs1].view(bf16), m[vs2].view(bf16));` |
-| `vmax.bf16`              | `VR`     | `1010111` |                         | `0000110`        | `57/06`    | Vector Maximum                    | `m[vd] = max(m[vs1].view(bf16), m[vs2].view(bf16));` |
+| `vmin.bf16`              | `VR`     | `1010111` |                         | `0000100`        | `57/04`    | Vector Minimum                    | `m[vd][:, 0] = min(m[vs1].view(bf16), m[vs2].view(bf16));` |
+| `vmax.bf16`              | `VR`     | `1010111` |                         | `0000110`        | `57/06`    | Vector Maximum                    | `m[vd][:, 0] = max(m[vs1].view(bf16), m[vs2].view(bf16));` |
 | `vmul.bf16`              | `VR`     | `1010111` |                         | `0100100`        | `57/24`    | Vector Multiply                   | `m[vd] = m[vs1].view(bf16) * m[vs2].view(bf16));` |
 | `vmov`                   | `VR`     | `1010111` |                         | `1000000`        | `57/40`    | Vector Move                       | `m[vd] = m[vs1];` |
 | `vrecip.bf16`            | `VR`     | `1010111` |                         | `1000001`        | `57/41`    | Vector Reciprocal                 | `m[vd] = 1.f / m[vs1];` |
