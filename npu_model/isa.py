@@ -3,98 +3,63 @@ from npu_model.software.instruction import Args
 from dataclasses import dataclass
 
 
-class Scalar:
+class _Scalar:
     pass
 
-
-class _R(Scalar):
+class _MatrixSystolic:
     pass
 
-
-class _I(Scalar):
+class _MatrixIPT:
     pass
-
-
-class _S(Scalar):
-    pass
-
-
-class _B(Scalar):
-    pass
-
-
-class _J(Scalar):
-    pass
-
-
-class _U(Scalar):
-    pass
-
-
-class Matrix:
-    pass
-
-
-class _MatrixSystolic(Matrix):
-    pass
-
-
-class _MatrixIPT(Matrix):
-    pass
-
 
 class _Vector:
     pass
 
-
 class _DMA:
     pass
-
-
-class Transpose:
-    pass
-
-
-class _L(Transpose):
-    pass
-
-
-class _H(Transpose):
-    pass
-
-
-class _Barrier:
-    pass
-
 
 class _Delay:
     pass
 
+class _Barrier:
+    pass
 
 # --- Instruction type namespace ---
 
 
 class InstructionType:
-    class SCALAR:
-        R = _R()
-        I = _I()
-        S = _S()
-        B = _B()
-        J = _J()
-        U = _U()
+    class R:
+        SCALAR = _Scalar()
+        DMA = _DMA()
+    
+    class I:
+        SCALAR = _Scalar()
+        DMA = _DMA()
+        BARRIER = _Barrier()
+        DELAY = _Delay()
+    
+    class S:
+        SCALAR = _Scalar()
+    
+    class SB:
+        SCALAR = _Scalar()
+    
+    class U:
+        SCALAR = _Scalar()
+    
+    class UJ:
+        SCALAR = _Scalar()
+    
+    class VLS:
+        VECTOR = _Vector()
 
-    class MATRIX:
+    class VR:
+        VECTOR = _Vector()
         MATRIX_SYSTOLIC = _MatrixSystolic()
         MATRIX_IPT = _MatrixIPT()
 
-    VECTOR = _Vector()
-    DMA = _DMA()
-    DELAY = _Delay()
-    BARRIER = _Barrier()
-
-    class TRANSPOSE:
-        H = _H()
-        L = _L()
+    class VI:
+        VECTOR = _Vector()
 
 
 @dataclass

@@ -126,7 +126,7 @@ class InstructionDecode(Module):
         # Prepare empty outputs for this cycle
         exu_type = self.isa.operations[self.uop.insn.mnemonic].instruction_type
 
-        if exu_type == InstructionType.BARRIER:
+        if exu_type == InstructionType.I.BARRIER:
             self.logger.log_stage_end(
                 self.uop.id, "D", lane=LaneType.DIU.value, cycle=self.cycle + 1
             )
@@ -140,7 +140,7 @@ class InstructionDecode(Module):
         )  # TODO: currently always choose the first EXU
 
         # if we dispatched a DMA instruction, set flag as busy here
-        if exu_type == InstructionType.DMA:
+        if exu_type == InstructionType.R.DMA or exu_type == InstructionType.I.DMA:
             assert not self.arch_state.check_flag(
                 self.uop.insn.args.flag
             ), f"Flag {self.uop.insn.args.flag} is already set, erroneous program"
@@ -155,7 +155,7 @@ class InstructionDecode(Module):
         instr_definition = self.isa.operations[uop.insn.mnemonic]
         exu_type = instr_definition.instruction_type
 
-        if exu_type == InstructionType.BARRIER:
+        if exu_type == InstructionType.I.BARRIER:
             if self.arch_state.check_flag(uop.insn.args.flag):
                 self._stalled = True
                 return True
