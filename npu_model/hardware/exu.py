@@ -1,12 +1,12 @@
 from abc import abstractmethod
-from typing import List
+from typing import List, Any
 
 from .hardware import Module
 from .stage_data import StageData
 from ..logging.logger import Logger, LaneType
 from ..hardware.arch_state import ArchState
-from ..software.instruction import Uop
-from ..isa import InstructionType, AsmInstructionType
+from ..software.instruction import Uop, is_scalar_uop
+from ..isa import InstructionType, AsmInstructionType, ScalarArgs
 from ..hardware.config import HardwareConfig
 
 
@@ -30,14 +30,18 @@ class ExecutionUnit(Module):
         # lane id for logging purposes
         lane_id: int = 0,
         # hardware configuration
-        config: HardwareConfig = None,
-    ) -> None:
+        config: HardwareConfig | None = None,
+    ) -> None:  
+        if config == None:
+            raise ValueError("A HardwareConfig must be specified.")
+        
         self.name = name
         self.logger = logger
         self.arch_state = arch_state
         self.lane_id = lane_id
         self.config = config
-        self.cycle = 0
+        self.cycle: int = 0
+
 
     @abstractmethod
     def reset(self) -> None:
@@ -45,7 +49,7 @@ class ExecutionUnit(Module):
         pass
 
     @abstractmethod
-    def tick(self, diu_output: StageData[Uop | None]) -> None:
+    def tick(self, idu_output: StageData[Uop[Any] | None]) -> None:
         """Execute one cycle, claiming instruction from DIU output."""
         pass
 
@@ -54,6 +58,7 @@ class ExecutionUnit(Module):
         """Flush any pending completions (call at end of simulation)."""
         pass
 
+    @property
     @abstractmethod
     def has_in_flight(self) -> bool:
         """Check if there are any in-flight instructions."""
@@ -100,7 +105,7 @@ class ScalarExecutionUnit(ExecutionUnit):
         logger: Logger,
         arch_state: ArchState,
         lane_id: int = 0,
-        config: HardwareConfig = None,
+        config: HardwareConfig | None = None,
     ) -> None:
         super().__init__(
             name,
@@ -113,12 +118,12 @@ class ScalarExecutionUnit(ExecutionUnit):
 
     def reset(self) -> None:
         # variables
-        self._pending_completion_uop: Uop | None = None
+        self._pending_completion_uop: Uop[ScalarArgs] | None = None
         # logging variables
         self._total_instructions = 0
         self._busy_cycles = 0
 
-    def tick(self, idu_output: StageData[Uop | None]) -> None:
+    def tick(self, idu_output: StageData[Uop[Any] | None]) -> None:
         self.cycle += 1
         # Log deferred completions from last cycle
         if self._pending_completion_uop is not None:
@@ -139,6 +144,7 @@ class ScalarExecutionUnit(ExecutionUnit):
 
         # Accept new instruction
         if uop is not None:
+            assert is_scalar_uop(uop), "Attempted to pass non-scalar args to Scalar Excution Unit."
             # tag instruction with execution delay
             uop.execute_delay = 1
             self._pending_completion_uop = uop
@@ -160,8 +166,10 @@ class ScalarExecutionUnit(ExecutionUnit):
             self._busy_cycles += uop.insn.mnemonic != "delay"
             self._complete_count = 1
             # execute the instruction and modify the arch state
-
-            uop.execute_fn(self.arch_state, uop.insn.args)
+            if uop.execute_fn != None:
+                uop.execute_fn(self.arch_state, uop.insn.args)
+            else:
+                raise ValueError("No execute function specified for Uop.")
 
     def flush_completions(self) -> None:
         """Flush any pending completions (call at end of simulation)."""

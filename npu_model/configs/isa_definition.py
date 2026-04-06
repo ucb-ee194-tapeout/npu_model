@@ -31,7 +31,8 @@ def _sign_extend(value: int, length: int):
     return value & 0xFFFFFFFF
 
 
-def _int_to_le_bytes(data, length) -> torch.Tensor:
+# FIXME: data needs a type but idk what it should be.
+def _int_to_le_bytes(data, length: int) -> torch.Tensor:
     type_map = {1: torch.uint8, 2: torch.int16, 4: torch.int32}
 
     if length not in type_map:
@@ -40,7 +41,7 @@ def _int_to_le_bytes(data, length) -> torch.Tensor:
     return torch.tensor([data], dtype=type_map[length]).view(torch.uint8).clone()
 
 
-def _le_bytes_to_int(tensor) -> int:
+def _le_bytes_to_int(tensor: torch.Tensor) -> int:
     length = tensor.numel()
     type_map = {1: torch.uint8, 2: torch.int16, 4: torch.int32}
 
@@ -50,7 +51,7 @@ def _le_bytes_to_int(tensor) -> int:
     raw_val = tensor.contiguous().view(type_map[length]).item()
 
     masks = {1: 0xFF, 2: 0xFFFF, 4: 0xFFFFFFFF}
-    return raw_val & masks[length]
+    return int(raw_val) & masks[length]
 
 
 def _tensor_register_bytes(state: ArchState) -> int:

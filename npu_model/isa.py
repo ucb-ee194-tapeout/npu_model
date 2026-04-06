@@ -1,6 +1,10 @@
-from typing import Callable, TypeAlias
+from __future__ import annotations
+from typing import Callable, TypeAlias, TypeVar, TYPE_CHECKING
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
+
+if TYPE_CHECKING:
+    from npu_model.hardware.arch_state import ArchState
 
 @dataclass
 class ScalarArgs:
@@ -41,7 +45,11 @@ class DmaArgs:
     size: int = 0
     channel: int = 0  # FIXME: this is not a real arg. should also be renamed to channel (unless we just want to make 8 different insns)
 
+# This bares some explanation if you're not familiar with Python's types
+# Use "Args" when you mean to represent an input that can handle _all_ of the types.
+# Use "ArgsT" when you mean to represent an input that can handle _any one_ of the types. 
 Args: TypeAlias = ScalarArgs | VectorArgs | MatrixArgs | DmaArgs
+ArgsT = TypeVar("ArgsT", ScalarArgs, VectorArgs, MatrixArgs, DmaArgs)
 
 def _mask(val: int, bits: int):
     """returns the first `bits` bits of `val`"""
@@ -241,7 +249,7 @@ class Operation:
         funct2: int,
         funct3: int,
         funct7: int,
-        effect: Callable,
+        effect: Callable[[ArchState,ArgsT],None],
     ) -> None:
         self.mnemonic = mnemonic
         self.instruction_type = instruction_type
@@ -260,6 +268,7 @@ class IsaSpec:
 
 
 # Global registry accumulating decode table rows
+# FIXME: Not typed but idk the type.
 _decode_table: list[dict] = []
 
 # Column order — matches the signal list in AtlasCtrlSigs.decode()
@@ -314,11 +323,11 @@ _DEFAULT = {
 }
 
 
-def instr(mnemonic, instruction_type: AsmInstructionType, opcode: int, funct2: int = 0, funct3: int = 0, funct7: int = 0):
+def instr(mnemonic: str | None, instruction_type: AsmInstructionType, opcode: int, funct2: int = 0, funct3: int = 0, funct7: int = 0):
     if not isinstance(mnemonic, str):
         raise TypeError("@instr decorator must be @instr(<your instruction>)")
 
-    def effect(func: Callable) -> Callable:
+    def effect(func: Callable[[ArchState,ArgsT],None]) -> Callable[[ArchState,ArgsT],None]:
         instruction_type.add_mnemonic(mnemonic)
         IsaSpec.operations[mnemonic] = Operation(
             mnemonic=mnemonic,

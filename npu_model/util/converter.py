@@ -140,7 +140,7 @@ def input_to_program(source: TextIO):
 
         # Handle all scalar SB-type instructions
         elif mnemonic in InstructionType.SCALAR.SB.mnemonics and len(tokens) == 4:
-            instructions.append(Instruction(mnemonic=mnemonic, args=ScalarArgs(rs1=parse_reg(tokens[1]), rs2=parse_reg(tokens[2]), imm=parse_imm(tokens[3]))))
+            instructions.append(Instruction(mnemonic=mnemonic, args=ScalarArgs(rs1=parse_reg(tokens[1]), rs2=parse_reg(tokens[2]), imm=resolve(tokens[3]))))
 
         # Handle all scalar U-type instructions
         elif mnemonic in InstructionType.SCALAR.U.mnemonics and len(tokens) == 3:
@@ -148,7 +148,7 @@ def input_to_program(source: TextIO):
 
         # Handle all scalar UJ-type instructions
         elif mnemonic in InstructionType.SCALAR.UJ.mnemonics and len(tokens) == 3:
-            instructions.append(Instruction(mnemonic=mnemonic, args=ScalarArgs(rd=parse_reg(tokens[1]), imm=parse_imm(tokens[2]))))
+            instructions.append(Instruction(mnemonic=mnemonic, args=ScalarArgs(rd=parse_reg(tokens[1]), imm=resolve(tokens[2]))))
 
         # Handle all vector VLS-type instructions
         elif mnemonic in InstructionType.VECTOR.VLS.mnemonics and len(tokens) == 4:

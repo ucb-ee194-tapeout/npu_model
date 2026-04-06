@@ -18,7 +18,7 @@ class MatrixExecutionUnitSystolic(ExecutionUnit):
         logger: Logger,
         arch_state: ArchState,
         lane_id: int = 0,
-        config: HardwareConfig = None,
+        config: HardwareConfig | None = None,
     ) -> None:
         super().__init__(
             name,
@@ -136,7 +136,7 @@ class MatrixExecutionUnitInner(ExecutionUnit):
         logger: Logger,
         arch_state: ArchState,
         lane_id: int = 0,
-        config: HardwareConfig = None,
+        config: HardwareConfig | None = None,
     ) -> None:
         super().__init__(
             name,

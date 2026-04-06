@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Any
 from npu_model.isa import *
 from ...software import (
     Instruction,
@@ -11,7 +11,7 @@ class AddiProgram(Program):
     A simple addi program with a branch and a matmul.
     """
 
-    instructions: List[Instruction] = [
+    instructions: List[Instruction[Any]] = [
         Instruction(mnemonic="addi", args=ScalarArgs(rd=1, rs1=1, imm=0)),
         Instruction(mnemonic="addi", args=ScalarArgs(rd=2, rs1=2, imm=8)),
         Instruction(mnemonic="addi", args=ScalarArgs(rd=1, rs1=1, imm=1)),

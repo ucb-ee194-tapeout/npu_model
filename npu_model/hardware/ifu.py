@@ -1,10 +1,11 @@
+from typing import Any
+
 from .hardware import Module
 from .stage_data import StageData
 from ..software.program import Program
 from ..software.instruction import Uop
 from ..logging.logger import Logger, LaneType
 from ..hardware.arch_state import ArchState
-
 
 class InstructionFetch(Module):
     """
@@ -25,7 +26,7 @@ class InstructionFetch(Module):
         self.width = width
         self.logger = logger
         self.arch_state = arch_state
-        self.program = None
+        self.program: Program | None = None
         self.cycle = 0
         self.reset()
 
@@ -33,20 +34,23 @@ class InstructionFetch(Module):
         self.program = program
 
     def reset(self) -> None:
-        self.output: StageData[Uop | None] = StageData(None)
+        self.output: StageData[Uop[Any] | None] = StageData(None)
         self.arch_state.set_pc(0)
         self._stalled = False
 
     def is_finished(self) -> bool:
         """Check if all instructions have been fetched."""
         return (
-            self.program.is_finished(self.arch_state.pc) and not self.output.is_valid()
+            self.program != None and self.program.is_finished(self.arch_state.pc) and not self.output.is_valid()
         )
 
     def tick(self) -> None:
         """
         Fetch instructions from the program.
         """
+        if self.program == None:
+            raise RuntimeError("Attempted to tick while no program is loaded.")
+
         self.cycle += 1
         # Stall if downstream hasn't claimed our output
         if self.output.should_stall():
@@ -69,7 +73,7 @@ class InstructionFetch(Module):
 
         fetched_instruction = self.program.get_instruction(self.arch_state.pc)
 
-        uop = Uop(fetched_instruction)
+        uop = Uop[fetched_instruction.args](fetched_instruction)
 
         # Log instruction and start fetch stage
         self.logger.log_insn(uop.id, str(uop.insn))

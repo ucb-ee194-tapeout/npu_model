@@ -2,7 +2,7 @@ from typing import List, Tuple
 import torch
 from npu_model.isa import (
     DmaArgs,
-    MatrixArgs,
+    MatrixArgs, # type: ignore (unused)
     ScalarArgs,
     VectorArgs,
 )

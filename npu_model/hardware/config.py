@@ -30,7 +30,7 @@ class ArchStateConfig:
 class HardwareConfig:
     name: str
     fetch_width: int
-    isa: IsaSpec = IsaSpec
+    isa: type[IsaSpec] = IsaSpec
     arch_state_config: ArchStateConfig
     execution_units: dict[str, str]
     mxu0_matmul_latency_cycles: int = 32

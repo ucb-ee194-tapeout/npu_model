@@ -108,8 +108,8 @@ class Core(Module):
 
         # 2. Tick EXUs (claim from InstructionDecode outputs)
         for exu in self.exus:
-            idu_output = self.idu.outputs[exu]
-            exu.tick(idu_output)
+            idu_out = self.idu.outputs[exu]
+            exu.tick(idu_output=idu_out)
             self.total_completed += exu.complete_count
 
         # 3. Tick IDU (claim from InstructionFetch output, dispatch to EXU outputs)

@@ -2,7 +2,6 @@ import torch
 from ..logging.logger import Logger
 from .config import ArchStateConfig
 
-
 class ArchState:
     def __init__(
         self,

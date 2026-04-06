@@ -1,9 +1,10 @@
-from typing import Callable
+from typing import Callable, Generic, TypeGuard, Any
 from dataclasses import asdict, is_dataclass
 
-from ..isa import IsaSpec, Args, ScalarArgs, VectorArgs
+from ..isa import IsaSpec, ScalarArgs, DmaArgs, VectorArgs, MatrixArgs, ArgsT
+from npu_model.hardware.arch_state import ArchState
 
-class Instruction:
+class Instruction(Generic[ArgsT]):
     """
     An instruction in the program sequence.
 
@@ -17,7 +18,7 @@ class Instruction:
     def __init__(
         self,
         mnemonic: str,
-        args: Args,
+        args: ArgsT,
         delay: int = 0,
     ) -> None:
         self.mnemonic = mnemonic
@@ -58,14 +59,14 @@ class Instruction:
             self.args
         )
 
-class Uop:
+class Uop(Generic[ArgsT]):
     """
     A dynamic instruction instance that is executing in the simulation
     """
 
     _next_id: int = 0
 
-    def __init__(self, insn: Instruction) -> None:
+    def __init__(self, insn: Instruction[ArgsT]) -> None:
         self.id = Uop._next_id
         Uop._next_id += 1
         self.insn = insn
@@ -75,4 +76,16 @@ class Uop:
         self.execute_delay: int = 0
         """the number of execute stalling cycles left"""
 
-        self.execute_fn: Callable | None = None
+        self.execute_fn: Callable[[ArchState,ArgsT],None] | None = None
+
+def is_scalar_uop(uop: Uop[Any]) -> TypeGuard[Uop[ScalarArgs]]:
+    return isinstance(uop.insn.args, ScalarArgs)
+
+def is_dma_uop(uop: Uop[Any]) -> TypeGuard[Uop[DmaArgs]]:
+    return isinstance(uop.insn.args, DmaArgs)
+
+def is_vector_uop(uop: Uop[Any]) -> TypeGuard[Uop[VectorArgs]]:
+    return isinstance(uop.insn.args, VectorArgs)
+
+def is_matrix_uop(uop: Uop[Any]) -> TypeGuard[Uop[MatrixArgs]]:
+    return isinstance(uop.insn.args, MatrixArgs)
