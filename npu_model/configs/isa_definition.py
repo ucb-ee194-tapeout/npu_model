@@ -140,7 +140,7 @@ def lhu(state: ArchState, args: ScalarArgs) -> None:
 
 @instr("seld", instruction_type=InstructionType.SCALAR.I, opcode=0b0000011, funct3=0b110)
 def seld(state: ArchState, args: ScalarArgs) -> None:
-    state.write_erf(args.rd, state.read_vmem(state.read_xrf(args.rs1), args.imm, 1))
+    state.write_erf(args.rd, int(state.read_vmem(state.read_xrf(args.rs1), args.imm, 1).view(torch.uint8)))
 
 
 @instr("seli", instruction_type=InstructionType.SCALAR.I, opcode=0b0000011, funct3=0b111)
@@ -225,17 +225,17 @@ def auipc(state: ArchState, args: ScalarArgs) -> None:
 
 @instr("sb", instruction_type=InstructionType.SCALAR.S, opcode=0b0100011, funct3=0b000)
 def sb(state: ArchState, args: ScalarArgs) -> None:
-    state.write_vmem(args.rs1, args.imm, state.read_xrf(args.rs1) & 0xFF)
+    state.write_vmem(args.rs1, args.imm, torch.tensor(state.read_xrf(args.rs1) & 0xFF))
 
 
 @instr("sh", instruction_type=InstructionType.SCALAR.S, opcode=0b0100011, funct3=0b001)
 def sh(state: ArchState, args: ScalarArgs) -> None:
-    state.write_vmem(args.rs1, args.imm, state.read_xrf(args.rs1) & 0xFFFF)
+    state.write_vmem(args.rs1, args.imm, torch.tensor(state.read_xrf(args.rs1) & 0xFFFF))
 
 
 @instr("sw", instruction_type=InstructionType.SCALAR.S, opcode=0b0100011, funct3=0b010)
 def sw(state: ArchState, args: ScalarArgs) -> None:
-    state.write_vmem(args.rs1, args.imm, state.read_xrf(args.rs1) & 0xFFFFFFFF)
+    state.write_vmem(args.rs1, args.imm, torch.tensor(state.read_xrf(args.rs1) & 0xFFFFFFFF))
 
 
 @instr("add", instruction_type=InstructionType.SCALAR.R, opcode=0b0110011, funct3=0b000, funct7=0b0000000)

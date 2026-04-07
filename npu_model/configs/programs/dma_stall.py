@@ -1,4 +1,4 @@
-from typing import List, Tuple
+from typing import List, Tuple, Any
 from npu_model.software import Instruction, Program
 from npu_model.isa import DmaArgs, MatrixArgs, ScalarArgs
 import torch
@@ -10,7 +10,7 @@ class DMAStallProgram(Program):
     updated for the latest npu_model ISA.
     """
 
-    instructions: List[Instruction] = [
+    instructions: List[Instruction[Any]] = [
         # Load things w/ Matmul
         Instruction(mnemonic="dma.load", args=DmaArgs(rd=2, base=0, size=1024, channel=0)),
         Instruction(

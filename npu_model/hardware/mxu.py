@@ -1,10 +1,10 @@
-from typing import List
+from typing import List, Any
 
 from .exu import ExecutionUnit
 from ..logging.logger import Logger, LaneType
 from ..hardware.arch_state import ArchState
-from ..software.instruction import Uop
-from ..isa import InstructionType, AsmInstructionType
+from ..software.instruction import Uop, is_matrix_uop
+from ..isa import InstructionType, AsmInstructionType, MatrixArgs
 from .stage_data import StageData
 from .config import HardwareConfig
 
@@ -30,13 +30,13 @@ class MatrixExecutionUnitSystolic(ExecutionUnit):
         self.reset()
 
     def reset(self) -> None:
-        self.in_flight: Uop | None = None
+        self.in_flight: Uop[MatrixArgs] | None = None
         self._complete_count = 0
-        self._pending_completions: List["Uop"] = []
+        self._pending_completions: List[Uop[MatrixArgs]] = []
         self._total_instructions = 0
         self._busy_cycles = 0
 
-    def tick(self, idu_output: StageData[Uop | None]) -> None:
+    def tick(self, idu_output: StageData[Uop[Any] | None]) -> None:
         self.cycle += 1
         # Log deferred completions from last cycle
         for uop in self._pending_completions:
@@ -55,6 +55,7 @@ class MatrixExecutionUnitSystolic(ExecutionUnit):
 
             # Accept new instruction
             if uop is not None:
+                assert is_matrix_uop(uop), "Non-Matrix Args passed to MXU"
                 # tag instruction with execution delay
                 uop.execute_delay = self.config.mxu0_matmul_latency_cycles
                 self.in_flight = uop
@@ -82,7 +83,10 @@ class MatrixExecutionUnitSystolic(ExecutionUnit):
             self.in_flight.execute_delay -= 1
             if self.in_flight.execute_delay <= 0:
                 # execute the instruction
-                self.in_flight.execute_fn(self.arch_state, self.in_flight.insn.args)
+                if self.in_flight.execute_fn != None:
+                    self.in_flight.execute_fn(self.arch_state, self.in_flight.insn.args)
+                else:
+                    raise ValueError("No execute function specified for Uop.")
                 self._complete_count = 1
                 # Defer completion logging to next tick
                 self._pending_completions.append(self.in_flight)
@@ -148,13 +152,13 @@ class MatrixExecutionUnitInner(ExecutionUnit):
         self.reset()
 
     def reset(self) -> None:
-        self.in_flight: Uop | None = None
+        self.in_flight: Uop[MatrixArgs] | None = None
         self._complete_count = 0
-        self._pending_completions: List["Uop"] = []
+        self._pending_completions: List[Uop[MatrixArgs]] = []
         self._total_instructions = 0
         self._busy_cycles = 0
 
-    def tick(self, idu_output: StageData[Uop | None]) -> None:
+    def tick(self, idu_output: StageData[Uop[Any] | None]) -> None:
         self.cycle += 1
         # Log deferred completions from last cycle
         for uop in self._pending_completions:
@@ -173,6 +177,7 @@ class MatrixExecutionUnitInner(ExecutionUnit):
 
             # Accept new instruction
             if uop is not None:
+                assert is_matrix_uop(uop), "Non-Matrix Args passed to MXU"
                 # tag instruction with execution delay
                 uop.execute_delay = self.config.mxu1_matmul_latency_cycles
                 self.in_flight = uop
@@ -200,7 +205,10 @@ class MatrixExecutionUnitInner(ExecutionUnit):
             self.in_flight.execute_delay -= 1
             if self.in_flight.execute_delay <= 0:
                 # execute the instruction
-                self.in_flight.execute_fn(self.arch_state, self.in_flight.insn.args)
+                if self.in_flight.execute_fn != None:
+                    self.in_flight.execute_fn(self.arch_state, self.in_flight.insn.args)
+                else:
+                    raise ValueError("No execute function specified for Uop.")
                 self._complete_count = 1
                 # Defer completion logging to next tick
                 self._pending_completions.append(self.in_flight)

@@ -5,14 +5,12 @@ import json
 from typing import Any
 
 
-@dataclass
 class LaneType(Enum):
     IFU = 0
     DIU = 1
     EXU_BASE = 2
 
 
-@dataclass
 class RetireType(Enum):
     """Instruction retirement type."""
 

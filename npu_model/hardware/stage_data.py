@@ -1,4 +1,4 @@
-from typing import TypeVar, Generic
+from typing import TypeVar, Generic, TypeGuard, Any
 
 T = TypeVar("T")
 
@@ -96,6 +96,12 @@ class StageData(Generic[T]):
         self.data = self.empty_value
         self.valid = False
 
+    def _is_list(self, data: T) -> TypeGuard[list[Any]]:
+        return isinstance(data, list)
+
+    def _is_dict(self, data: T) -> TypeGuard[dict[Any, Any]]:
+        return isinstance(data, dict)
+
     def _is_non_empty(self, data: T) -> bool:
         """
         Check if data is non-empty.
@@ -104,7 +110,7 @@ class StageData(Generic[T]):
         """
         if data is None:
             return False
-        if isinstance(data, (list, dict)):
+        if self._is_list(data) or self._is_dict(data):
             return len(data) > 0
         return True
 

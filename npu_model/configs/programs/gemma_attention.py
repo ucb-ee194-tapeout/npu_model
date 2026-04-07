@@ -1,8 +1,8 @@
-from typing import List, Tuple
+from typing import List, Tuple, Any
 import math
 import torch
 from ...software import Instruction, Program
-from npu_model.isa import DmaArgs, MatrixArgs, VectorArgs, ScalarArgs
+from npu_model.isa import DmaArgs, MatrixArgs, VectorArgs
 
 
 SEQ_LEN = 64
@@ -38,7 +38,7 @@ class GemmaAttentionProgram(Program):
       - `vexp`, `vreduce.sum`, `vrcp`, and `vmul` to implement softmax.
     """
 
-    instructions: List[Instruction] = [
+    instructions: List[Instruction[Any]] = [
         # Load K and V into MXU1 weight buffer (indices 0 and 1)
         Instruction(
             mnemonic="dma.load.mxu1",

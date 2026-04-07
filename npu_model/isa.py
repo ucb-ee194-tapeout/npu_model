@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Callable, TypeAlias, TypeVar, TYPE_CHECKING
+from typing import Callable, TypeAlias, TypeVar, TYPE_CHECKING, Any
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
 
@@ -269,7 +269,7 @@ class IsaSpec:
 
 # Global registry accumulating decode table rows
 # FIXME: Not typed but idk the type.
-_decode_table: list[dict] = []
+_decode_table: list[dict[Any, Any]] = []
 
 # Column order — matches the signal list in AtlasCtrlSigs.decode()
 _COL_HEADERS = [

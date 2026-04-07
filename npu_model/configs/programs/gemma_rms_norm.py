@@ -1,4 +1,4 @@
-from typing import List, Tuple
+from typing import List, Tuple, Any
 from ...software import Instruction, Program
 import torch
 from ...workload.gemma_blocks import gemma_rms_norm_forward
@@ -22,7 +22,7 @@ class GemmaRmsNormProgram(Program):
     Row-wise mean via transpose + vreduce.sum (second-to-last dim) + vbroadcast.cols.
     """
 
-    instructions: List[Instruction] = [
+    instructions: List[Instruction[Any]] = [
         Instruction(
             mnemonic="dma.load",
             args=DmaArgs(

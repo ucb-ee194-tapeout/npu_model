@@ -23,6 +23,8 @@ class ArchState:
             torch.zeros(self.cfg.mrf_depth * self.cfg.mrf_width, dtype=torch.uint8)
             for _ in range(self.cfg.num_m_registers)
         ]
+        # FIXME: This is not a real data type, but I think the only wany to do this
+        # is with JaxTyping. Not really sure.
         self.erf: list[torch.uint8] = [0] * self.cfg.num_e_registers
         self.wb: dict[str, list[torch.Tensor]] = {}
         self.wb["mxu0"] = [
@@ -263,14 +265,14 @@ class ArchState:
         ), f"Memory read out of bounds: {base} + {length} > {self.cfg.vmem_size}"
         return self.vmem[base : base + length]
 
-    def write_imem(self, base: int, data: torch.tensor):
+    def write_imem(self, base: int, data: torch.Tensor):
         data = data.flatten()
         assert (
             base + data.numel() <= self.cfg.imem_size
         ), f"Memory write out of bounds: {base} + {data.numel()} > {self.cfg.imem_size}"
         self.imem[base : base + data.numel()] = data
 
-    def read_imem(self, base: int, offset: int, length: int) -> torch.tensor:
+    def read_imem(self, base: int, offset: int, length: int) -> torch.Tensor:
         assert (
             base + offset + length <= self.cfg.dram_size
         ), f"Memory read out of bounds: {base} + {length} > {self.cfg.vmem_size}"

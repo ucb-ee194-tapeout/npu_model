@@ -1,4 +1,4 @@
-from typing import List, Tuple
+from typing import List, Tuple, Any
 import torch
 from npu_model.isa import (
     DmaArgs,
@@ -29,7 +29,7 @@ class MatmulProgram(Program):
     Rewritten Matmul test using structured Args dataclasses.
     """
 
-    instructions: List[Instruction] = [
+    instructions: List[Instruction[Any]] = [
         Instruction(
             mnemonic="addi", args=ScalarArgs(rd=1, rs1=0, imm=VMEM_ACTIVATION_BASE)
         ),

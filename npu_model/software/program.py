@@ -1,6 +1,6 @@
 from typing import List, Tuple, Any
 from .instruction import Instruction
-import numpy as np
+import torch
 
 
 class Program:
@@ -9,7 +9,7 @@ class Program:
     """
 
     instructions: List[Instruction[Any]] = []
-    memory_regions: List[Tuple[int, np.ndarray]] = []
+    memory_regions: List[Tuple[int, torch.Tensor]] = []
 
     def __len__(self) -> int:
         return len(self.instructions)
