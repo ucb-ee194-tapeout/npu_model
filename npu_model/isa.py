@@ -207,6 +207,19 @@ class _VI(AsmInstructionType):
         return (imm_b << 16) | (funct3_b << 13) | (vd_b << 7) | opcode_b
     pass
 
+class _CSR(AsmInstructionType):
+    def assemble(self, opcode: int, funct2: int, funct3: int, funct7: int, args: Args):
+        if not isinstance(args, ScalarArgs):
+            raise ValueError("Incorrect argument type specified.")
+
+        imm_b = _mask(args.imm, 12)
+        rs1_b = _mask(args.rs1, 5)
+        funct3_b = _mask(funct3, 3)
+        rd_b = _mask(args.rd, 5)
+        opcode_b = _mask(opcode, 7)
+
+        return (imm_b << 20) | (rs1_b << 15) | (funct3_b << 12) | (rd_b << 7) | opcode_b
+
 # --- Instruction type namespace ---
 
 class InstructionType:
@@ -217,6 +230,7 @@ class InstructionType:
         SB = _SB()
         U = _U()
         UJ = _UJ()
+        CSR=  _CSR()
 
     class VECTOR:
         VLS = _VLS()
