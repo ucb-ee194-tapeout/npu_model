@@ -12,12 +12,13 @@ class DefaultHardwareConfig(HardwareConfig):
         mrf_width=32,  # 32 bytes per row => 32x32 FP8 or 32x16 BF16 per register
         wb_width=32 * 32 * 1,  # one 32x32 FP8 weight tile per weight slot
         num_x_registers=32,
+        num_csrs=0, # FIXME
         num_e_registers=32,
         num_m_registers=64,
         num_wb_registers=2,
         dram_size=1048576,
         vmem_size=256 * 1024,
-        imem_size=64 * 1024
+        imem_size=64 * 1024,
     )
     mxu0_matmul_latency_cycles: int = 32
     mxu1_matmul_latency_cycles: int = 32

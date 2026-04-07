@@ -2,6 +2,7 @@ import torch
 from ..logging.logger import Logger
 from .config import ArchStateConfig
 
+
 class ArchState:
     def __init__(
         self,
@@ -19,6 +20,7 @@ class ArchState:
         self.vmem: torch.Tensor = torch.zeros(self.cfg.vmem_size, dtype=torch.uint8)
         self.imem: torch.Tensor = torch.zeros(self.cfg.imem_size, dtype=torch.uint8)
         self.xrf: list[int] = [0] * self.cfg.num_x_registers
+        self.csrf: list[int] = [0] * self.cfg.num_csrs
         self.mrf: list[torch.Tensor] = [
             torch.zeros(self.cfg.mrf_depth * self.cfg.mrf_width, dtype=torch.uint8)
             for _ in range(self.cfg.num_m_registers)
@@ -90,11 +92,21 @@ class ArchState:
         if self.logger:
             self.logger.log_arch_value("erf", rd, value & 0xFF)
 
+    def write_csrf(self, rd: int, value: int) -> None:
+        if rd < len(self.csrf) and self.csrf[rd] == value:
+            return
+        self.csrf[rd] = value
+        if self.logger:
+            self.logger.log_arch_value("csrf", rd, value)
+
     def read_erf(self, rs: int) -> int:
         return self.erf[rs]
 
     def read_xrf(self, rs: int) -> int:
         return self.xrf[rs]
+
+    def read_csrf(self, rs: int) -> int:
+        return self.csrf[rs]
 
     def write_mrf_u8(self, vd: int, value: torch.Tensor) -> None:
         assert value.dtype == torch.uint8
