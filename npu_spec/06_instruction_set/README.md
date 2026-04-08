@@ -317,16 +317,16 @@ Rows are ordered by hex value.
 | `and`                    | `R`      | `0110011` | `111`                   | `0000000`        | `33/7/00`  | AND                               | `x[rd] = x[rs1] & x[rs2]` |
 | `lui`                    | `U`      | `0110111` |                         |                  | `37`       | Load Upper Immediate              | `x[rd] = {imm[31:12], 12'b0}` |
 | `vadd.bf16`              | `VR`     | `1010111` |                         | `0000000`        | `57/00`    | Vector Add                        | `m[vd] = m[vs1].view(bf16) + m[vs2].view(bf16);` |
-| `vredsum.bf16`           | `VR`     | `1010111` |                         | `0000001`        | `57/01`    | Vector Sublane Reduction Sum      | `m[vd][0, :] = m[vs1].view(bf16).sum(dim=0);` |
+| `vredsum.bf16`           | `VR`     | `1010111` |                         | `0000001`        | `57/01`    | Vector Sublane Reduction Sum      | `m[vd][i, j] = sum(m[vs1].view(bf16)[:, j]);` |
 | `vsub.bf16`              | `VR`     | `1010111` |                         | `0000010`        | `57/02`    | Vector Subtract                   | `m[vd] = m[vs1].view(bf16) - m[vs2].view(bf16);` |
 | `vmul.bf16`              | `VR`     | `1010111` |                         | `0000011`        | `57/03`    | Vector Multiply                   | `m[vd] = m[vs1].view(bf16) * m[vs2].view(bf16);` |
 | `vminimum.bf16`          | `VR`     | `1010111` |                         | `0000100`        | `57/04`    | Vector Minimum                    | `m[vd] = min(m[vs1].view(bf16), m[vs2].view(bf16));` |
-| `vredmin.bf16`           | `VR`     | `1010111` |                         | `0000101`        | `57/05`    | Vector Sublane Reduction Min      | `m[vd][0, :] = m[vs1].view(bf16).min(dim=0);` |
+| `vredmin.bf16`           | `VR`     | `1010111` |                         | `0000101`        | `57/05`    | Vector Sublane Reduction Min      | `m[vd][i, j] = min(m[vs1].view(bf16)[:, j]);` |
 | `vmaximum.bf16`          | `VR`     | `1010111` |                         | `0000110`        | `57/06`    | Vector Maximum                    | `m[vd] = max(m[vs1].view(bf16), m[vs2].view(bf16));` |
-| `vredmax.bf16`           | `VR`     | `1010111` |                         | `0000111`        | `57/07`    | Vector Sublane Reduction Max      | `m[vd][0, :] = m[vs1].view(bf16).max(dim=0);` |
-| `vredsum.row.bf16`       | `VR`     | `1010111` |                         | `0100001`        | `57/21`    | Vector Lane Reduction Sum         | `m[vd][:, 0] = m[vs1].view(bf16).sum(dim=1);` |
-| `vredmin.row.bf16`       | `VR`     | `1010111` |                         | `0100100`        | `57/24`    | Vector Lane Reduction Min         | `m[vd][:, 0] = m[vs1].view(bf16).min(dim=1);` |
-| `vredmax.row.bf16`       | `VR`     | `1010111` |                         | `0100110`        | `57/26`    | Vector Lane Reduction Max         | `m[vd][:, 0] = m[vs1].view(bf16).max(dim=1);` |
+| `vredmax.bf16`           | `VR`     | `1010111` |                         | `0000111`        | `57/07`    | Vector Sublane Reduction Max      | `m[vd][i, j] = max(m[vs1].view(bf16)[:, j]);` |
+| `vredsum.row.bf16`       | `VR`     | `1010111` |                         | `0100001`        | `57/21`    | Vector Lane Reduction Sum         | `m[vd][i, j] = sum(m[vs1].view(bf16)[i, :]);` |
+| `vredmin.row.bf16`       | `VR`     | `1010111` |                         | `0100100`        | `57/24`    | Vector Lane Reduction Min         | `m[vd][i, j] = min(m[vs1].view(bf16)[i, :]);` |
+| `vredmax.row.bf16`       | `VR`     | `1010111` |                         | `0100110`        | `57/26`    | Vector Lane Reduction Max         | `m[vd][i, j] = max(m[vs1].view(bf16)[i, :]);` |
 | `vmov`                   | `VR`     | `1010111` |                         | `1000000`        | `57/40`    | Vector Move                       | `m[vd] = m[vs1];` |
 | `vrecip.bf16`            | `VR`     | `1010111` |                         | `1000001`        | `57/41`    | Vector Reciprocal                 | `m[vd] = 1.f / m[vs1];` |
 | `vexp.bf16`              | `VR`     | `1010111` |                         | `1000010`        | `57/42`    | Vector Exponential                | `m[vd] = bf16_exp(m[vs1]);` |
