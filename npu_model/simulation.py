@@ -1,7 +1,21 @@
+from dataclasses import dataclass
 from npu_model.hardware.config import HardwareConfig
 from npu_model.logging import LoggerConfig, Logger
 from npu_model.hardware import Core
 from npu_model.software import Program
+
+@dataclass
+class ExecutionUnitStatistics:
+    instructions: int
+    busy_cycles: int
+    utilization: float
+
+@dataclass
+class SimulationStatistics:
+    cycles: int
+    total_instructions: int
+    ipc: float
+    exu_stats: dict[str, ExecutionUnitStatistics]
 
 
 class Simulation:
@@ -83,17 +97,17 @@ class Simulation:
             print("\nSimulation Complete!")
             print(f"\n{'Metric':<30} {'Value':>15}")
             print("-" * 45)
-            print(f"{'Total Cycles':<30} {stats['cycles']:>15}")
-            print(f"{'Instructions Completed':<30} {stats['total_instructions']:>15}")
-            print(f"{'IPC (Instr per Cycle)':<30} {stats['ipc']:>15.3f}")
+            print(f"{'Total Cycles':<30} {stats.cycles:>15}")
+            print(f"{'Instructions Completed':<30} {stats.total_instructions:>15}")
+            print(f"{'IPC (Instr per Cycle)':<30} {stats.ipc:>15.3f}")
 
             print("\nExecution Unit Utilization")
             print("-" * 45)
-            for exu_name, exu_stats in stats["exu_stats"].items():
+            for exu_name, exu_stats in stats.exu_stats.items():
                 print(f"  {exu_name}:")
-                print(f"    Instructions: {exu_stats['instructions']}")
-                print(f"    Busy Cycles:  {exu_stats['busy_cycles']}")
-                print(f"    Utilization:  {exu_stats['utilization']:.1%}")
+                print(f"    Instructions: {exu_stats.instructions}")
+                print(f"    Busy Cycles:  {exu_stats.busy_cycles}")
+                print(f"    Utilization:  {exu_stats.utilization:.1%}")
 
             print("\nFinal register contents")
             print(f"XRF: {self.core.arch_state.xrf}")
@@ -104,26 +118,26 @@ class Simulation:
             print(f"\nTrace written to: {self.logger_config.filename}")
             print("Open with Perfetto (https://ui.perfetto.dev)")
 
-    def get_stats(self) -> dict:
+    def get_stats(self) -> SimulationStatistics:
         """Get execution statistics."""
-        stats = {
-            "cycles": self.cycle_count,
-            "total_instructions": self.core.total_completed,
-            "ipc": (
+        stats = SimulationStatistics(
+            cycles=self.cycle_count,
+            total_instructions=self.core.total_completed,
+            ipc=(
                 self.core.total_completed / self.cycle_count
                 if self.cycle_count > 0
-                else 0
+                else 0.0
             ),
-            "exu_stats": {},
-        }
+            exu_stats={}
+        )
 
         for exu in self.core.exus:
-            stats["exu_stats"][exu.name] = {
-                "instructions": exu.total_instructions,
-                "busy_cycles": exu.busy_cycles,
-                "utilization": (
-                    exu.busy_cycles / self.cycle_count if self.cycle_count > 0 else 0
+            stats.exu_stats[exu.name] = ExecutionUnitStatistics(
+                instructions= exu.total_instructions,
+                busy_cycles=exu.busy_cycles,
+                utilization=(
+                    exu.busy_cycles / self.cycle_count if self.cycle_count > 0 else 0.0
                 ),
-            }
+            )
 
         return stats

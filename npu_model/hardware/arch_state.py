@@ -16,12 +16,17 @@ class ArchState:
         self.reset()
 
     def initialize_buffers(self) -> None:
-        self.mem: torch.Tensor = torch.zeros(self.cfg.memory_size, dtype=torch.uint8)
+        self.dram: torch.Tensor = torch.zeros(self.cfg.dram_size, dtype=torch.uint8)
+        self.vmem: torch.Tensor = torch.zeros(self.cfg.vmem_size, dtype=torch.uint8)
         self.xrf: list[int] = [0] * self.cfg.num_x_registers
+        self.csrf: list[int] = [0] * self.cfg.num_csrs
         self.mrf: list[torch.Tensor] = [
             torch.zeros(self.cfg.mrf_depth * self.cfg.mrf_width, dtype=torch.uint8)
             for _ in range(self.cfg.num_m_registers)
         ]
+        # FIXME: This is not a real data type, but I think the only wany to do this
+        # is with JaxTyping. Not really sure.
+        self.erf: list[torch.uint8] = [0] * self.cfg.num_e_registers
         self.wb: dict[str, list[torch.Tensor]] = {}
         self.wb["mxu0"] = [
             torch.zeros(self.cfg.wb_width, dtype=torch.uint8)
@@ -31,7 +36,18 @@ class ArchState:
             torch.zeros(self.cfg.wb_width, dtype=torch.uint8)
             for _ in range(self.cfg.num_wb_registers)
         ]
-        self.flags: list[bool] = [False] * 3
+        acc_cols = self.cfg.mrf_width // torch.bfloat16.itemsize * 2
+        self.acc: dict[str, list[torch.Tensor]] = {}
+        self.acc["mxu0"] = [
+            torch.zeros((self.cfg.mrf_depth, acc_cols), dtype=torch.bfloat16)
+            for _ in range(self.cfg.num_wb_registers)
+        ]
+        self.acc["mxu1"] = [
+            torch.zeros((self.cfg.mrf_depth, acc_cols), dtype=torch.bfloat16)
+            for _ in range(self.cfg.num_wb_registers)
+        ]
+        self.base: int = 0  # dram base
+        self.flags: list[bool] = [False] * 8
 
     def reset(self) -> None:
         for i in range(len(self.xrf)):
@@ -42,6 +58,10 @@ class ArchState:
             self.wb["mxu0"][i].fill_(0)
         for i in range(len(self.wb["mxu1"])):
             self.wb["mxu1"][i].fill_(0)
+        for i in range(len(self.acc["mxu0"])):
+            self.acc["mxu0"][i].fill_(0)
+        for i in range(len(self.acc["mxu1"])):
+            self.acc["mxu1"][i].fill_(0)
         self.pc = 0
         self.npc = 0
 
@@ -64,8 +84,28 @@ class ArchState:
         if self.logger:
             self.logger.log_arch_value("xrf", rd, value)
 
+    def write_erf(self, rd: int, value: int) -> None:
+        if rd < len(self.xrf) and self.xrf[rd] == value:
+            return
+        self.erf[rd] = value & 0xFF
+        if self.logger:
+            self.logger.log_arch_value("erf", rd, value & 0xFF)
+
+    def write_csrf(self, rd: int, value: int) -> None:
+        if rd < len(self.csrf) and self.csrf[rd] == value:
+            return
+        self.csrf[rd] = value
+        if self.logger:
+            self.logger.log_arch_value("csrf", rd, value)
+
+    def read_erf(self, rs: int) -> int:
+        return self.erf[rs]
+
     def read_xrf(self, rs: int) -> int:
         return self.xrf[rs]
+
+    def read_csrf(self, rs: int) -> int:
+        return self.csrf[rs]
 
     def write_mrf_u8(self, vd: int, value: torch.Tensor) -> None:
         assert value.dtype == torch.uint8
@@ -130,6 +170,19 @@ class ArchState:
             .reshape(self.cfg.mrf_depth, self.cfg.mrf_width // torch.bfloat16.itemsize)
         )
 
+    def write_mrf_bf16_tile(self, vd: int, value: torch.Tensor) -> None:
+        cols_per_register = self.cfg.mrf_width // torch.bfloat16.itemsize
+        assert value.dtype == torch.bfloat16
+        assert value.shape == (self.cfg.mrf_depth, cols_per_register * 2)
+        self.write_mrf_bf16(vd, value[:, :cols_per_register].contiguous())
+        self.write_mrf_bf16(vd + 1, value[:, cols_per_register:].contiguous())
+
+    def read_mrf_bf16_tile(self, vs: int) -> torch.Tensor:
+        return torch.cat(
+            (self.read_mrf_bf16(vs), self.read_mrf_bf16(vs + 1)),
+            dim=1,
+        )
+
     def read_mrf_bf16_transposed(self, vs: int) -> torch.Tensor:
         """Read MRF as (cols, rows) for use after vtranspose."""
         n_cols = self.cfg.mrf_width // torch.bfloat16.itemsize
@@ -186,19 +239,45 @@ class ArchState:
 
         return self.wb[unit][ws].view(torch.float8_e4m3fn).reshape(num_rows, num_cols)
 
-    def write_memory(self, base: int, data: torch.Tensor) -> None:
+    def write_acc_bf16(self, unit: str, wd: int, value: torch.Tensor) -> None:
+        assert value.dtype == torch.bfloat16
+        assert value.shape == self.acc[unit][wd].shape
+        self.acc[unit][wd][:] = value
+
+    def read_acc_bf16(self, unit: str, ws: int) -> torch.Tensor:
+        return self.acc[unit][ws].clone()
+
+    def write_dram(self, offset: int, data: torch.Tensor) -> None:
+        data = data.flatten()
+        address = (self.base << 32) | offset
+        assert (
+            address < offset + data.numel() <= self.cfg.dram_size
+        ), f"Memory write out of bounds: {address} + {data.numel()} > {self.cfg.dram_size}"
+        self.dram[address : address + data.numel()] = data
+
+    def read_dram(self, offset: int, length: int) -> torch.Tensor:
+        address = (self.base << 32) | offset
+        assert (
+            address + length <= self.cfg.dram_size
+        ), f"Memory read out of bounds: {address} + {length} > {self.cfg.dram_size}"
+        return self.dram[address : address + length]
+
+    def write_vmem(self, base: int, offset: int, data: torch.Tensor) -> None:
         data = data.flatten()
         # print(f"Writing {data.numel()} bytes to memory at base {base}")
         assert (
-            base + data.numel() <= self.cfg.memory_size
-        ), f"Memory write out of bounds: {base} + {data.numel()} > {self.cfg.memory_size}"
-        self.mem[base:base + data.numel()] = data
+            base + offset + data.numel() <= self.cfg.vmem_size
+        ), f"Memory write out of bounds: {base} + {data.numel()} > {self.cfg.vmem_size}"
+        self.vmem[base + offset : base + offset + data.numel()] = data
 
-    def read_memory(self, base: int, length: int) -> torch.Tensor:
+    def read_vmem(self, base: int, offset: int, length: int) -> torch.Tensor:
         assert (
-            base + length <= self.cfg.memory_size
-        ), f"Memory read out of bounds: {base} + {length} > {self.cfg.memory_size}"
-        return self.mem[base:base + length]
+            base + offset + length <= self.cfg.vmem_size
+        ), f"Memory read out of bounds: {base} + {length} > {self.cfg.vmem_size}"
+        return self.vmem[base + offset : base + offset + length]
+
+    def write_base(self, value: int):
+        self.base = value
 
     def set_flag(self, flag: int) -> None:
         self.flags[flag] = True

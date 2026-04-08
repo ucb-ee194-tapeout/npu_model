@@ -76,7 +76,7 @@ class Core(Module):
         self.ifu.load_program(program)
         if len(program.memory_regions) > 0:
             for base, arr in program.memory_regions:
-                self.arch_state.write_memory(base, arr.flatten().view(torch.uint8))
+                self.arch_state.write_dram(base, arr.flatten().view(torch.uint8))
 
     def reset(self) -> None:
         """Reset all components."""
@@ -108,8 +108,8 @@ class Core(Module):
 
         # 2. Tick EXUs (claim from InstructionDecode outputs)
         for exu in self.exus:
-            idu_output = self.idu.outputs[exu]
-            exu.tick(idu_output)
+            idu_out = self.idu.outputs[exu]
+            exu.tick(idu_output=idu_out)
             self.total_completed += exu.complete_count
 
         # 3. Tick IDU (claim from InstructionFetch output, dispatch to EXU outputs)

@@ -1,15 +1,16 @@
+from __future__ import annotations
 from .hardware import Module
 from .stage_data import StageData
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from .exu import ExecutionUnit
 from ..logging.logger import Logger, LaneType
-from ..isa import IsaSpec
+from ..isa import IsaSpec, DmaArgs
 from ..hardware.arch_state import ArchState
-from ..isa import InstructionType
+from ..isa import InstructionType, AsmInstructionType, ScalarArgs
 from .exu import *  # noqa: F401, F403
 
 if TYPE_CHECKING:
-    from ..software.insn import Uop
+    from ..software.instruction import Uop
 
 
 class InstructionDecode(Module):
@@ -26,7 +27,7 @@ class InstructionDecode(Module):
         self,
         exus: list[ExecutionUnit],
         logger: Logger,
-        isa: IsaSpec,
+        isa: type[IsaSpec],
         arch_state: ArchState,
     ) -> None:
         self.exus = exus
@@ -37,7 +38,7 @@ class InstructionDecode(Module):
         self.lane_id = 1
         self.cycle = 0
         # Build a mapping from EXU type to EXU instances
-        self.exu_map: dict[InstructionType, list[ExecutionUnit]] = {}
+        self.exu_map: dict[AsmInstructionType, list[ExecutionUnit]] = {}
         for exu in exus:
             exu_types = exu.supported_instruction_types
             for t in exu_types:
@@ -48,7 +49,7 @@ class InstructionDecode(Module):
 
     def reset(self) -> None:
         # Per-EXU output stage data
-        self.outputs: dict[ExecutionUnit, StageData["Uop | None"]] = {
+        self.outputs: dict[ExecutionUnit, StageData[Uop[Any] | None]] = {
             exu: StageData(None) for exu in self.exus
         }
         self._stalled = False
@@ -59,7 +60,7 @@ class InstructionDecode(Module):
             not output.is_valid() for output in self.outputs.values()
         )
 
-    def tick(self, ifu_output: StageData[list["Uop"]]) -> None:
+    def tick(self, ifu_output: StageData[Uop[Any] | None]) -> None:
         """
         Dispatch fetched instructions to their target execution units.
         Logs: E (end F stage), S (start D stage)
@@ -102,8 +103,19 @@ class InstructionDecode(Module):
                 uop.id, "D", lane=LaneType.DIU.value, cycle=self.cycle
             )
 
-            # tag instruction with dispatch delay
+            # Tag instruction with dispatch delay.
+            #
+            # Historical behavior: program-level delay is carried in Instruction.delay.
+            # For convenience, allow the `delay` mnemonic to use ScalarArgs.imm as the
+            # stall cycles when Instruction.delay is not set (backward compatible with
+            # existing programs that use delay=... explicitly).
             uop.dispatch_delay = uop.insn.delay
+            if (
+                uop.dispatch_delay == 0
+                and uop.insn.mnemonic == "delay"
+                and isinstance(uop.insn.args, ScalarArgs)
+            ):
+                uop.dispatch_delay = uop.insn.args.imm
             self.uop = uop
 
             if uop.dispatch_delay > 0:
@@ -126,7 +138,7 @@ class InstructionDecode(Module):
         # Prepare empty outputs for this cycle
         exu_type = self.isa.operations[self.uop.insn.mnemonic].instruction_type
 
-        if exu_type == InstructionType.BARRIER:
+        if exu_type == InstructionType.BARRIER.I:
             self.logger.log_stage_end(
                 self.uop.id, "D", lane=LaneType.DIU.value, cycle=self.cycle + 1
             )
@@ -140,29 +152,28 @@ class InstructionDecode(Module):
         )  # TODO: currently always choose the first EXU
 
         # if we dispatched a DMA instruction, set flag as busy here
-        if exu_type == InstructionType.DMA:
-            assert (
-                not self.arch_state.check_flag(self.uop.insn.args["flag"])
-            ), f"Flag {self.uop.insn.args['flag']} is already set, erroneous program"
-            self.arch_state.set_flag(self.uop.insn.args["flag"])
+        if isinstance(self.uop.insn.args, DmaArgs):
+            assert not self.arch_state.check_flag(
+                self.uop.insn.args.channel
+            ), f"Flag {self.uop.insn.args.channel} is already set, erroneous program"
+            self.arch_state.set_flag(self.uop.insn.args.channel)
         self.uop = None
 
-    def claim_uop(self, ifu_output: StageData["Uop | None"]) -> None:
-        """Claim a new uop from IFU"""  
+    def claim_uop(self, ifu_output: StageData[Uop[Any] | None]) -> None:
+        """Claim a new uop from IFU"""
         assert self.uop is None
 
-    def check_backpressure(self, uop: "Uop") -> bool:
+    def check_backpressure(self, uop: Uop[Any]) -> bool:
         instr_definition = self.isa.operations[uop.insn.mnemonic]
         exu_type = instr_definition.instruction_type
 
-        if exu_type == InstructionType.BARRIER:
-            if self.arch_state.check_flag(uop.insn.args["flag"]):
+        if exu_type == InstructionType.BARRIER.I and isinstance(uop.insn.args, DmaArgs):
+            if self.arch_state.check_flag(uop.insn.args.channel):
                 self._stalled = True
                 return True
             else:
                 self._stalled = False
                 return False
-
         exu_list = self.exu_map[exu_type]
         target_exu = exu_list[0]
         if self.outputs[target_exu].should_stall():

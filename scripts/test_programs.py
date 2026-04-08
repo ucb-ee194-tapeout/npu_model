@@ -33,7 +33,9 @@ from npu_model.configs.isa_definition import *  # noqa: F401, F403
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Run all programs to verify execution.")
+    parser = argparse.ArgumentParser(
+        description="Run all programs to verify execution."
+    )
     parser.add_argument(
         "--max-cycles",
         type=int,
@@ -53,17 +55,13 @@ def main():
     )
     args = parser.parse_args()
 
-    program_names = getattr(
-        npu_model.configs.programs, "__all__", []
-    )
+    program_names = getattr(npu_model.configs.programs, "__all__", [])
     if not program_names:
         print("No programs found in npu_model.configs.programs", file=sys.stderr)
         sys.exit(1)
 
     try:
-        hardware_config_cls = getattr(
-            npu_model.configs.hardware, args.hardware_config
-        )
+        hardware_config_cls = getattr(npu_model.configs.hardware, args.hardware_config)
     except AttributeError:
         print(
             f"Hardware config '{args.hardware_config}' not found.",
@@ -87,9 +85,7 @@ def main():
                 print(f"FAIL {name}: instantiate: {e}", file=sys.stderr)
             continue
 
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".json", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             trace_path = f.name
         try:
             sim = Simulation(
@@ -101,6 +97,7 @@ def main():
             if not args.verbose:
                 # Redirect stdout so we only see summary
                 import io
+
                 old_stdout = sys.stdout
                 sys.stdout = io.StringIO()
             sim.run(max_cycles=args.max_cycles)
@@ -109,16 +106,18 @@ def main():
             if hasattr(program, "golden_result") and program.golden_result:
                 output_base, golden_tensor = program.golden_result
                 size = golden_tensor.numel() * golden_tensor.element_size()
-                mem_data = sim.core.arch_state.read_memory(output_base, size)
-                actual = mem_data.view(golden_tensor.dtype).reshape(
-                    golden_tensor.shape
-                ).clone()
+                mem_data = sim.core.arch_state.read_dram(output_base, size)
+                actual = (
+                    mem_data.view(golden_tensor.dtype)
+                    .reshape(golden_tensor.shape)
+                    .clone()
+                )
                 if not torch.allclose(
                     actual.float(), golden_tensor.float(), rtol=1e-2, atol=1e-2
                 ):
                     diff = (actual.float() - golden_tensor.float()).abs().max()
                     raise AssertionError(
-                        f"Golden check failed: max diff = {diff:.6f}"
+                        f"Golden check failed: max diff = {diff:.6f}. \nResult = {actual.float()}\n Expected = {golden_tensor}"
                     )
 
             if not args.verbose:

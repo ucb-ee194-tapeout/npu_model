@@ -4,19 +4,25 @@ from ...software import (
     Program,
 )
 import torch
-
+from npu_model.isa import DmaArgs, MatrixArgs, VectorArgs, ScalarArgs
 from npu_model.workload.gemma_blocks import gemma_mlp_gate_up_forward
 
 
-GATE_PROJ_WEIGHT_DATA = torch.ones((32, 16), dtype=torch.float8_e4m3fn)
-UP_PROJ_WEIGHT_DATA = torch.ones((32, 16), dtype=torch.float8_e4m3fn)
-ACTIVATION_DATA = torch.ones((64, 32), dtype=torch.float8_e4m3fn)
+GATE_PROJ_WEIGHT_DATA = torch.ones((32, 32), dtype=torch.float8_e4m3fn)
+UP_PROJ_WEIGHT_DATA = torch.ones((32, 32), dtype=torch.float8_e4m3fn)
+ACTIVATION_DATA = torch.ones((32, 32), dtype=torch.float8_e4m3fn)
 
-# Memory layout: gate weights, up weights, activation, output
-GATE_WEIGHT_BASE = 0x0000
-UP_WEIGHT_BASE = 0x0200  # 512 bytes after gate
-ACTIVATION_DATA_BASE = 0x2000
-OUTPUT_DATA_BASE = 0x3000
+# DRAM memory layout (program-loaded)
+DRAM_GATE_WEIGHT_BASE = 0x0000
+DRAM_UP_WEIGHT_BASE = 0x0400  # 1024 bytes after gate
+DRAM_ACTIVATION_BASE = 0x0800
+DRAM_OUTPUT_BASE = 0x0C00
+
+# VMEM scratchpad layout
+VMEM_GATE_WEIGHT_BASE = 0x2000
+VMEM_UP_WEIGHT_BASE = 0x2400
+VMEM_ACTIVATION_BASE = 0x2800
+VMEM_OUTPUT_BASE = 0x2C00
 
 
 class GemmaMlpProgram(Program):
@@ -26,69 +32,106 @@ class GemmaMlpProgram(Program):
     """
 
     instructions: List[Instruction] = [
-        # Load gate and up weights into MXU0's weight buffer (matmul.mxu0 uses mxu0's WB)
-        Instruction(
-            mnemonic="dma.load.mxu0",
-            args={
-                "rd": 0,
-                "base": GATE_WEIGHT_BASE,
-                "size": GATE_PROJ_WEIGHT_DATA.numel() * torch.float8_e4m3fn.itemsize,
-                "flag": 0,
-            },
-        ),
-        Instruction(
-            mnemonic="dma.load.mxu0",
-            args={
-                "rd": 1,
-                "base": UP_WEIGHT_BASE,
-                "size": UP_PROJ_WEIGHT_DATA.numel() * torch.float8_e4m3fn.itemsize,
-                "flag": 1,
-            },
-        ),
-        Instruction(mnemonic="dma.wait", args={"flag": 0}),
-        Instruction(mnemonic="dma.wait", args={"flag": 1}),
-        # Load activation to MRF
-        Instruction(
-            mnemonic="dma.load",
-            args={
-                "rd": 0,
-                "base": ACTIVATION_DATA_BASE,
-                "size": ACTIVATION_DATA.numel() * torch.float8_e4m3fn.itemsize,
-                "flag": 0,
-            },
-        ),
-        Instruction(mnemonic="dma.wait", args={"flag": 0}),
-        # Gate projection: activation @ gate_weight -> MRF 1
-        Instruction(mnemonic="matmul.mxu0", args={"rd": 1, "rs1": 0, "rs2": 0}),
-        # Up projection: activation @ up_weight -> MRF 2
-        Instruction(mnemonic="matmul.mxu0", args={"rd": 2, "rs1": 0, "rs2": 1}),
-        # Simplified output: gate * up (GeGLU uses gate * silu(up))
-        Instruction(mnemonic="vmul", args={"vrd": 6, "vs1": 1, "vs2": 2}),
-        # Store result
-        Instruction(
-            mnemonic="dma.store",
-            args={
-                "rs1": 6,
-                "base": OUTPUT_DATA_BASE,
-                "size": 64 * 16 * torch.bfloat16.itemsize,
-                "flag": 2,
-            },
-        ),
-        Instruction(mnemonic="dma.wait", args={"flag": 2}),
+        # x1..x4: VMEM bases (use LUI+ADDI so immediates stay 12-bit clean)
+        # 0x2000
+        Instruction(mnemonic="lui", args=ScalarArgs(rd=1, imm=0x2)),
+        # 0x2400
+        Instruction(mnemonic="lui", args=ScalarArgs(rd=2, imm=0x2)),
+        Instruction(mnemonic="addi", args=ScalarArgs(rd=2, rs1=2, imm=0x400)),
+        # 0x2800 = 0x3000 - 0x800
+        Instruction(mnemonic="lui", args=ScalarArgs(rd=3, imm=0x3)),
+        Instruction(mnemonic="addi", args=ScalarArgs(rd=3, rs1=3, imm=-2048)),
+        # 0x2C00 = 0x3000 - 0x400
+        Instruction(mnemonic="lui", args=ScalarArgs(rd=4, imm=0x3)),
+        Instruction(mnemonic="addi", args=ScalarArgs(rd=4, rs1=4, imm=-1024)),
+        # x5..x8: DRAM bases
+        Instruction(mnemonic="addi", args=ScalarArgs(rd=5, rs1=0, imm=DRAM_GATE_WEIGHT_BASE)),
+        Instruction(mnemonic="addi", args=ScalarArgs(rd=6, rs1=0, imm=DRAM_UP_WEIGHT_BASE)),
+        # DRAM_ACTIVATION_BASE = 0x0800 = 0x1000 - 0x800
+        Instruction(mnemonic="lui", args=ScalarArgs(rd=7, imm=0x1)),
+        Instruction(mnemonic="addi", args=ScalarArgs(rd=7, rs1=7, imm=-2048)),
+        # DRAM_OUTPUT_BASE = 0x0C00 does not fit in signed 12-bit addi; use LUI/ADDI.
+        Instruction(mnemonic="lui", args=ScalarArgs(rd=8, imm=0x1)),
+        Instruction(mnemonic="addi", args=ScalarArgs(rd=8, rs1=8, imm=-1024)),
+        # x9: byte length for fp8 tile (32*32*1 = 1024)
+        Instruction(mnemonic="addi", args=ScalarArgs(rd=9, rs1=0, imm=1024)),
+        # x10: byte length for bf16 tile (32*16*2 = 1024)
+        Instruction(mnemonic="addi", args=ScalarArgs(rd=10, rs1=0, imm=1024)),
+
+        # DRAM -> VMEM
+        Instruction(mnemonic="dma.config.ch<N>", args=DmaArgs(rs1=0, channel=0)),
+        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
+        Instruction(mnemonic="dma.load.ch<N>", args=DmaArgs(rd=1, rs1=5, rs2=9, channel=0)),
+        Instruction(mnemonic="dma.load.ch<N>", args=DmaArgs(rd=2, rs1=6, rs2=9, channel=1)),
+        Instruction(mnemonic="dma.load.ch<N>", args=DmaArgs(rd=3, rs1=7, rs2=9, channel=2)),
+        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
+        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=1)),
+        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=2)),
+
+        # VMEM -> MRF (weights + activation)
+        Instruction(mnemonic="vload", args=VectorArgs(vd=0, rs1=1, imm12=0)),  # gate W (fp8)
+        Instruction(mnemonic="vload", args=VectorArgs(vd=1, rs1=2, imm12=0)),  # up W (fp8)
+        Instruction(mnemonic="vload", args=VectorArgs(vd=2, rs1=3, imm12=0)),  # act (fp8)
+
+        # Push weights to MXU0 WB slots 0 and 1
+        Instruction(mnemonic="vmatpush.weight.mxu0", args=VectorArgs(vd=0, vs1=0)),
+        Instruction(mnemonic="vmatpush.weight.mxu0", args=VectorArgs(vd=1, vs1=1)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=17)),
+
+        # --- PHASE 3: Matrix Multiplications ---
+        # Gate projection: activation @ gate_weight -> Acc/MRF
+        # Note: Using MatrixArgs for matmul
+        Instruction(mnemonic="vmatmul.mxu0", args=MatrixArgs(vd=0, vs1=2, vs2=0)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=33)),
+        Instruction(mnemonic="vmatpop.bf16.acc.mxu0", args=VectorArgs(vd=4, vs1=0)),  # gate -> mrf4+5
+        # Up projection: activation @ up_weight -> Acc/MRF
+        Instruction(mnemonic="vmatmul.mxu0", args=MatrixArgs(vd=0, vs1=2, vs2=1)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=33)),
+        Instruction(mnemonic="vmatpop.bf16.acc.mxu0", args=VectorArgs(vd=6, vs1=0)),  # up -> mrf6+7
+        # --- PHASE 4: Element-wise Multiplication (GeGLU Simplified) ---
+        Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=8, vs1=4, vs2=6)),
+        Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=9, vs1=5, vs2=7)),
+        # --- PHASE 5: Store Results ---
+        Instruction(mnemonic="vstore", args=VectorArgs(vd=8, rs1=4, imm12=0)),
+        Instruction(mnemonic="vstore", args=VectorArgs(vd=9, rs1=4, imm12=32)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=40)),
+
+        # VMEM -> DRAM (two 1024B tiles)
+        Instruction(mnemonic="addi", args=ScalarArgs(rd=11, rs1=4, imm=1024)),  # vmem+1024
+        Instruction(mnemonic="addi", args=ScalarArgs(rd=12, rs1=8, imm=1024)),  # dram+1024
+        Instruction(mnemonic="dma.store.ch<N>", args=DmaArgs(rd=8, rs1=4, rs2=10, channel=0)),
+        Instruction(mnemonic="dma.store.ch<N>", args=DmaArgs(rd=12, rs1=11, rs2=10, channel=1)),
+        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
+        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=1)),
     ]
 
     memory_regions: List[Tuple[int, torch.Tensor]] = [
-        (GATE_WEIGHT_BASE, GATE_PROJ_WEIGHT_DATA),
-        (UP_WEIGHT_BASE, UP_PROJ_WEIGHT_DATA),
-        (ACTIVATION_DATA_BASE, ACTIVATION_DATA),
+        (DRAM_GATE_WEIGHT_BASE, GATE_PROJ_WEIGHT_DATA),
+        (DRAM_UP_WEIGHT_BASE, UP_PROJ_WEIGHT_DATA),
+        (DRAM_ACTIVATION_BASE, ACTIVATION_DATA),
     ]
 
     golden_result: tuple[int, torch.Tensor] = (
-        OUTPUT_DATA_BASE,
-        gemma_mlp_gate_up_forward(
-            ACTIVATION_DATA,
-            GATE_PROJ_WEIGHT_DATA,
-            UP_PROJ_WEIGHT_DATA,
-            use_gelu=False,  # matches NPU: gate * up
-        ).to(torch.bfloat16),
+        DRAM_OUTPUT_BASE,
+        # Pure torch reference for the math, then expressed in the same memory layout
+        # the program stores: two 32x16 bf16 tiles back-to-back in DRAM.
+        torch.cat(
+            (
+                gemma_mlp_gate_up_forward(
+                    ACTIVATION_DATA,
+                    GATE_PROJ_WEIGHT_DATA,
+                    UP_PROJ_WEIGHT_DATA,
+                    use_gelu=False,  # matches NPU: gate * up
+                )
+                .to(torch.bfloat16)[:, :16],
+                gemma_mlp_gate_up_forward(
+                    ACTIVATION_DATA,
+                    GATE_PROJ_WEIGHT_DATA,
+                    UP_PROJ_WEIGHT_DATA,
+                    use_gelu=False,  # matches NPU: gate * up
+                )
+                .to(torch.bfloat16)[:, 16:],
+            ),
+            dim=0,
+        ).contiguous(),
     )

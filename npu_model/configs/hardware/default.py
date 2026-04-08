@@ -1,4 +1,3 @@
-from typing import Tuple
 from npu_model.hardware.config import HardwareConfig, ArchStateConfig
 from npu_model.isa import IsaSpec
 
@@ -7,16 +6,25 @@ class DefaultHardwareConfig(HardwareConfig):
     name: str = "SimpleNPU"
 
     fetch_width: int = 1
-    isa: IsaSpec = IsaSpec
+    isa: type[IsaSpec] = IsaSpec
     arch_state_config: ArchStateConfig = ArchStateConfig(
-        mrf_depth=64,  # each instruction is 64 cycles
-        mrf_width=1 * 32 * 1,  # 64 rows of 32 bytes in a tensor register
-        wb_width=32 * 16 * 1,  # 512 16-bit elements fit in one weight buffer
+        mrf_depth=32,  # 32 rows per architectural tensor tile
+        mrf_width=32,  # 32 bytes per row => 32x32 FP8 or 32x16 BF16 per register
+        wb_width=32 * 32 * 1,  # one 32x32 FP8 weight tile per weight slot
         num_x_registers=32,
+        num_csrs=0, # FIXME
+        num_e_registers=32,
         num_m_registers=64,
         num_wb_registers=2,
-        memory_size=1048576,
+        dram_size=1048576,
+        vmem_size=256 * 1024,
     )
+    mxu0_matmul_latency_cycles: int = 32
+    mxu1_matmul_latency_cycles: int = 32
+    vpu_simple_op_latency_cycles: int = 2
+    vpu_non_pipelineable_op_latency_cycles: int = 8
+    xlu_transform_latency_cycles: int = 4
+    vmem_bytes_per_cycle: int = 64
     execution_units: dict[str, str] = {
         "Scalar0": "ScalarExecutionUnit",
         "Matrix0": "MatrixExecutionUnitSystolic",

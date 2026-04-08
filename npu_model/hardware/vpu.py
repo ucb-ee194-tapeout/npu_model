@@ -1,12 +1,58 @@
-from typing import List
+import math
+from typing import List, Any
 
 from .exu import ExecutionUnit
 from ..logging.logger import Logger, LaneType
 from ..hardware.arch_state import ArchState
-from ..software.instruction import Uop
-from ..isa import InstructionType
+from ..software.instruction import Uop, is_vector_uop
+from ..isa import InstructionType, AsmInstructionType, VectorArgs
 from .stage_data import StageData
 from .config import HardwareConfig
+
+SIMPLE_VPU_OPS = {
+    "vadd",
+    "vsub",
+    "vmul",
+    "mv.mm",
+}
+
+NON_PIPELINEABLE_VPU_OPS = {
+    "vsqrt",
+    "vrcp",
+    "vexp",
+    "vlog2",
+    "vexp2",
+    "vsin",
+    "vcos",
+    "vtanh",
+}
+
+XLU_OPS = {
+    "vtrpose.h",
+    "vtrpose.l",
+    "vreduce.sum",
+    "vrot.reduce.sum",
+}
+
+VLS_OPS = {
+    "vload",
+    "vstore",
+}
+
+LOCAL_TRANSFER_TILE_BYTES = {
+    "vmatpush.weight.mxu0": 1024,
+    "vmatpush.weight.mxu1": 1024,
+    "vmatpush.acc.fp8.mxu0": 1024,
+    "vmatpush.acc.fp8.mxu1": 1024,
+    "vmatpush.acc.bf16.mxu0": 2048,
+    "vmatpush.acc.bf16.mxu1": 2048,
+    "vmatpop.fp8.acc.mxu0": 1024,
+    "vmatpop.fp8.acc.mxu1": 1024,
+    "vmatpop.bf16.acc.mxu0": 2048,
+    "vmatpop.bf16.acc.mxu1": 2048,
+    "vmatpop.mxu0": 2048,
+    "vmatpop.mxu1": 2048,
+}
 
 
 class VectorExecutionUnit(ExecutionUnit):
@@ -18,7 +64,7 @@ class VectorExecutionUnit(ExecutionUnit):
         logger: Logger,
         arch_state: ArchState,
         lane_id: int = 0,
-        config: HardwareConfig = None,
+        config: HardwareConfig | None = None,
     ) -> None:
         super().__init__(
             name,
@@ -30,13 +76,40 @@ class VectorExecutionUnit(ExecutionUnit):
         self.reset()
 
     def reset(self) -> None:
-        self.in_flight: Uop | None = None
+        self.in_flight: Uop[VectorArgs] | None = None
         self._complete_count = 0
-        self._pending_completions: List["Uop"] = []
+        self._pending_completions: List[Uop[VectorArgs]] = []
         self._total_instructions = 0
         self._busy_cycles = 0
 
-    def tick(self, idu_output: StageData[Uop | None]) -> None:
+    def _execution_latency(self, uop: Uop[VectorArgs]) -> int:
+        mnemonic = uop.insn.mnemonic
+        if mnemonic in VLS_OPS:
+            tensor_register_bytes = (
+                self.config.arch_state_config.mrf_depth
+                * self.config.arch_state_config.mrf_width
+            )
+            return max(
+                1,
+                math.ceil(tensor_register_bytes / self.config.vmem_bytes_per_cycle),
+            )
+        if mnemonic in LOCAL_TRANSFER_TILE_BYTES:
+            return max(
+                1,
+                math.ceil(
+                    LOCAL_TRANSFER_TILE_BYTES[mnemonic]
+                    / self.config.vmem_bytes_per_cycle
+                ),
+            )
+        if mnemonic in XLU_OPS:
+            return self.config.xlu_transform_latency_cycles
+        if mnemonic in NON_PIPELINEABLE_VPU_OPS:
+            return self.config.vpu_non_pipelineable_op_latency_cycles
+        if mnemonic in SIMPLE_VPU_OPS:
+            return self.config.vpu_simple_op_latency_cycles
+        return self.config.vpu_simple_op_latency_cycles
+
+    def tick(self, idu_output: StageData[Uop[Any] | None]) -> None:
         self.cycle += 1
         # Log deferred completions from last cycle
         for uop in self._pending_completions:
@@ -55,8 +128,9 @@ class VectorExecutionUnit(ExecutionUnit):
 
             # Accept new instruction
             if uop is not None:
+                assert is_vector_uop(uop), "Wrong Argument Type passed to Vector Unit."
                 # tag instruction with execution delay
-                uop.execute_delay = self.config.arch_state_config.mrf_depth
+                uop.execute_delay = self._execution_latency(uop)
                 self.in_flight = uop
                 self._total_instructions += 1
                 # Log: end dispatch, start execute
@@ -82,7 +156,10 @@ class VectorExecutionUnit(ExecutionUnit):
             self.in_flight.execute_delay -= 1
             if self.in_flight.execute_delay <= 0:
                 # execute the instruction
-                self.in_flight.execute_fn(self.arch_state, self.in_flight.insn.args)
+                if self.in_flight.execute_fn != None:
+                    self.in_flight.execute_fn(self.arch_state, self.in_flight.insn.args)
+                else:
+                    raise ValueError("No execute function provided for Uop.")
                 self._complete_count = 1
                 # Defer completion logging to next tick
                 self._pending_completions.append(self.in_flight)
@@ -123,5 +200,5 @@ class VectorExecutionUnit(ExecutionUnit):
         return self._busy_cycles
 
     @property
-    def supported_instruction_types(self) -> List[InstructionType]:
-        return [InstructionType.VECTOR]
+    def supported_instruction_types(self) -> List[AsmInstructionType]:
+        return [InstructionType.VECTOR.VLS, InstructionType.VECTOR.VR, InstructionType.VECTOR.VI]
