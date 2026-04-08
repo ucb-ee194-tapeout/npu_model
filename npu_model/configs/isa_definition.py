@@ -24,33 +24,26 @@ _MASK64 = 0xFFFFFFFFFFFFFFFF
 
 
 def _sign_extend(value: int, length: int):
+    """Sign-extends a value of a given bit length to the Python integer width."""
     value &= (1 << length) - 1
-
     if value & (1 << (length - 1)):
         value -= 1 << length
-
     return value
 
 
-# FIXME: data needs a type but idk what it should be.
 def _int_to_le_bytes(data, length: int) -> torch.Tensor:
     type_map = {1: torch.uint8, 2: torch.int16, 4: torch.int32}
-
     if length not in type_map:
         raise ValueError("Length must be 1, 2, or 4 bytes.")
-
     return torch.tensor([data], dtype=type_map[length]).view(torch.uint8).clone()
 
 
 def _le_bytes_to_int(tensor: torch.Tensor) -> int:
     length = tensor.numel()
     type_map = {1: torch.uint8, 2: torch.int16, 4: torch.int32}
-
     if length not in type_map:
         raise ValueError("Tensor length must be 1, 2, or 4 bytes.")
-
     raw_val = tensor.contiguous().view(type_map[length]).item()
-
     masks = {1: 0xFF, 2: 0xFFFF, 4: 0xFFFFFFFF}
     return int(raw_val) & masks[length]
 
@@ -59,83 +52,47 @@ def _tensor_register_bytes(state: ArchState) -> int:
     return state.cfg.mrf_depth * state.cfg.mrf_width // torch.uint8.itemsize
 
 
-def _vls_base_register(args: VectorArgs) -> int:
-    if hasattr(args, "rs1"):
-        return args.rs1
-    else:
-        raise KeyError("vload/vstore requires rs1")
-
-
-def _vls_offset(args: VectorArgs) -> int:
-    if hasattr(args, "offset"):
-        return args.offset
-    else:
-        raise KeyError("no offset provided")
-
-
-def _vls_address(state: ArchState, args: VectorArgs) -> int:
-    return state.read_xrf(_vls_base_register(args)) + (_vls_offset(args) << 5)
-
-
-def _acc_dest_index(args: VectorArgs | MatrixArgs) -> int:
-    if hasattr(args, "vd"):
-        return args.vd
-    raise KeyError("MXU local write requires a destination accumulator selector")
-
-
-def _acc_source_index(args: Any) -> int:
-    if hasattr(args, "vs2"):
-        return args.vs2
-    if hasattr(args, "vs1"):
-        return args.vs1
-    if hasattr(args, "vd"):
-        return args.vd
-    raise KeyError("MXU local read requires an accumulator selector")
-
-
 def _vmatmul(state: ArchState, unit: str, args: MatrixArgs, accumulate: bool) -> None:
     activation_fp16 = state.read_mrf_fp8(args.vs1).to(torch.float16)
     weight_fp16 = state.read_wb_fp8(unit, args.vs2).to(torch.float16)
     result_fp16 = activation_fp16 @ weight_fp16
     if accumulate:
-        result_fp16 = result_fp16 + state.read_acc_bf16(unit, _acc_dest_index(args)).to(
-            torch.float16
-        )
+        result_fp16 = result_fp16 + state.read_acc_bf16(unit, args.vd).to(torch.float16)
     state.write_acc_bf16(unit, args.vd, result_fp16.to(torch.bfloat16))
-
-
-# =============================================================================
-# Instructions Matching README Specification
-# =============================================================================
 
 
 @instr("lb", instruction_type=InstructionType.SCALAR.I, opcode=0b0000011, funct3=0b000)
 def lb(state: ArchState, args: ScalarArgs) -> None:
-    value = _le_bytes_to_int(state.read_vmem(state.read_xrf(args.rs1), args.imm, 1))
+    imm = _sign_extend(args.imm & 0xFFF, 12)
+    value = _le_bytes_to_int(state.read_vmem(state.read_xrf(args.rs1), imm, 1))
     state.write_xrf(args.rd, _sign_extend(value, 8))
 
 
 @instr("lh", instruction_type=InstructionType.SCALAR.I, opcode=0b0000011, funct3=0b001)
 def lh(state: ArchState, args: ScalarArgs) -> None:
-    value = _le_bytes_to_int(state.read_vmem(state.read_xrf(args.rs1), args.imm, 2))
+    imm = _sign_extend(args.imm & 0xFFF, 12)
+    value = _le_bytes_to_int(state.read_vmem(state.read_xrf(args.rs1), imm, 2))
     state.write_xrf(args.rd, _sign_extend(value, 16))
 
 
 @instr("lw", instruction_type=InstructionType.SCALAR.I, opcode=0b0000011, funct3=0b010)
 def lw(state: ArchState, args: ScalarArgs) -> None:
-    value = _le_bytes_to_int(state.read_vmem(state.read_xrf(args.rs1), args.imm, 4))
+    imm = _sign_extend(args.imm & 0xFFF, 12)
+    value = _le_bytes_to_int(state.read_vmem(state.read_xrf(args.rs1), imm, 4))
     state.write_xrf(args.rd, value)
 
 
 @instr("lbu", instruction_type=InstructionType.SCALAR.I, opcode=0b0000011, funct3=0b100)
 def lbu(state: ArchState, args: ScalarArgs) -> None:
-    value = _le_bytes_to_int(state.read_vmem(state.read_xrf(args.rs1), args.imm, 1))
+    imm = _sign_extend(args.imm & 0xFFF, 12)
+    value = _le_bytes_to_int(state.read_vmem(state.read_xrf(args.rs1), imm, 1))
     state.write_xrf(args.rd, value)
 
 
 @instr("lhu", instruction_type=InstructionType.SCALAR.I, opcode=0b0000011, funct3=0b101)
 def lhu(state: ArchState, args: ScalarArgs) -> None:
-    value = _le_bytes_to_int(state.read_vmem(state.read_xrf(args.rs1), args.imm, 2))
+    imm = _sign_extend(args.imm & 0xFFF, 12)
+    value = _le_bytes_to_int(state.read_vmem(state.read_xrf(args.rs1), imm, 2))
     state.write_xrf(args.rd, value)
 
 
@@ -143,9 +100,10 @@ def lhu(state: ArchState, args: ScalarArgs) -> None:
     "seld", instruction_type=InstructionType.SCALAR.I, opcode=0b0000011, funct3=0b110
 )
 def seld(state: ArchState, args: ScalarArgs) -> None:
+    imm = _sign_extend(args.imm & 0xFFF, 12)
     state.write_erf(
         args.rd,
-        int(state.read_vmem(state.read_xrf(args.rs1), args.imm, 1).view(torch.uint8)),
+        int(state.read_vmem(state.read_xrf(args.rs1), imm, 1).view(torch.uint8)),
     )
 
 
@@ -153,16 +111,15 @@ def seld(state: ArchState, args: ScalarArgs) -> None:
     "seli", instruction_type=InstructionType.SCALAR.I, opcode=0b0000011, funct3=0b111
 )
 def seli(state: ArchState, args: ScalarArgs):
-    state.write_erf(args.rd, args.imm)
+    state.write_erf(args.rd, _sign_extend(args.imm & 0xFFF, 12))
 
 
 @instr(
     "vload", instruction_type=InstructionType.VECTOR.VLS, opcode=0b0000111, funct2=0b00
 )
 def vload(state: ArchState, args: VectorArgs) -> None:
-    data = state.read_vmem(
-        state.read_xrf(args.rs1), args.imm12 << 5, _tensor_register_bytes(state)
-    ).view(torch.uint8)
+    addr = state.read_xrf(args.rs1) + (args.imm12 << 5)
+    data = state.read_vmem(addr, 0, _tensor_register_bytes(state)).view(torch.uint8)
     state.write_mrf_u8(args.vd, data)
 
 
@@ -170,10 +127,9 @@ def vload(state: ArchState, args: VectorArgs) -> None:
     "vstore", instruction_type=InstructionType.VECTOR.VLS, opcode=0b0000111, funct2=0b01
 )
 def vstore(state: ArchState, args: VectorArgs) -> None:
+    addr = state.read_xrf(args.rs1) + (args.imm12 << 5)
     data = state.read_mrf_fp8(args.vd).view(torch.uint8)
-    state.write_vmem(
-        state.read_xrf(args.rs1), args.imm12 << 5, data  # FIX: Shift by 5, not 12
-    )
+    state.write_vmem(addr, 0, data)
 
 
 @instr(
@@ -194,14 +150,15 @@ def addi(state: ArchState, args: ScalarArgs) -> None:
     "slli", instruction_type=InstructionType.SCALAR.I, opcode=0b0010011, funct3=0b001
 )
 def slli(state: ArchState, args: ScalarArgs) -> None:
-    state.write_xrf(args.rd, state.xrf[args.rs1] << args.imm)
+    state.write_xrf(args.rd, state.xrf[args.rs1] << (args.imm & 0x3F))
 
 
 @instr(
     "slti", instruction_type=InstructionType.SCALAR.I, opcode=0b0010011, funct3=0b010
 )
 def slti(state: ArchState, args: ScalarArgs) -> None:
-    state.write_xrf(args.rd, 1 if state.xrf[args.rs1] < args.imm else 0)
+    imm = _sign_extend(args.imm & 0xFFF, 12)
+    state.write_xrf(args.rd, 1 if state.xrf[args.rs1] < imm else 0)
 
 
 @instr(
@@ -209,7 +166,7 @@ def slti(state: ArchState, args: ScalarArgs) -> None:
 )
 def sltiu(state: ArchState, args: ScalarArgs) -> None:
     a = state.xrf[args.rs1] & _MASK64
-    b = args.imm & _MASK64
+    b = _sign_extend(args.imm & 0xFFF, 12) & _MASK64
     state.write_xrf(args.rd, 1 if a < b else 0)
 
 
@@ -217,33 +174,33 @@ def sltiu(state: ArchState, args: ScalarArgs) -> None:
     "xori", instruction_type=InstructionType.SCALAR.I, opcode=0b0010011, funct3=0b100
 )
 def xori(state: ArchState, args: ScalarArgs) -> None:
-    state.write_xrf(args.rd, state.xrf[args.rs1] ^ args.imm)
+    state.write_xrf(args.rd, state.xrf[args.rs1] ^ _sign_extend(args.imm & 0xFFF, 12))
 
 
 @instr(
     "srli", instruction_type=InstructionType.SCALAR.I, opcode=0b0010011, funct3=0b101
 )
 def srli(state: ArchState, args: ScalarArgs) -> None:
-    state.write_xrf(args.rd, state.xrf[args.rs1] >> args.imm)
+    state.write_xrf(args.rd, state.xrf[args.rs1] >> (args.imm & 0x3F))
 
 
 @instr(
     "srai", instruction_type=InstructionType.SCALAR.I, opcode=0b0010011, funct3=0b101
 )
 def srai(state: ArchState, args: ScalarArgs) -> None:
-    state.write_xrf(args.rd, state.xrf[args.rs1] >> args.imm)
+    state.write_xrf(args.rd, state.xrf[args.rs1] >> (args.imm & 0x3F))
 
 
 @instr("ori", instruction_type=InstructionType.SCALAR.I, opcode=0b0010011, funct3=0b110)
 def ori(state: ArchState, args: ScalarArgs) -> None:
-    state.write_xrf(args.rd, state.xrf[args.rs1] | args.imm)
+    state.write_xrf(args.rd, state.xrf[args.rs1] | _sign_extend(args.imm & 0xFFF, 12))
 
 
 @instr(
     "andi", instruction_type=InstructionType.SCALAR.I, opcode=0b0010011, funct3=0b111
 )
 def andi(state: ArchState, args: ScalarArgs) -> None:
-    state.write_xrf(args.rd, state.xrf[args.rs1] & args.imm)
+    state.write_xrf(args.rd, state.xrf[args.rs1] & _sign_extend(args.imm & 0xFFF, 12))
 
 
 @instr("auipc", instruction_type=InstructionType.SCALAR.U, opcode=0b0010111)
@@ -253,27 +210,30 @@ def auipc(state: ArchState, args: ScalarArgs) -> None:
 
 @instr("sb", instruction_type=InstructionType.SCALAR.S, opcode=0b0100011, funct3=0b000)
 def sb(state: ArchState, args: ScalarArgs) -> None:
+    imm = _sign_extend(args.imm & 0xFFF, 12)
     state.write_vmem(
         state.read_xrf(args.rs1),
-        args.imm,
+        imm,
         _int_to_le_bytes(state.read_xrf(args.rs2) & 0xFF, 1),
     )
 
 
 @instr("sh", instruction_type=InstructionType.SCALAR.S, opcode=0b0100011, funct3=0b001)
 def sh(state: ArchState, args: ScalarArgs) -> None:
+    imm = _sign_extend(args.imm & 0xFFF, 12)
     state.write_vmem(
         state.read_xrf(args.rs1),
-        args.imm,
+        imm,
         _int_to_le_bytes(state.read_xrf(args.rs2) & 0xFFFF, 2),
     )
 
 
 @instr("sw", instruction_type=InstructionType.SCALAR.S, opcode=0b0100011, funct3=0b010)
 def sw(state: ArchState, args: ScalarArgs) -> None:
+    imm = _sign_extend(args.imm & 0xFFF, 12)
     state.write_vmem(
         state.read_xrf(args.rs1),
-        args.imm,
+        imm,
         _int_to_le_bytes(state.read_xrf(args.rs2) & 0xFFFFFFFF, 4),
     )
 
@@ -394,7 +354,6 @@ def and_(state: ArchState, args: ScalarArgs) -> None:
     "lui", instruction_type=InstructionType.SCALAR.U, opcode=0b0110111, funct7=0b0000000
 )
 def lui(state: ArchState, args: ScalarArgs) -> None:
-    """Load upper immediate: rd = imm << 12 (RISC-V LUI semantics)."""
     state.write_xrf(args.rd, (args.imm << 12) & _MASK64)
 
 
@@ -507,7 +466,6 @@ def vredmax_bf16(state: ArchState, args: VectorArgs) -> None:
     funct7=0b0100001,
 )
 def vredsum_row_bf16(state: ArchState, args: VectorArgs) -> None:
-    # REVIEW: broadcast row reduction result to all columns
     x = state.read_mrf_bf16(args.vs1)
     result = x.sum(dim=1, keepdim=True).to(torch.bfloat16).expand_as(x).contiguous()
     state.write_mrf_bf16(args.vd, result)
@@ -520,7 +478,6 @@ def vredsum_row_bf16(state: ArchState, args: VectorArgs) -> None:
     funct7=0b0100100,
 )
 def vredmin_row_bf16(state: ArchState, args: VectorArgs) -> None:
-    # REVIEW: broadcast row reduction result to all columns
     x = state.read_mrf_bf16(args.vs1)
     result = (
         x.min(dim=1).values.to(torch.bfloat16).unsqueeze(1).expand_as(x).contiguous()
@@ -535,7 +492,6 @@ def vredmin_row_bf16(state: ArchState, args: VectorArgs) -> None:
     funct7=0b0100110,
 )
 def vredmax_row_bf16(state: ArchState, args: VectorArgs) -> None:
-    # REVIEW: broadcast row reduction result to all columns
     x = state.read_mrf_bf16(args.vs1)
     result = (
         x.max(dim=1).values.to(torch.bfloat16).unsqueeze(1).expand_as(x).contiguous()
@@ -593,15 +549,11 @@ def vexp2_bf16(state: ArchState, args: VectorArgs) -> None:
 )
 def vpack_bf16_fp8(state: ArchState, args: VectorArgs) -> None:
     assert args.vs1 != state.cfg.num_m_registers - 1
-
     scale = state.read_erf(args.es1)
-
     reg_low = state.read_mrf_bf16(args.vs1)
     reg_high = state.read_mrf_bf16(args.vs1 + 1)
     combined_bf16 = torch.cat([reg_low, reg_high], dim=1)
-
     quantized_fp8 = (combined_bf16 * scale).to(torch.float8_e4m3fn)
-
     state.write_mrf_fp8(args.vd, quantized_fp8)
 
 
@@ -613,14 +565,10 @@ def vpack_bf16_fp8(state: ArchState, args: VectorArgs) -> None:
 )
 def vunpack_fp8_bf16(state: ArchState, args: VectorArgs) -> None:
     assert args.vd != state.cfg.num_m_registers - 1
-
     scale = state.read_erf(args.es1)
-
     source_fp8 = state.read_mrf_fp8(args.vs1)
     dequantized_bf16 = source_fp8.to(torch.bfloat16)
-
     scaled_bf16 = dequantized_bf16 / scale
-
     reg_low, reg_high = torch.chunk(scaled_bf16, chunks=2, dim=1)
     state.write_mrf_bf16(args.vd, reg_low)
     state.write_mrf_bf16(args.vd + 1, reg_high)
@@ -665,7 +613,7 @@ def vcos_bf16(state: ArchState, args: VectorArgs) -> None:
     funct7=0b1001011,
 )
 def vtanh_bf16(state: ArchState, args: VectorArgs) -> None:
-    x = state.read_mrf_bf16(args.vs1)  # fixed missing x
+    x = state.read_mrf_bf16(args.vs1)
     state.write_mrf_bf16(args.vd, torch.tanh(x).to(torch.bfloat16))
 
 
@@ -745,77 +693,67 @@ def vli_one(state: ArchState, args: VectorArgs) -> None:
     "beq", instruction_type=InstructionType.SCALAR.SB, opcode=0b1100011, funct3=0b000
 )
 def beq(state: ArchState, args: ScalarArgs) -> None:
+    imm = _sign_extend(args.imm & 0x1FFF, 13)
     if state.xrf[args.rs1] == state.xrf[args.rs2]:
-        state.set_npc(
-            state.pc + args.imm - PIPELINE_LATENCY
-        )  # FIXME: this is a hack to compensate for the IF->EX delay
+        state.set_npc(state.pc + imm - PIPELINE_LATENCY)
 
 
 @instr(
     "bne", instruction_type=InstructionType.SCALAR.SB, opcode=0b1100011, funct3=0b001
 )
 def bne(state: ArchState, args: ScalarArgs) -> None:
+    imm = _sign_extend(args.imm & 0x1FFF, 13)
     if state.xrf[args.rs1] != state.xrf[args.rs2]:
-        state.set_npc(
-            state.pc + args.imm - PIPELINE_LATENCY
-        )  # FIXME: this is a hack to compensate for the IF->EX delay
+        state.set_npc(state.pc + imm - PIPELINE_LATENCY)
 
 
 @instr(
     "blt", instruction_type=InstructionType.SCALAR.SB, opcode=0b1100011, funct3=0b100
 )
 def blt(state: ArchState, args: ScalarArgs) -> None:
+    imm = _sign_extend(args.imm & 0x1FFF, 13)
     if state.xrf[args.rs1] < state.xrf[args.rs2]:
-        state.set_npc(
-            state.pc + args.imm - PIPELINE_LATENCY
-        )  # FIXME: this is a hack to compensate for the IF->EX delay
+        state.set_npc(state.pc + imm - PIPELINE_LATENCY)
 
 
 @instr(
     "bge", instruction_type=InstructionType.SCALAR.SB, opcode=0b1100011, funct3=0b101
 )
 def bge(state: ArchState, args: ScalarArgs) -> None:
-    """Branch if rs1 >= rs2 (signed)."""
+    imm = _sign_extend(args.imm & 0x1FFF, 13)
     if state.xrf[args.rs1] >= state.xrf[args.rs2]:
-        state.set_npc(
-            state.pc + args.imm - PIPELINE_LATENCY
-        )  # FIXME: this is a hack to compensate for the IF->EX delay
+        state.set_npc(state.pc + imm - PIPELINE_LATENCY)
 
 
 @instr(
     "bltu", instruction_type=InstructionType.SCALAR.SB, opcode=0b1100011, funct3=0b110
 )
 def bltu(state: ArchState, args: ScalarArgs) -> None:
-    """Branch if rs1 < rs2 (unsigned)."""
+    imm = _sign_extend(args.imm & 0x1FFF, 13)
     a = state.xrf[args.rs1] & _MASK64
     b = state.xrf[args.rs2] & _MASK64
     if a < b:
-        state.set_npc(
-            state.pc + args.imm - PIPELINE_LATENCY
-        )  # FIXME: this is a hack to compensate for the IF->EX delay
+        state.set_npc(state.pc + imm - PIPELINE_LATENCY)
 
 
 @instr(
     "bgeu", instruction_type=InstructionType.SCALAR.SB, opcode=0b1100011, funct3=0b111
 )
 def bgeu(state: ArchState, args: ScalarArgs) -> None:
-    """Branch if rs1 >= rs2 (unsigned)."""
+    imm = _sign_extend(args.imm & 0x1FFF, 13)
     a = state.xrf[args.rs1] & _MASK64
     b = state.xrf[args.rs2] & _MASK64
     if a >= b:
-        state.set_npc(
-            state.pc + args.imm - PIPELINE_LATENCY
-        )  # FIXME: this is a hack to compensate for the IF->EX delay
+        state.set_npc(state.pc + imm - PIPELINE_LATENCY)
 
 
 @instr(
     "jalr", instruction_type=InstructionType.SCALAR.I, opcode=0b1100111, funct3=0b000
 )
 def jalr(state: ArchState, args: ScalarArgs) -> None:
+    imm = _sign_extend(args.imm & 0xFFF, 12)
     state.write_xrf(args.rd, state.pc + 4)
-    state.set_npc(
-        state.read_xrf(args.rs1) + args.imm - PIPELINE_LATENCY
-    )  # FIXME: this is a hack to
+    state.set_npc(state.read_xrf(args.rs1) + imm - PIPELINE_LATENCY)
 
 
 @instr(
@@ -868,17 +806,15 @@ def vreduce_sum_xlu(state: ArchState, args: VectorArgs) -> None:
 
 @instr("jal", instruction_type=InstructionType.SCALAR.UJ, opcode=0b1101111)
 def jal(state: ArchState, args: ScalarArgs) -> None:
+    imm = _sign_extend(args.imm & 0xFFFFF, 20)
     state.write_xrf(args.rd, state.pc + 4)
-    state.set_npc(
-        state.pc + args.imm - PIPELINE_LATENCY
-    )  # FIXME: this is a hack to compensate for the IF->EX delay
+    state.set_npc(state.pc + imm - PIPELINE_LATENCY)
 
 
 @instr(
     "csrrw", instruction_type=InstructionType.SCALAR.CSR, opcode=0b1110011, funct3=0b001
 )
 def csrrw(state: ArchState, args: ScalarArgs) -> None:
-    """Atomic read/write CSR: rd = CSR[imm]; CSR[imm] = x[rs1]"""
     old = state.read_csrf(args.imm)
     state.write_csrf(args.imm, state.read_xrf(args.rs1))
     state.write_xrf(args.rd, old)
@@ -888,7 +824,6 @@ def csrrw(state: ArchState, args: ScalarArgs) -> None:
     "csrrs", instruction_type=InstructionType.SCALAR.CSR, opcode=0b1110011, funct3=0b010
 )
 def csrrs(state: ArchState, args: ScalarArgs) -> None:
-    """Atomic read and set bits in CSR: rd = CSR[imm]; CSR[imm] |= x[rs1]"""
     old = state.read_csrf(args.imm)
     state.write_csrf(args.imm, old | state.read_xrf(args.rs1))
     state.write_xrf(args.rd, old)
@@ -946,7 +881,6 @@ def ecall(state: ArchState, args: ScalarArgs) -> None:
     pass
 
 
-# TODO: Implement 'ebreak'
 @instr(
     "ebreak", instruction_type=InstructionType.SCALAR.I, opcode=0b1110011, funct3=0b000
 )
@@ -982,9 +916,7 @@ def vmatpush_weight_mxu1(state: ArchState, args: VectorArgs) -> None:
 )
 def vmatpush_acc_fp8_mxu0(state: ArchState, args: VectorArgs) -> None:
     state.write_acc_bf16(
-        "mxu0",
-        _acc_dest_index(args),
-        state.read_mrf_fp8(args.vs1).to(torch.bfloat16),
+        "mxu0", args.vd, state.read_mrf_fp8(args.vs1).to(torch.bfloat16)
     )
 
 
@@ -996,9 +928,7 @@ def vmatpush_acc_fp8_mxu0(state: ArchState, args: VectorArgs) -> None:
 )
 def vmatpush_acc_fp8_mxu1(state: ArchState, args: VectorArgs) -> None:
     state.write_acc_bf16(
-        "mxu1",
-        _acc_dest_index(args),
-        state.read_mrf_fp8(args.vs1).to(torch.bfloat16),
+        "mxu1", args.vd, state.read_mrf_fp8(args.vs1).to(torch.bfloat16)
     )
 
 
@@ -1009,9 +939,7 @@ def vmatpush_acc_fp8_mxu1(state: ArchState, args: VectorArgs) -> None:
     funct7=0b0000100,
 )
 def vmatpush_acc_bf16_mxu0(state: ArchState, args: VectorArgs) -> None:
-    state.write_acc_bf16(
-        "mxu0", _acc_dest_index(args), state.read_mrf_bf16_tile(args.vs1)
-    )
+    state.write_acc_bf16("mxu0", args.vd, state.read_mrf_bf16_tile(args.vs1))
 
 
 @instr(
@@ -1042,9 +970,7 @@ def vmatpop_fp8_acc_mxu0(state: ArchState, args: VectorArgs) -> None:
     funct7=0b0000111,
 )
 def vmatpop_fp8_acc_mxu1(state: ArchState, args: VectorArgs) -> None:
-    quantized = state.read_acc_bf16("mxu1", _acc_source_index(args)).to(
-        torch.float8_e4m3fn
-    )
+    quantized = state.read_acc_bf16("mxu1", args.vs1).to(torch.float8_e4m3fn)
     state.write_mrf_fp8(args.vd, quantized.view(torch.uint8))
 
 
@@ -1065,9 +991,7 @@ def vmatpop_bf16_acc_mxu0(state: ArchState, args: VectorArgs) -> None:
     funct7=0b0001001,
 )
 def vmatpop_bf16_acc_mxu1(state: ArchState, args: VectorArgs) -> None:
-    state.write_mrf_bf16_tile(
-        args.vd, state.read_acc_bf16("mxu1", _acc_source_index(args))
-    )
+    state.write_mrf_bf16_tile(args.vd, state.read_acc_bf16("mxu1", args.vs1))
 
 
 @instr(
@@ -1152,172 +1076,3 @@ def dma_config_ch_n(state: ArchState, args: DmaArgs) -> None:
 )
 def dma_wait_ch_n(state: ArchState, args: DmaArgs) -> None:
     pass
-
-
-# # =============================================================================
-# # Extras not in README
-# # =============================================================================
-
-
-# @instr("mv.mw", instruction_type=InstructionType.MATRIX)
-# def mv_mw(state: ArchState, args: MatrixArgs) -> None:
-#     """
-#     Vector/matrix move from matrix registers to weight buffer.
-#     """
-#     # TODO: check register dimensions
-#     state.write_wb_bf16("mxu0", args.rd, state.read_mrf_bf16(args.rs1))
-
-
-# @instr("vsin", instruction_type=InstructionType.VECTOR)
-# def vsin(state: ArchState, args: VectorArgs) -> None:
-#     x = state.read_mrf_bf16(args.vs1)
-#     state.write_mrf_bf16(args.vd, torch.sin(x).to(torch.bfloat16))
-
-
-# @instr("vcos", instruction_type=InstructionType.VECTOR)
-# def vcos(state: ArchState, args: VectorArgs) -> None:
-#     x = state.read_mrf_bf16(args.vs1)
-#     state.write_mrf_bf16(args.vd, torch.cos(x).to(torch.bfloat16))
-
-
-# @instr("vtanh", instruction_type=InstructionType.VECTOR)
-# def vtanh(state: ArchState, args: VectorArgs) -> None:
-#     x = state.read_mrf_bf16(args.vs1)  # fixed missing x
-#     state.write_mrf_bf16(args.vd, torch.tanh(x).to(torch.bfloat16))
-
-
-# @instr("vrot.reduce.sum", instruction_type=InstructionType.VECTOR)
-# def vrot_reduce_sum(state: ArchState, args: VectorArgs) -> None:
-#     """Reduce sum over last (across rows) dimension. For (rows, cols) in, gives (rows, 1) broadcast."""
-#     # TODO: implementation cost?
-#     x = state.read_mrf_bf16(args.vs1)
-#     sum_val = torch.sum(x.float(), dim=-1, keepdim=True)
-#     out = sum_val.expand_as(x).to(torch.bfloat16)
-#     state.write_mrf_bf16(args.vd, out)
-
-
-# @instr("mv.mm", instruction_type=InstructionType.VECTOR)
-# def mv_mm(state: ArchState, args: VectorArgs) -> None:
-#     """
-#     Vector/matrix move between matrix registers.
-#     """
-#     state.write_mrf_f32(args.rd, state.read_mrf_f32(args.rs1))
-
-
-# @instr("vtrpose.h", instruction_type=InstructionType.VECTOR)
-# def vtrpose_h(state: ArchState, args: VectorArgs) -> None:
-#     """Transpose upper half: block = x[:, 0:half], write (cols, rows) with first half rows = block.T. Use with vtrpose.l + vadd for full transpose."""
-#     # TODO: check correctness
-#     x = state.read_mrf_bf16(args.vs1)
-#     half = x.shape[0] // 2
-#     block = x[0:half, :]
-#     transposed = block.T.contiguous()
-#     out = torch.zeros_like(x)
-#     out[0:half, :] = transposed
-#     state.write_mrf_bf16(args.vd, out)
-
-
-# @instr("vtrpose.l", instruction_type=InstructionType.VECTOR)
-# def vtrpose_l(state: ArchState, args: VectorArgs) -> None:
-#     """Transpose lower half: block = x[:, half:], write (cols, rows) with second half rows = block.T. Use with vtrpose.h + vadd for full transpose."""
-#     # TODO: check correctness
-#     x = state.read_mrf_bf16(args.vs1)
-#     half = x.shape[0] // 2
-#     block = x[half:, :]
-#     transposed = block.T.contiguous()
-#     out = torch.zeros_like(x)
-#     out[half:, :] = transposed
-#     state.write_mrf_bf16(args.vd, out)
-
-
-# @instr("vmatpop.mxu0", instruction_type=InstructionType.VECTOR)
-# def vmatpop_mxu0(state: ArchState, args: VectorArgs) -> None:
-#     state.write_mrf_bf16_tile(
-#         args.vd, state.read_acc_bf16("mxu0", _acc_source_index(args))
-#     )
-
-
-# @instr("vmatpop.mxu1", instruction_type=InstructionType.VECTOR)
-# def vmatpop_mxu1(state: ArchState, args: VectorArgs) -> None:
-#     state.write_mrf_bf16_tile(
-#         args.vd, state.read_acc_bf16("mxu1", _acc_source_index(args))
-#     )
-
-
-# @instr("dma.load", instruction_type=InstructionType.DMA)
-# def dma_load(state: ArchState, args: DmaArgs) -> None:
-#     """
-#     DMA load from memory to matrix registers.
-#     """
-#     base = args.base
-#     size = args.size
-#     data = state.read_memory(base, size)
-#     # zero pad the data to the size of the MRF
-#     if data.numel() < _tensor_register_bytes(state):
-#         data = torch.nn.functional.pad(
-#             data,
-#             (
-#                 0,
-#                 _tensor_register_bytes(state) - data.numel(),
-#             ),
-#         )
-#     state.write_mrf_u8(args.rd, data)
-
-
-# @instr("dma.load.mxu0", instruction_type=InstructionType.DMA)
-# def dma_load_mxu0(state: ArchState, args: DmaArgs) -> None:
-#     """
-#     DMA load from memory to weight buffer at MXU0.
-#     """
-#     base = args.base
-#     size = args.size
-#     data = state.read_memory(base, size).to(torch.uint8)
-#     # zero pad the data to the size of the WB
-#     if data.numel() < state.cfg.wb_width // torch.uint8.itemsize:
-#         data = torch.nn.functional.pad(
-#             data,
-#             (
-#                 0,
-#                 state.cfg.wb_width // torch.uint8.itemsize - data.numel(),
-#             ),
-#         )
-#     state.write_wb_u8("mxu0", args.rd, data)
-
-
-# @instr("dma.load.mxu1", instruction_type=InstructionType.DMA)
-# def dma_load_mxu1(state: ArchState, args: DmaArgs) -> None:
-#     """
-#     DMA load from memory to weight buffer at MXU1.
-#     """
-#     base = args.base
-#     size = args.size
-#     data = state.read_memory(base, size).to(torch.uint8)
-#     # zero pad the data to the size of the WB
-#     if data.numel() < state.cfg.wb_width // torch.uint8.itemsize:
-#         data = torch.nn.functional.pad(
-#             data,
-#             (
-#                 0,
-#                 state.cfg.wb_width // torch.uint8.itemsize - data.numel(),
-#             ),
-#         )
-#     state.write_wb_u8("mxu1", args.rd, data)
-
-
-# @instr("dma.store", instruction_type=InstructionType.DMA)
-# def dma_store(state: ArchState, args: DmaArgs) -> None:
-#     """
-#     DMA store from matrix registers to memory.
-#     """
-#     base = args.base
-#     size = args.size
-#     data = state.mrf[args.rs1].view(torch.uint8)
-#     state.write_memory(base, data[:size])
-
-
-# @instr("dma.wait", instruction_type=InstructionType.BARRIER)
-# def dma_wait(state: ArchState, args: DmaArgs) -> None:
-#     """
-#     Wait for target DMA operations to complete.
-#     """
-#     pass
