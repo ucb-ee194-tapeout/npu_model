@@ -1,4 +1,10 @@
 from typing import Callable
+from dataclasses import dataclass, asdict, is_dataclass
+
+
+@dataclass
+class Args:
+    pass
 
 
 class Instruction:
@@ -15,7 +21,7 @@ class Instruction:
     def __init__(
         self,
         mnemonic: str,
-        args: dict[str, int],
+        args: Args,
         delay: int = 0,
     ) -> None:
         self.mnemonic = mnemonic
@@ -23,9 +29,8 @@ class Instruction:
         self.delay = delay
 
     def __str__(self) -> str:
-        args_str = []
-        for key, value in self.args.items():
-            args_str.append(f"{key}={value}")
+        args_dict = asdict(self.args) if is_dataclass(self.args) else self.args
+        args_str = [f"{k}={v}" for k, v in args_dict.items()]
         return f"{self.mnemonic} {', '.join(args_str)}"
 
 

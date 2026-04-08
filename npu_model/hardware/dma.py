@@ -1,4 +1,5 @@
 from typing import List
+import math
 
 from .exu import ExecutionUnit
 from ..logging.logger import Logger, LaneType
@@ -43,18 +44,17 @@ class DmaExecutionUnit(ExecutionUnit):
             self.logger.log_stage_end(uop.id, "E", lane=self.lane_id, cycle=self.cycle)
             self.logger.log_retire(uop.id)
             # clear the flag
-            self.arch_state.clear_flag(uop.insn.args["flag"])
-            print(f"DMA {self.name} cleared flag {uop.insn.args['flag']}")
-            
+            self.arch_state.clear_flag(uop.insn.args.flag)
+            print(f"DMA {self.name} cleared flag {uop.insn.args.flag}")
+
             if len(self.in_flight) != 0:
-                #Log: start execute
+                # Log: start execute
                 self.logger.log_stage_start(
                     self.in_flight[0].id,
                     "E",
                     lane=self.lane_id,
                     cycle=self.cycle,
                 )
-
 
         self._pending_completions = []
 
@@ -65,12 +65,19 @@ class DmaExecutionUnit(ExecutionUnit):
             uop = None
             if len(self.in_flight) < 8:
                 uop = idu_output.peek()
-            
+
             # Accept new instruction
             if uop is not None:
                 # tag instruction with execution delay
-                uop.execute_delay = 10 + uop.insn.args["size"]  # FIXME: verify this
-                # uop.execute_delay = 10
+                size = (
+                    uop.insn.args.get("size", 0)
+                    if isinstance(uop.insn.args, dict)
+                    else getattr(uop.insn.args, "size", 0)
+                )
+                uop.execute_delay = max(
+                    1,
+                    math.ceil(size / self.config.vmem_bytes_per_cycle),
+                )
                 self.in_flight.append(uop)
                 self._total_instructions += 1
 
@@ -86,15 +93,15 @@ class DmaExecutionUnit(ExecutionUnit):
                     lane=LaneType.DIU.value,
                     cycle=self.cycle,
                 )
-                
+
                 if len(self.in_flight) == 1:
-                    #Log: start execute
+                    # Log: start execute
                     self.logger.log_stage_start(
                         uop.id,
                         "E",
                         lane=self.lane_id,
                         cycle=self.cycle,
-                    )                 
+                    )
 
         # Track if EXU was busy
         if self.is_busy():
@@ -105,13 +112,14 @@ class DmaExecutionUnit(ExecutionUnit):
             self.in_flight[0].execute_delay -= 1
             if self.in_flight[0].execute_delay <= 0:
                 # execute the instruction
-                self.in_flight[0].execute_fn(self.arch_state, self.in_flight[0].insn.args)
+                self.in_flight[0].execute_fn(
+                    self.arch_state, self.in_flight[0].insn.args
+                )
                 self._complete_count = 1
                 # Defer completion logging to next tick
                 self._pending_completions.append(self.in_flight[0])
                 # print(f"MXU {self.name} completed instruction {self.in_flight[0].id}")
-                self.in_flight = self.in_flight[1:]    
-                
+                self.in_flight = self.in_flight[1:]
 
     def flush_completions(self) -> None:
         """Flush any pending completions (call at end of simulation)."""
@@ -146,4 +154,4 @@ class DmaExecutionUnit(ExecutionUnit):
 
     @property
     def supported_instruction_types(self) -> List[InstructionType]:
-        return [InstructionType.DMA]
+        return [InstructionType.DMA, InstructionType.BARRIER]

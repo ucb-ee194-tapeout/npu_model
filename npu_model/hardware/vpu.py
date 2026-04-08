@@ -1,3 +1,4 @@
+import math
 from typing import List
 
 from .exu import ExecutionUnit
@@ -7,6 +8,51 @@ from ..software.instruction import Uop
 from ..isa import InstructionType
 from .stage_data import StageData
 from .config import HardwareConfig
+
+SIMPLE_VPU_OPS = {
+    "vadd",
+    "vsub",
+    "vmul",
+    "mv.mm",
+}
+
+NON_PIPELINEABLE_VPU_OPS = {
+    "vsqrt",
+    "vrcp",
+    "vexp",
+    "vlog2",
+    "vexp2",
+    "vsin",
+    "vcos",
+    "vtanh",
+}
+
+XLU_OPS = {
+    "vtrpose.h",
+    "vtrpose.l",
+    "vreduce.sum",
+    "vrot.reduce.sum",
+}
+
+VLS_OPS = {
+    "vload",
+    "vstore",
+}
+
+LOCAL_TRANSFER_TILE_BYTES = {
+    "vmatpush.weight.mxu0": 1024,
+    "vmatpush.weight.mxu1": 1024,
+    "vmatpush.acc.fp8.mxu0": 1024,
+    "vmatpush.acc.fp8.mxu1": 1024,
+    "vmatpush.acc.bf16.mxu0": 2048,
+    "vmatpush.acc.bf16.mxu1": 2048,
+    "vmatpop.fp8.acc.mxu0": 1024,
+    "vmatpop.fp8.acc.mxu1": 1024,
+    "vmatpop.bf16.acc.mxu0": 2048,
+    "vmatpop.bf16.acc.mxu1": 2048,
+    "vmatpop.mxu0": 2048,
+    "vmatpop.mxu1": 2048,
+}
 
 
 class VectorExecutionUnit(ExecutionUnit):
@@ -36,6 +82,33 @@ class VectorExecutionUnit(ExecutionUnit):
         self._total_instructions = 0
         self._busy_cycles = 0
 
+    def _execution_latency(self, uop: Uop) -> int:
+        mnemonic = uop.insn.mnemonic
+        if mnemonic in VLS_OPS:
+            tensor_register_bytes = (
+                self.config.arch_state_config.mrf_depth
+                * self.config.arch_state_config.mrf_width
+            )
+            return max(
+                1,
+                math.ceil(tensor_register_bytes / self.config.vmem_bytes_per_cycle),
+            )
+        if mnemonic in LOCAL_TRANSFER_TILE_BYTES:
+            return max(
+                1,
+                math.ceil(
+                    LOCAL_TRANSFER_TILE_BYTES[mnemonic]
+                    / self.config.vmem_bytes_per_cycle
+                ),
+            )
+        if mnemonic in XLU_OPS:
+            return self.config.xlu_transform_latency_cycles
+        if mnemonic in NON_PIPELINEABLE_VPU_OPS:
+            return self.config.vpu_non_pipelineable_op_latency_cycles
+        if mnemonic in SIMPLE_VPU_OPS:
+            return self.config.vpu_simple_op_latency_cycles
+        return self.config.vpu_simple_op_latency_cycles
+
     def tick(self, idu_output: StageData[Uop | None]) -> None:
         self.cycle += 1
         # Log deferred completions from last cycle
@@ -56,7 +129,7 @@ class VectorExecutionUnit(ExecutionUnit):
             # Accept new instruction
             if uop is not None:
                 # tag instruction with execution delay
-                uop.execute_delay = self.config.arch_state_config.mrf_depth
+                uop.execute_delay = self._execution_latency(uop)
                 self.in_flight = uop
                 self._total_instructions += 1
                 # Log: end dispatch, start execute

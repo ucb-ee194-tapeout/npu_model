@@ -198,9 +198,9 @@ from npu_model.software import Instruction, Program
 
 class MyProgram(Program):
     instructions = [
-        Instruction(mnemonic="addi", args={"rd": 1, "rs1": 0, "imm": 5}),
-        Instruction(mnemonic="addi", args={"rd": 2, "rs1": 1, "imm": 3}),
-        Instruction(mnemonic="delay", args={"imm": 0}),
+        Instruction(mnemonic="addi", args=ScalarArgs(rd=1, rs1=0, imm=5)),
+        Instruction(mnemonic="addi", args=ScalarArgs(rd=2, rs1=1, imm=3)),
+        Instruction(mnemonic="delay", args=None),
     ]
 ```
 
