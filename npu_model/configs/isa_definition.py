@@ -25,10 +25,11 @@ _MASK64 = 0xFFFFFFFFFFFFFFFF
 
 def _sign_extend(value: int, length: int):
     value &= (1 << length) - 1
+
     if value & (1 << (length - 1)):
         value -= 1 << length
 
-    return value & 0xFFFFFFFF
+    return value
 
 
 # FIXME: data needs a type but idk what it should be.
@@ -100,7 +101,6 @@ def _vmatmul(state: ArchState, unit: str, args: MatrixArgs, accumulate: bool) ->
         result_fp16 = result_fp16 + state.read_acc_bf16(unit, _acc_dest_index(args)).to(
             torch.float16
         )
-
     state.write_acc_bf16(unit, args.vd, result_fp16.to(torch.bfloat16))
 
 
@@ -170,7 +170,7 @@ def vload(state: ArchState, args: VectorArgs) -> None:
     "vstore", instruction_type=InstructionType.VECTOR.VLS, opcode=0b0000111, funct2=0b01
 )
 def vstore(state: ArchState, args: VectorArgs) -> None:
-    data = state.mrf[args.vd].view(torch.uint8)
+    data = state.read_mrf_fp8(args.vd).view(torch.uint8)
     state.write_vmem(
         state.read_xrf(args.rs1), args.imm12 << 5, data  # FIX: Shift by 5, not 12
     )
@@ -187,7 +187,7 @@ def fence(state: ArchState, args: ScalarArgs) -> None:
     "addi", instruction_type=InstructionType.SCALAR.I, opcode=0b0010011, funct3=0b000
 )
 def addi(state: ArchState, args: ScalarArgs) -> None:
-    state.write_xrf(args.rd, state.xrf[args.rs1] + args.imm)
+    state.write_xrf(args.rd, state.xrf[args.rs1] + _sign_extend(args.imm & 0xFFF, 12))
 
 
 @instr(
@@ -1055,9 +1055,7 @@ def vmatpop_fp8_acc_mxu1(state: ArchState, args: VectorArgs) -> None:
     funct7=0b0001000,
 )
 def vmatpop_bf16_acc_mxu0(state: ArchState, args: VectorArgs) -> None:
-    state.write_mrf_bf16_tile(
-        args.vd, state.read_acc_bf16("mxu0", _acc_source_index(args))
-    )
+    state.write_mrf_bf16_tile(args.vd, state.read_acc_bf16("mxu0", args.vs1))
 
 
 @instr(

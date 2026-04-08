@@ -268,13 +268,13 @@ class ArchState:
         assert (
             base + offset + data.numel() <= self.cfg.vmem_size
         ), f"Memory write out of bounds: {base} + {data.numel()} > {self.cfg.vmem_size}"
-        self.vmem[base : base + data.numel()] = data
+        self.vmem[base + offset : base + offset + data.numel()] = data
 
     def read_vmem(self, base: int, offset: int, length: int) -> torch.Tensor:
         assert (
-            base + offset + length <= self.cfg.dram_size
+            base + offset + length <= self.cfg.vmem_size
         ), f"Memory read out of bounds: {base} + {length} > {self.cfg.vmem_size}"
-        return self.vmem[base : base + length]
+        return self.vmem[base + offset : base + offset + length]
 
     def write_base(self, value: int):
         self.base = value
