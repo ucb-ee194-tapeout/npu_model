@@ -199,13 +199,46 @@ Matrix operations
 """
 
 
-@instr("mv.mw", instruction_type=InstructionType.MATRIX)
-def mv_mw(state: ArchState, args: dict[str, int]) -> None:
+@instr("mv.mw.mxu0", instruction_type=InstructionType.MATRIX)
+def mv_mw_mxu0(state: ArchState, args: dict[str, int]) -> None:
     """
     Vector/matrix move from matrix registers to weight buffer.
+    Takes first 512 elements from MRF (fp8) and writes to WB.
+    Zero-pads automatically since MRF read always returns full register.
     """
-    # TODO: check register dimensions
-    state.write_wb_bf16("mxu0", args["rd"], state.read_mrf_bf16(args["rs1"]))
+    mrf_data = state.read_mrf_fp8(args["rs1"])  # (64, 32) = 2048 elements
+
+    # Take first 512 elements (WB capacity)
+    wb_capacity = state.cfg.wb_width // torch.float8_e4m3fn.itemsize  # 512
+    wb_data_flat = mrf_data.flatten()[:wb_capacity]  # First 512 elements
+
+    # Reshape to (32, 16) for WB
+    num_rows = state.cfg.mrf_width // torch.float8_e4m3fn.itemsize  # 32
+    num_cols = wb_capacity // num_rows  # 16
+    wb_data_reshaped = wb_data_flat.reshape(num_rows, num_cols)
+
+    state.write_wb_fp8("mxu0", args["rd"], wb_data_reshaped)
+
+
+@instr("mv.mw.mxu1", instruction_type=InstructionType.MATRIX)
+def mv_mw_mxu1(state: ArchState, args: dict[str, int]) -> None:
+    """
+    Vector/matrix move from matrix registers to weight buffer.
+    Takes first 512 elements from MRF (fp8) and writes to WB.
+    Zero-pads automatically since MRF read always returns full register.
+    """
+    mrf_data = state.read_mrf_fp8(args["rs1"])  # (64, 32) = 2048 elements
+
+    # Take first 512 elements (WB capacity)
+    wb_capacity = state.cfg.wb_width // torch.float8_e4m3fn.itemsize  # 512
+    wb_data_flat = mrf_data.flatten()[:wb_capacity]  # First 512 elements
+
+    # Reshape to (32, 16) for WB
+    num_rows = state.cfg.mrf_width // torch.float8_e4m3fn.itemsize  # 32
+    num_cols = wb_capacity // num_rows  # 16
+    wb_data_reshaped = wb_data_flat.reshape(num_rows, num_cols)
+
+    state.write_wb_fp8("mxu1", args["rd"], wb_data_reshaped)
 
 
 @instr("matmul.mxu0", instruction_type=InstructionType.MATRIX_SYSTOLIC)
@@ -326,6 +359,70 @@ def vtanh(state: ArchState, args: dict[str, int]) -> None:
     state.write_mrf_bf16(args["vrd"], torch.tanh(x).to(torch.bfloat16))
 
 
+@instr("vzero", instruction_type=InstructionType.VECTOR)
+def vzero(state: ArchState, args: dict[str, int]) -> None:
+    """Zero out a register (fill with zeros)."""
+    zeros = torch.zeros((state.cfg.mrf_depth, state.cfg.mrf_width // torch.bfloat16.itemsize), dtype=torch.bfloat16)
+    state.write_mrf_bf16(args["vrd"], zeros)
+
+
+@instr("vmax", instruction_type=InstructionType.VECTOR)
+def vmax(state: ArchState, args: dict[str, int]) -> None:
+    """Element-wise max between two registers."""
+    x = state.read_mrf_bf16(args["vs1"])  # (64, 16)
+    y = state.read_mrf_bf16(args["vs2"])  # (64, 16)
+    result = torch.maximum(x, y)
+    state.write_mrf_bf16(args["vrd"], result)
+
+
+@instr("vrowmax", instruction_type=InstructionType.VECTOR)
+def vrowmax(state: ArchState, args: dict[str, int]) -> None:
+    """Row-wise max: compute max across each row, broadcast to all columns."""
+    x = state.read_mrf_bf16(args["vs1"])  # (64, 16)
+    row_max = x.max(dim=1, keepdim=True).values  # (64, 1)
+    # Broadcast to (64, 16)
+    result = row_max.expand(64, 16).contiguous()
+    state.write_mrf_bf16(args["vrd"], result)
+
+
+@instr("vcast.down", instruction_type=InstructionType.VECTOR)
+def vcast_down(state: ArchState, args: dict[str, int]) -> None:
+    """Convert bfloat16 to float8: vrd = fp8(vs1).
+    Row-wise operation: downcast 16 bf16 elements per row to 16 fp8 elements,
+    then zero-pad remaining 16 columns.
+    Input: (64, 16) bf16 → Output: (64, 32) fp8 with data in first 16 cols.
+    """
+    x_bf16 = state.read_mrf_bf16(args["vs1"])  # (64, 16) bf16
+    x_fp8 = x_bf16.to(torch.float8_e4m3fn)     # (64, 16) fp8
+
+    # Pad each row from 16 to 32 columns to fill fp8 register
+    n_rows = state.cfg.mrf_depth  # 64
+    n_cols_target = state.cfg.mrf_width // torch.float8_e4m3fn.itemsize  # 32
+    n_cols_actual = x_fp8.shape[1]  # 16
+
+    # Create padded array: (64, 32) with zeros
+    x_fp8_padded = torch.zeros((n_rows, n_cols_target), dtype=torch.float8_e4m3fn)
+    # Copy actual data into first 16 columns of each row
+    x_fp8_padded[:, :n_cols_actual] = x_fp8
+
+    state.write_mrf_fp8(args["vrd"], x_fp8_padded)
+
+
+@instr("vcast.up", instruction_type=InstructionType.VECTOR)
+def vcast_up(state: ArchState, args: dict[str, int]) -> None:
+    """Convert float8 to bfloat16: vrd = bf16(vs1).
+    Row-wise operation: upcast first 16 fp8 elements per row to 16 bf16 elements.
+    """
+    x_fp8 = state.read_mrf_fp8(args["vs1"])  # (64, 32) fp8
+
+    # Take only first 16 columns per row (max that fits in bf16 row)
+    # Each row: 16 fp8 (16 bytes) → 16 bf16 (32 bytes)
+    x_fp8_first_16 = x_fp8[:, :16]  # (64, 16) fp8
+    x_bf16 = x_fp8_first_16.to(torch.bfloat16)  # (64, 16) bf16
+
+    state.write_mrf_bf16(args["vrd"], x_bf16)
+
+
 @instr("vreduce.sum", instruction_type=InstructionType.VECTOR)
 def vreduce_sum(state: ArchState, args: dict[str, int]) -> None:
     """Reduce sum over second-to-last (across columns) dimension. For (rows, cols) in, gives (1, cols) broadcast."""
@@ -356,6 +453,47 @@ def mv_mm(state: ArchState, args: dict[str, int]) -> None:
 """
 Transpose operations
 """
+
+
+@instr("vtrpose", instruction_type=InstructionType.VECTOR)
+def vtrpose(state: ArchState, args: dict[str, int]) -> None:
+    """
+    Transpose a 16×16 block from source register.
+
+    Extracts rows [imm*16:(imm+1)*16, :] from vs1 (a 16×16 block),
+    transposes it to 16×16, and stores in vrd's first 16 rows.
+    Rows 16-63 of vrd are zeroed.
+
+    Args:
+        vrd: destination register
+        vs1: source register (64×16 bf16)
+        imm: block index (0-3) selecting which 16-row block to transpose
+
+    Example: To transpose entire K (64×16) for attention:
+        vtrpose vrd=1, vs1=0, imm=0  # K[0:16,:].T  → MRF[1][0:16,:]
+        vtrpose vrd=2, vs1=0, imm=1  # K[16:32,:].T → MRF[2][0:16,:]
+        vtrpose vrd=3, vs1=0, imm=2  # K[32:48,:].T → MRF[3][0:16,:]
+        vtrpose vrd=4, vs1=0, imm=3  # K[48:64,:].T → MRF[4][0:16,:]
+    """
+    x = state.read_mrf_bf16(args["vs1"])
+    block_idx = args.get("imm", 0)
+
+    # Validate block index
+    assert 0 <= block_idx <= 3, f"Block index must be 0-3, got {block_idx}"
+
+    # Extract 16×16 block
+    start_row = block_idx * 16
+    end_row = start_row + 16
+    block = x[start_row:end_row, :]
+
+    # Transpose
+    transposed = block.T.contiguous()  # (16, 16)
+
+    # Pad to (64, 16) register size
+    out = torch.zeros((64, 16), dtype=torch.bfloat16)
+    out[0:16, :] = transposed
+
+    state.write_mrf_bf16(args["vrd"], out)
 
 
 @instr("vtrpose.h", instruction_type=InstructionType.VECTOR)
