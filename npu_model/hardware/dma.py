@@ -8,6 +8,7 @@ from ..software.instruction import Uop, is_dma_uop
 from ..isa import InstructionType, AsmInstructionType, DmaArgs
 from .stage_data import StageData
 from .config import HardwareConfig
+from .bank_conflict import vmem_accesses
 
 
 class DmaExecutionUnit(ExecutionUnit):
@@ -45,6 +46,7 @@ class DmaExecutionUnit(ExecutionUnit):
 
     def reset(self) -> None:
         self.in_flight: List[Uop[DmaArgs]] = []
+        self._in_flight_vmem_banks: List[frozenset[int]] = []
         self._complete_count = 0
         self._pending_completions: List[Uop[DmaArgs]] = []
         self._total_instructions = 0
@@ -83,8 +85,14 @@ class DmaExecutionUnit(ExecutionUnit):
             # Accept new instruction
             if uop is not None:
                 assert is_dma_uop(uop), "Invalid arguments passed to DMA Engine"
+                # Check and acquire VMEM banks before accepting.
+                mnemonic = uop.insn.mnemonic
+                label = f"{self.name}:{mnemonic}"
+                banks = vmem_accesses(mnemonic, uop.insn.args, self.arch_state)
+                self.arch_state.conflict_checker.acquire_vmem(banks, label)
+                self._in_flight_vmem_banks.append(banks)
                 # tag instruction with execution delay
-                if uop.insn.mnemonic == "dma.config.ch<N>":
+                if mnemonic == "dma.config.ch<N>":
                     # Config is a control op; keep it fixed-latency.
                     uop.execute_delay = 1
                 else:
@@ -134,6 +142,11 @@ class DmaExecutionUnit(ExecutionUnit):
                 else:
                     raise ValueError("No execute function specified for Uop.")
                 self._complete_count = 1
+                # Release acquired VMEM banks before retiring the instruction.
+                self.arch_state.conflict_checker.release_vmem(
+                    self._in_flight_vmem_banks[0]
+                )
+                self._in_flight_vmem_banks = self._in_flight_vmem_banks[1:]
                 # Defer completion logging to next tick
                 self._pending_completions.append(self.in_flight[0])
                 # print(f"MXU {self.name} completed instruction {self.in_flight[0].id}")

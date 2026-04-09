@@ -7,6 +7,7 @@ from ..software.instruction import Uop, is_matrix_uop
 from ..isa import InstructionType, AsmInstructionType, MatrixArgs
 from .stage_data import StageData
 from .config import HardwareConfig
+from .bank_conflict import mrf_accesses
 
 
 class MatrixExecutionUnitSystolic(ExecutionUnit):
@@ -31,6 +32,7 @@ class MatrixExecutionUnitSystolic(ExecutionUnit):
 
     def reset(self) -> None:
         self.in_flight: Uop[MatrixArgs] | None = None
+        self._in_flight_mrf_banks: frozenset[int] = frozenset()
         self._complete_count = 0
         self._pending_completions: List[Uop[MatrixArgs]] = []
         self._total_instructions = 0
@@ -56,6 +58,12 @@ class MatrixExecutionUnitSystolic(ExecutionUnit):
             # Accept new instruction
             if uop is not None:
                 assert is_matrix_uop(uop), "Non-Matrix Args passed to MXU"
+                # Check and acquire MRF banks before accepting.
+                mnemonic = uop.insn.mnemonic
+                label = f"{self.name}:{mnemonic}"
+                banks = mrf_accesses(mnemonic, uop.insn.args)
+                self.arch_state.conflict_checker.acquire_mrf(banks, label)
+                self._in_flight_mrf_banks = banks
                 # tag instruction with execution delay
                 uop.execute_delay = self.config.mxu0_matmul_latency_cycles
                 self.in_flight = uop
@@ -88,6 +96,9 @@ class MatrixExecutionUnitSystolic(ExecutionUnit):
                 else:
                     raise ValueError("No execute function specified for Uop.")
                 self._complete_count = 1
+                # Release acquired MRF banks before retiring the instruction.
+                self.arch_state.conflict_checker.release_mrf(self._in_flight_mrf_banks)
+                self._in_flight_mrf_banks = frozenset()
                 # Defer completion logging to next tick
                 self._pending_completions.append(self.in_flight)
                 # claim the uop from the DIU
@@ -153,6 +164,7 @@ class MatrixExecutionUnitInner(ExecutionUnit):
 
     def reset(self) -> None:
         self.in_flight: Uop[MatrixArgs] | None = None
+        self._in_flight_mrf_banks: frozenset[int] = frozenset()
         self._complete_count = 0
         self._pending_completions: List[Uop[MatrixArgs]] = []
         self._total_instructions = 0
@@ -178,6 +190,12 @@ class MatrixExecutionUnitInner(ExecutionUnit):
             # Accept new instruction
             if uop is not None:
                 assert is_matrix_uop(uop), "Non-Matrix Args passed to MXU"
+                # Check and acquire MRF banks before accepting.
+                mnemonic = uop.insn.mnemonic
+                label = f"{self.name}:{mnemonic}"
+                banks = mrf_accesses(mnemonic, uop.insn.args)
+                self.arch_state.conflict_checker.acquire_mrf(banks, label)
+                self._in_flight_mrf_banks = banks
                 # tag instruction with execution delay
                 uop.execute_delay = self.config.mxu1_matmul_latency_cycles
                 self.in_flight = uop
@@ -210,6 +228,9 @@ class MatrixExecutionUnitInner(ExecutionUnit):
                 else:
                     raise ValueError("No execute function specified for Uop.")
                 self._complete_count = 1
+                # Release acquired MRF banks before retiring the instruction.
+                self.arch_state.conflict_checker.release_mrf(self._in_flight_mrf_banks)
+                self._in_flight_mrf_banks = frozenset()
                 # Defer completion logging to next tick
                 self._pending_completions.append(self.in_flight)
                 # claim the uop from the DIU
