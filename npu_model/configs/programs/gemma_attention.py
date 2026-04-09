@@ -89,9 +89,9 @@ class GemmaAttentionProgram(Program):
 
         # Push K to WB slot 0, compute scores = Q @ K, pop bf16
         Instruction(mnemonic="vmatpush.weight.mxu0", args=VectorArgs(vd=0, vs1=1)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=17)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
         Instruction(mnemonic="vmatmul.mxu0", args=MatrixArgs(vd=0, vs1=0, vs2=0)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=33)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
         Instruction(mnemonic="vmatpop.bf16.acc.mxu0", args=VectorArgs(vd=3, vs1=0)),  # scores bf16 tile
 
         # scores_scaled = scores * scale
@@ -109,7 +109,7 @@ class GemmaAttentionProgram(Program):
 
         # Store softmax scores (bf16 tile)
         Instruction(mnemonic="vstore", args=VectorArgs(vd=8, rs1=5, imm12=0)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=20)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
         Instruction(mnemonic="dma.store.ch<N>", args=DmaArgs(rd=10, rs1=5, rs2=12, channel=0)),
         Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
     ]

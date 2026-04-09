@@ -42,19 +42,17 @@ class VectorArithmeticProgram(Program):
             args=DmaArgs(rd=1, rs1=3, rs2=5, channel=0),
         ),
         Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
-        Instruction("delay", args=ScalarArgs(imm=16)),
         # VMEM -> MRF, compute, MRF -> VMEM
         Instruction(mnemonic="vload", args=VectorArgs(vd=0, rs1=1, imm12=0)),
         Instruction("delay", args=ScalarArgs(imm=16)),
         Instruction(mnemonic="vadd.bf16", args=VectorArgs(vd=1, vs1=0, vs2=0)),
-        Instruction("delay", args=ScalarArgs(imm=32)),
+        Instruction("delay", args=ScalarArgs(imm=16)),
         Instruction(mnemonic="vsub.bf16", args=VectorArgs(vd=2, vs1=1, vs2=0)),
-        Instruction("delay", args=ScalarArgs(imm=32)),
+        Instruction("delay", args=ScalarArgs(imm=16)),
         Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=3, vs1=2, vs2=0)),
-        Instruction("delay", args=ScalarArgs(imm=32)),
+        Instruction("delay", args=ScalarArgs(imm=16)),
         Instruction(mnemonic="vstore", args=VectorArgs(vd=3, rs1=2, imm12=0)),
         # Ensure the VPU has time to commit the VMEM write before DMA reads it.
-        # There is currently no explicit VPU↔DMA memory ordering primitive in the model.
         Instruction("delay", args=ScalarArgs(imm=16)),
         # VMEM -> DRAM
         Instruction(

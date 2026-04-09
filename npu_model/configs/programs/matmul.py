@@ -61,7 +61,6 @@ class MatmulProgram(Program):
         ),
         Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
         Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=1)),
-        Instruction("delay", args=ScalarArgs(imm=16)),
         # load weights/activations from vmem
         Instruction(
             mnemonic="vload", args=VectorArgs(vd=0, rs1=1, imm12=0)
