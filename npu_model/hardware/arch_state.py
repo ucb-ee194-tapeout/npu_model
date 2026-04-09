@@ -1,6 +1,7 @@
 import torch
 from ..logging.logger import Logger
 from .config import ArchStateConfig
+from .bank_conflict import BankConflictChecker
 
 
 class ArchState:
@@ -16,6 +17,7 @@ class ArchState:
         self.reset()
 
     def initialize_buffers(self) -> None:
+        self.conflict_checker: BankConflictChecker = BankConflictChecker()
         self.dram: torch.Tensor = torch.zeros(self.cfg.dram_size, dtype=torch.uint8)
         self.vmem: torch.Tensor = torch.zeros(self.cfg.vmem_size, dtype=torch.uint8)
         self.xrf: list[int] = [0] * self.cfg.num_x_registers
@@ -50,6 +52,7 @@ class ArchState:
         self.flags: list[bool] = [False] * 8
 
     def reset(self) -> None:
+        self.conflict_checker.reset()
         for i in range(len(self.xrf)):
             self.xrf[i] = 0
         for i in range(len(self.mrf)):
