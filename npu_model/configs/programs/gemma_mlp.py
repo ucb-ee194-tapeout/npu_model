@@ -76,17 +76,17 @@ class GemmaMlpProgram(Program):
         # Push weights to MXU0 WB slots 0 and 1
         Instruction(mnemonic="vmatpush.weight.mxu0", args=VectorArgs(vd=0, vs1=0)),
         Instruction(mnemonic="vmatpush.weight.mxu0", args=VectorArgs(vd=1, vs1=1)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=17)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
 
         # --- PHASE 3: Matrix Multiplications ---
         # Gate projection: activation @ gate_weight -> Acc/MRF
         # Note: Using MatrixArgs for matmul
         Instruction(mnemonic="vmatmul.mxu0", args=MatrixArgs(vd=0, vs1=2, vs2=0)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=33)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
         Instruction(mnemonic="vmatpop.bf16.acc.mxu0", args=VectorArgs(vd=4, vs1=0)),  # gate -> mrf4+5
         # Up projection: activation @ up_weight -> Acc/MRF
         Instruction(mnemonic="vmatmul.mxu0", args=MatrixArgs(vd=0, vs1=2, vs2=1)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=33)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
         Instruction(mnemonic="vmatpop.bf16.acc.mxu0", args=VectorArgs(vd=6, vs1=0)),  # up -> mrf6+7
         # --- PHASE 4: Element-wise Multiplication (GeGLU Simplified) ---
         Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=8, vs1=4, vs2=6)),
@@ -94,7 +94,7 @@ class GemmaMlpProgram(Program):
         # --- PHASE 5: Store Results ---
         Instruction(mnemonic="vstore", args=VectorArgs(vd=8, rs1=4, imm12=0)),
         Instruction(mnemonic="vstore", args=VectorArgs(vd=9, rs1=4, imm12=32)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=40)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
 
         # VMEM -> DRAM (two 1024B tiles)
         Instruction(mnemonic="addi", args=ScalarArgs(rd=11, rs1=4, imm=1024)),  # vmem+1024

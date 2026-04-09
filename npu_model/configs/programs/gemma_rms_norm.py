@@ -76,7 +76,7 @@ class GemmaRmsNormProgram(Program):
 
         # MRF -> VMEM -> DRAM
         Instruction(mnemonic="vstore", args=VectorArgs(vd=10, rs1=3, imm12=0)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=20)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
         Instruction(mnemonic="dma.store.ch<N>", args=DmaArgs(rd=6, rs1=3, rs2=7, channel=0)),
         Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
     ]
