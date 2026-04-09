@@ -74,7 +74,7 @@ class _MrfConflictProgram(Program):
     instructions: List[Instruction[Any]] = [
         # VPU: reads m0 (execute_delay = 2 cycles)
         Instruction("vadd.bf16", VectorArgs(vd=5, vs1=0, vs2=0)),
-        # MXU: dispatched 1 cycle after VPU accepts vadd → conflict on m0
+        # MXU: dispatched 1 cycle after VPU accepts vadd → conflict on m0 (vs1=0)
         Instruction("vmatmul.mxu0", MatrixArgs(vd=0, vs1=0, vs2=0)),
     ]
     memory_regions: List[Tuple[int, torch.Tensor]] = []
@@ -187,7 +187,7 @@ def _assert_no_raise(program: Program, label: str) -> None:
 
 
 def main() -> int:
-    failed: list[tuple[str, Exception]] = []
+    failed: List[Tuple[str, Exception]] = []
 
     cases_conflict = [
         (_MrfConflictProgram(), "MrfBankConflict"),
