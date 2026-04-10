@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Tests for bank conflict detection in MRF (tensor register file) and VMEM.
+Tests for bank conflict detection in MRF (tensor register file), VMEM,
+and MXU Weight/Accumulation buffers.
 
 Verifies that BankConflictError is raised when concurrent in-flight
 instructions access the same SRAM bank, and that valid programs with
@@ -35,7 +36,8 @@ from npu_model.isa import DmaArgs, MatrixArgs, ScalarArgs, VectorArgs
 # Helper
 # ---------------------------------------------------------------------------
 
-def _run(program: Program, max_cycles: int = 200) -> None:
+
+def _run(program: Program, max_cycles: int = 500) -> None:
     """Run a program; re-raise any exception from the simulation."""
     with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
         trace_path = f.name
@@ -47,6 +49,7 @@ def _run(program: Program, max_cycles: int = 200) -> None:
         )
         # Suppress per-cycle DMA prints during tests
         import io
+
         old_stdout = sys.stdout
         sys.stdout = io.StringIO()
         try:
@@ -63,6 +66,7 @@ def _run(program: Program, max_cycles: int = 200) -> None:
 # ---------------------------------------------------------------------------
 # Programs that SHOULD trigger BankConflictError
 # ---------------------------------------------------------------------------
+
 
 class _MrfConflictProgram(Program):
     """
@@ -104,9 +108,38 @@ class _VmemConflictProgram(Program):
     ]
 
 
+class _WeightBufConflictProgram(Program):
+    """
+    Issues a weight push and immediately issues a matmul without a delay.
+    If the push runs on a decoupled unit (e.g., VPU), the MXU attempts to
+    acquire the weight buffer before the push has completed → conflict.
+    """
+
+    instructions: List[Instruction[Any]] = [
+        Instruction("vmatpush.weight.mxu0", VectorArgs(vd=0, vs1=0)),
+        Instruction("vmatmul.mxu0", MatrixArgs(vd=0, vs1=0, vs2=0)),
+    ]
+    memory_regions: List[Tuple[int, torch.Tensor]] = []
+
+
+class _AccBufConflictProgram(Program):
+    """
+    Issues a matmul and immediately attempts to pop the accumulation buffer.
+    If the pop runs on a decoupled unit, it attempts to acquire the
+    accumulation buffer while the matmul is still using it → conflict.
+    """
+
+    instructions: List[Instruction[Any]] = [
+        Instruction("vmatmul.mxu0", MatrixArgs(vd=0, vs1=0, vs2=0)),
+        Instruction("vmatpop.bf16.acc.mxu0", VectorArgs(vd=4, vs1=0)),
+    ]
+    memory_regions: List[Tuple[int, torch.Tensor]] = []
+
+
 # ---------------------------------------------------------------------------
 # Programs that should run WITHOUT any bank conflict
 # ---------------------------------------------------------------------------
+
 
 class _NoMrfConflictProgram(Program):
     """
@@ -155,9 +188,40 @@ class _NoVmemConflictProgram(Program):
     ]
 
 
+class _NoWeightBufConflictProgram(Program):
+    """
+    Issues a weight push, waits enough cycles for it to finish, and then
+    issues the matmul. The lock on the weight buffer is released in time.
+    """
+
+    instructions: List[Instruction[Any]] = [
+        Instruction("vmatpush.weight.mxu0", VectorArgs(vd=0, vs1=0)),
+        Instruction("delay", ScalarArgs(imm=64)),  # Delay to allow push to complete
+        Instruction("vmatmul.mxu0", MatrixArgs(vd=0, vs1=0, vs2=0)),
+        Instruction("delay", ScalarArgs(imm=64)),
+    ]
+    memory_regions: List[Tuple[int, torch.Tensor]] = []
+
+
+class _NoAccBufConflictProgram(Program):
+    """
+    Issues a matmul, waits enough cycles for it to finish, and then
+    issues the pop. The lock on the acc buffer is released in time.
+    """
+
+    instructions: List[Instruction[Any]] = [
+        Instruction("vmatmul.mxu0", MatrixArgs(vd=0, vs1=0, vs2=0)),
+        Instruction("delay", ScalarArgs(imm=128)),  # Delay to allow matmul to complete
+        Instruction("vmatpop.bf16.acc.mxu0", VectorArgs(vd=4, vs1=0)),
+        Instruction("delay", ScalarArgs(imm=64)),
+    ]
+    memory_regions: List[Tuple[int, torch.Tensor]] = []
+
+
 # ---------------------------------------------------------------------------
 # Test runner
 # ---------------------------------------------------------------------------
+
 
 def _assert_raises(exc_type, program: Program, label: str) -> None:
     """Assert that running *program* raises *exc_type*."""
@@ -167,8 +231,10 @@ def _assert_raises(exc_type, program: Program, label: str) -> None:
         print(f"OK   {label}: correctly raised {exc_type.__name__}: {e}")
         return
     except Exception as e:
-        print(f"FAIL {label}: expected {exc_type.__name__} but got {type(e).__name__}: {e}",
-              file=sys.stderr)
+        print(
+            f"FAIL {label}: expected {exc_type.__name__} but got {type(e).__name__}: {e}",
+            file=sys.stderr,
+        )
         raise
     raise AssertionError(
         f"{label}: expected {exc_type.__name__} but no exception was raised"
@@ -180,8 +246,10 @@ def _assert_no_raise(program: Program, label: str) -> None:
     try:
         _run(program)
     except Exception as e:
-        print(f"FAIL {label}: unexpected exception {type(e).__name__}: {e}",
-              file=sys.stderr)
+        print(
+            f"FAIL {label}: unexpected exception {type(e).__name__}: {e}",
+            file=sys.stderr,
+        )
         raise
     print(f"OK   {label}")
 
@@ -193,10 +261,13 @@ def main() -> int:
         (_MrfConflictProgram(), "MrfBankConflict"),
         (_VmemConflictProgram(), "VmemBankConflict"),
     ]
-
     cases_ok = [
         (_NoMrfConflictProgram(), "NoMrfConflict"),
         (_NoVmemConflictProgram(), "NoVmemConflict"),
+        (_NoWeightBufConflictProgram(), "NoWeightBufConflict"),
+        (_NoAccBufConflictProgram(), "NoAccBufConflict"),
+        (_WeightBufConflictProgram(), "WeightBufStalledSafely"),
+        (_AccBufConflictProgram(), "AccBufStalledSafely"),
     ]
 
     for program, label in cases_conflict:
