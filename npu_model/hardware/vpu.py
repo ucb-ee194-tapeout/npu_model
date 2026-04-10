@@ -8,50 +8,39 @@ from ..software.instruction import Uop, is_vector_uop
 from ..isa import InstructionType, AsmInstructionType, VectorArgs
 from .stage_data import StageData
 from .config import HardwareConfig
+from .bank_conflict import mrf_accesses, vmem_accesses
 
-SIMPLE_VPU_OPS = {
-    "vadd",
-    "vsub",
-    "vmul",
-    "mv.mm",
+# these all take 66 cycles for now
+VPU_ARITHMETIC = {
+    "vadd.bf16",
+    "vsub.bf16",
+    "vmul.bf16",
+    "vrecip.bf16",
+    "vexp.bf16",
+    "vexp2.bf16",
+    "vsin.bf16",
+    "vcos.bf16",
+    "vrelu.bf16",
+    "vtanh.bf16",
+    "vlog.bf16",
+    "vlog2.bf16",
+    "vmax.bf16",
+    "vmin.bf16",
+    "vredsum.bf16",
+    # delay not yet known
+    "vredmin.bf16",
+    "vredmax.bf16",
+    "vredsum.row.bf16",
+    "vredmin.row.bf16",
+    "vredmax.row.bf16",
+    "vmov",
 }
 
-NON_PIPELINEABLE_VPU_OPS = {
-    "vsqrt",
-    "vrcp",
-    "vexp",
-    "vlog2",
-    "vexp2",
-    "vsin",
-    "vcos",
-    "vtanh",
-}
-
-XLU_OPS = {
-    "vtrpose.h",
-    "vtrpose.l",
-    "vreduce.sum",
-    "vrot.reduce.sum",
-}
-
-VLS_OPS = {
-    "vload",
-    "vstore",
-}
+# no specific delay at this point
+XLU_OPS = {"vtrpose.xlu"}
 
 LOCAL_TRANSFER_TILE_BYTES = {
-    "vmatpush.weight.mxu0": 1024,
-    "vmatpush.weight.mxu1": 1024,
-    "vmatpush.acc.fp8.mxu0": 1024,
-    "vmatpush.acc.fp8.mxu1": 1024,
-    "vmatpush.acc.bf16.mxu0": 2048,
-    "vmatpush.acc.bf16.mxu1": 2048,
-    "vmatpop.fp8.acc.mxu0": 1024,
-    "vmatpop.fp8.acc.mxu1": 1024,
-    "vmatpop.bf16.acc.mxu0": 2048,
-    "vmatpop.bf16.acc.mxu1": 2048,
-    "vmatpop.mxu0": 2048,
-    "vmatpop.mxu1": 2048,
+    "vmov": 1024,
 }
 
 
@@ -75,8 +64,13 @@ class VectorExecutionUnit(ExecutionUnit):
         )
         self.reset()
 
+    def can_handle(self, uop: Uop[Any]) -> bool:
+        return True
+
     def reset(self) -> None:
         self.in_flight: Uop[VectorArgs] | None = None
+        self._in_flight_mrf_banks: frozenset[int] = frozenset()
+        self._in_flight_vmem_banks: frozenset[int] = frozenset()
         self._complete_count = 0
         self._pending_completions: List[Uop[VectorArgs]] = []
         self._total_instructions = 0
@@ -84,15 +78,6 @@ class VectorExecutionUnit(ExecutionUnit):
 
     def _execution_latency(self, uop: Uop[VectorArgs]) -> int:
         mnemonic = uop.insn.mnemonic
-        if mnemonic in VLS_OPS:
-            tensor_register_bytes = (
-                self.config.arch_state_config.mrf_depth
-                * self.config.arch_state_config.mrf_width
-            )
-            return max(
-                1,
-                math.ceil(tensor_register_bytes / self.config.vmem_bytes_per_cycle),
-            )
         if mnemonic in LOCAL_TRANSFER_TILE_BYTES:
             return max(
                 1,
@@ -103,11 +88,10 @@ class VectorExecutionUnit(ExecutionUnit):
             )
         if mnemonic in XLU_OPS:
             return self.config.xlu_transform_latency_cycles
-        if mnemonic in NON_PIPELINEABLE_VPU_OPS:
-            return self.config.vpu_non_pipelineable_op_latency_cycles
-        if mnemonic in SIMPLE_VPU_OPS:
-            return self.config.vpu_simple_op_latency_cycles
-        return self.config.vpu_simple_op_latency_cycles
+        if mnemonic in VPU_ARITHMETIC:
+            return self.config.vpu_arithmetic_latency_cycles
+        else:
+            return 1
 
     def tick(self, idu_output: StageData[Uop[Any] | None]) -> None:
         self.cycle += 1
@@ -129,6 +113,16 @@ class VectorExecutionUnit(ExecutionUnit):
             # Accept new instruction
             if uop is not None:
                 assert is_vector_uop(uop), "Wrong Argument Type passed to Vector Unit."
+                # Check and acquire MRF and VMEM banks before accepting.
+                mnemonic = uop.insn.mnemonic
+                label = f"{self.name}:{mnemonic}"
+                mrf_banks = mrf_accesses(mnemonic, uop.insn.args)
+                vmem_banks = vmem_accesses(mnemonic, uop.insn.args, self.arch_state)
+                checker = self.arch_state.conflict_checker
+                checker.acquire_mrf(mrf_banks, label)
+                checker.acquire_vmem(vmem_banks, label)
+                self._in_flight_mrf_banks = mrf_banks
+                self._in_flight_vmem_banks = vmem_banks
                 # tag instruction with execution delay
                 uop.execute_delay = self._execution_latency(uop)
                 self.in_flight = uop
@@ -161,12 +155,17 @@ class VectorExecutionUnit(ExecutionUnit):
                 else:
                     raise ValueError("No execute function provided for Uop.")
                 self._complete_count = 1
+                # Release acquired banks before retiring the instruction.
+                checker = self.arch_state.conflict_checker
+                checker.release_mrf(self._in_flight_mrf_banks)
+                checker.release_vmem(self._in_flight_vmem_banks)
+                self._in_flight_mrf_banks = frozenset()
+                self._in_flight_vmem_banks = frozenset()
                 # Defer completion logging to next tick
                 self._pending_completions.append(self.in_flight)
                 # claim the uop from the DIU
                 idu_output.claim()
                 self.in_flight = None
-                # print(f"MXU {self.name} completed instruction {self.in_flight.id}")
 
     def flush_completions(self) -> None:
         """Flush any pending completions (call at end of simulation)."""
@@ -201,4 +200,7 @@ class VectorExecutionUnit(ExecutionUnit):
 
     @property
     def supported_instruction_types(self) -> List[AsmInstructionType]:
-        return [InstructionType.VECTOR.VLS, InstructionType.VECTOR.VR, InstructionType.VECTOR.VI]
+        return [
+            InstructionType.VECTOR.VR,
+            InstructionType.VECTOR.VI,
+        ]

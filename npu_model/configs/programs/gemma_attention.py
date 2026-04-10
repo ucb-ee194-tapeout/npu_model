@@ -71,32 +71,42 @@ class GemmaAttentionProgram(Program):
         # Byte lengths: fp8 tile (1024) and bf16 tile (1024)
         Instruction(mnemonic="addi", args=ScalarArgs(rd=11, rs1=0, imm=1024)),
         Instruction(mnemonic="addi", args=ScalarArgs(rd=12, rs1=0, imm=1024)),
-
         # DRAM -> VMEM
         Instruction(mnemonic="dma.config.ch<N>", args=DmaArgs(rs1=0, channel=0)),
         Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
-        Instruction(mnemonic="dma.load.ch<N>", args=DmaArgs(rd=1, rs1=6, rs2=11, channel=0)),  # Q tile
-        Instruction(mnemonic="dma.load.ch<N>", args=DmaArgs(rd=2, rs1=7, rs2=11, channel=1)),  # K tile
-        Instruction(mnemonic="dma.load.ch<N>", args=DmaArgs(rd=4, rs1=9, rs2=12, channel=2)),  # scale (bf16 tile)
+        Instruction(
+            mnemonic="dma.load.ch<N>", args=DmaArgs(rd=1, rs1=6, rs2=11, channel=0)
+        ),  # Q tile
+        Instruction(
+            mnemonic="dma.load.ch<N>", args=DmaArgs(rd=2, rs1=7, rs2=11, channel=1)
+        ),  # K tile
+        Instruction(
+            mnemonic="dma.load.ch<N>", args=DmaArgs(rd=4, rs1=9, rs2=12, channel=2)
+        ),  # scale (bf16 tile)
         Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
         Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=1)),
         Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=2)),
-
         # VMEM -> MRF
-        Instruction(mnemonic="vload", args=VectorArgs(vd=0, rs1=1, imm12=0)),  # Q (fp8 tile)
-        Instruction(mnemonic="vload", args=VectorArgs(vd=1, rs1=2, imm12=0)),  # K (fp8 tile)
-        Instruction(mnemonic="vload", args=VectorArgs(vd=2, rs1=4, imm12=0)),  # scale (bf16 tile, 32x16)
-
+        Instruction(
+            mnemonic="vload", args=VectorArgs(vd=0, rs1=1, imm12=0)
+        ),  # Q (fp8 tile)
+        Instruction(
+            mnemonic="vload", args=VectorArgs(vd=1, rs1=2, imm12=0)
+        ),  # K (fp8 tile)
+        Instruction(
+            mnemonic="vload", args=VectorArgs(vd=2, rs1=4, imm12=0)
+        ),  # scale (bf16 tile, 32x16)
         # Push K to WB slot 0, compute scores = Q @ K, pop bf16
         Instruction(mnemonic="vmatpush.weight.mxu0", args=VectorArgs(vd=0, vs1=1)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=17)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
         Instruction(mnemonic="vmatmul.mxu0", args=MatrixArgs(vd=0, vs1=0, vs2=0)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=33)),
-        Instruction(mnemonic="vmatpop.bf16.acc.mxu0", args=VectorArgs(vd=3, vs1=0)),  # scores bf16 tile
-
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
+        Instruction(
+            mnemonic="vmatpop.bf16.acc.mxu0", args=VectorArgs(vd=3, vs1=0)
+        ),  # scores bf16 tile
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
         # scores_scaled = scores * scale
         Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=4, vs1=3, vs2=2)),
-
         # Softmax (unnormalized variant: no max subtraction)
         # exp_scores = exp(scores_scaled)
         Instruction(mnemonic="vexp.bf16", args=VectorArgs(vd=5, vs1=4)),
@@ -106,11 +116,12 @@ class GemmaAttentionProgram(Program):
         Instruction(mnemonic="vrecip.bf16", args=VectorArgs(vd=7, vs1=6)),
         # softmax_scores = exp_scores * inv_row_sum
         Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=8, vs1=5, vs2=7)),
-
         # Store softmax scores (bf16 tile)
         Instruction(mnemonic="vstore", args=VectorArgs(vd=8, rs1=5, imm12=0)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=20)),
-        Instruction(mnemonic="dma.store.ch<N>", args=DmaArgs(rd=10, rs1=5, rs2=12, channel=0)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(
+            mnemonic="dma.store.ch<N>", args=DmaArgs(rd=10, rs1=5, rs2=12, channel=0)
+        ),
         Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
     ]
 

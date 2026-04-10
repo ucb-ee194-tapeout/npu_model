@@ -146,10 +146,9 @@ class InstructionDecode(Module):
             return
 
         exu_list = self.exu_map[exu_type]
-        target_exu = exu_list[0]
-        self.outputs[target_exu].prepare(
-            self.uop
-        )  # TODO: currently always choose the first EXU
+        # Route to the first EXU that specifically claims to handle this instruction
+        target_exu = next(exu for exu in exu_list if exu.can_handle(self.uop))
+        self.outputs[target_exu].prepare(self.uop)
 
         # if we dispatched a DMA instruction, set flag as busy here
         if isinstance(self.uop.insn.args, DmaArgs):
@@ -175,7 +174,7 @@ class InstructionDecode(Module):
                 self._stalled = False
                 return False
         exu_list = self.exu_map[exu_type]
-        target_exu = exu_list[0]
+        target_exu = next(exu for exu in exu_list if exu.can_handle(uop))
         if self.outputs[target_exu].should_stall():
             # Don't end D stage - keep it active to show instruction is waiting
             # The D stage will end when we actually dispatch

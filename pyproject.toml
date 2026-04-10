@@ -1,17 +1,27 @@
 [project]
 name = "npu-model"
 version = "0.1.0"
-description = "Add your description here"
+description = "NPU hardware model and simulation environment"
 readme = "README.md"
 requires-python = ">=3.10"
+
 dependencies = [
     "numpy>=2.2.6",
     "matplotlib>=3.8.0",
     "tabulate>=0.9.0",
     "pre-commit>=4.5.1",
-    "torch>=2.10.0",
-    "iree-base-compiler",
-    "iree-base-runtime",
+    "torch>=2.2.0",
+    # IREE packages are platform-specific. 
+    # These markers ensure uv doesn't crash on macOS.
+    "iree-base-compiler; sys_platform == 'linux'",
+    "iree-base-runtime; sys_platform == 'linux'",
+]
+
+[tool.uv]
+
+environments = [
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "sys_platform == 'darwin' and platform_machine == 'arm64'"
 ]
 
 [build-system]

@@ -27,7 +27,7 @@ class DMAStallProgram(Program):
         ),
         # Load 1024 bytes (x2) from DRAM to VMEM(x2) on Channel 1
         Instruction(
-            mnemonic="dma.load.ch<N>", args=DmaArgs(rd=1, rs1=2, rs2=2, channel=1)
+            mnemonic="dma.load.ch<N>", args=DmaArgs(rd=2, rs1=2, rs2=2, channel=1)
         ),
         # Wait to get these things in VMEM
         Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
@@ -36,7 +36,7 @@ class DMAStallProgram(Program):
         # vload VMEM(x1=0) -> MRF 2
         Instruction(mnemonic="vload", args=VectorArgs(vd=1, rs1=0, imm12=0)),
         # vload VMEM(x2=1024) -> Temporary MRF 1
-        Instruction(mnemonic="vload", args=VectorArgs(vd=0, rs1=1, imm12=0)),
+        Instruction(mnemonic="vload", args=VectorArgs(vd=0, rs1=2, imm12=0)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=100)),
         # Push Temporary MRF 1 -> MXU0 Weight Buffer 1
         Instruction(mnemonic="vmatpush.weight.mxu0", args=VectorArgs(vd=0, vs1=0)),
@@ -51,7 +51,7 @@ class DMAStallProgram(Program):
         ),
         # --- 5. Do matmul ---
         Instruction(mnemonic="vmatmul.mxu0", args=MatrixArgs(vd=0, vs1=1, vs2=0)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=32)), # TODO - verify delays
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),  # TODO - verify delays
         # Instruction(mnemonic="vmatmul.mxu0", args=MatrixArgs(vd=0, vs1=0, vs2=0)),
         # Instruction(mnemonic="vmatmul.mxu0", args=MatrixArgs(vd=0, vs1=0, vs2=0)),
         # Instruction(mnemonic="vmatmul.mxu0", args=MatrixArgs(vd=0, vs1=0, vs2=0)),

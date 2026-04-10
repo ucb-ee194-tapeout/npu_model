@@ -45,8 +45,12 @@ class GemmaMlpProgram(Program):
         Instruction(mnemonic="lui", args=ScalarArgs(rd=4, imm=0x3)),
         Instruction(mnemonic="addi", args=ScalarArgs(rd=4, rs1=4, imm=-1024)),
         # x5..x8: DRAM bases
-        Instruction(mnemonic="addi", args=ScalarArgs(rd=5, rs1=0, imm=DRAM_GATE_WEIGHT_BASE)),
-        Instruction(mnemonic="addi", args=ScalarArgs(rd=6, rs1=0, imm=DRAM_UP_WEIGHT_BASE)),
+        Instruction(
+            mnemonic="addi", args=ScalarArgs(rd=5, rs1=0, imm=DRAM_GATE_WEIGHT_BASE)
+        ),
+        Instruction(
+            mnemonic="addi", args=ScalarArgs(rd=6, rs1=0, imm=DRAM_UP_WEIGHT_BASE)
+        ),
         # DRAM_ACTIVATION_BASE = 0x0800 = 0x1000 - 0x800
         Instruction(mnemonic="lui", args=ScalarArgs(rd=7, imm=0x1)),
         Instruction(mnemonic="addi", args=ScalarArgs(rd=7, rs1=7, imm=-2048)),
@@ -57,50 +61,70 @@ class GemmaMlpProgram(Program):
         Instruction(mnemonic="addi", args=ScalarArgs(rd=9, rs1=0, imm=1024)),
         # x10: byte length for bf16 tile (32*16*2 = 1024)
         Instruction(mnemonic="addi", args=ScalarArgs(rd=10, rs1=0, imm=1024)),
-
         # DRAM -> VMEM
         Instruction(mnemonic="dma.config.ch<N>", args=DmaArgs(rs1=0, channel=0)),
         Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
-        Instruction(mnemonic="dma.load.ch<N>", args=DmaArgs(rd=1, rs1=5, rs2=9, channel=0)),
-        Instruction(mnemonic="dma.load.ch<N>", args=DmaArgs(rd=2, rs1=6, rs2=9, channel=1)),
-        Instruction(mnemonic="dma.load.ch<N>", args=DmaArgs(rd=3, rs1=7, rs2=9, channel=2)),
+        Instruction(
+            mnemonic="dma.load.ch<N>", args=DmaArgs(rd=1, rs1=5, rs2=9, channel=0)
+        ),
+        Instruction(
+            mnemonic="dma.load.ch<N>", args=DmaArgs(rd=2, rs1=6, rs2=9, channel=1)
+        ),
+        Instruction(
+            mnemonic="dma.load.ch<N>", args=DmaArgs(rd=3, rs1=7, rs2=9, channel=2)
+        ),
         Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
         Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=1)),
         Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=2)),
-
         # VMEM -> MRF (weights + activation)
-        Instruction(mnemonic="vload", args=VectorArgs(vd=0, rs1=1, imm12=0)),  # gate W (fp8)
-        Instruction(mnemonic="vload", args=VectorArgs(vd=1, rs1=2, imm12=0)),  # up W (fp8)
-        Instruction(mnemonic="vload", args=VectorArgs(vd=2, rs1=3, imm12=0)),  # act (fp8)
-
+        Instruction(
+            mnemonic="vload", args=VectorArgs(vd=0, rs1=1, imm12=0)
+        ),  # gate W (fp8)
+        Instruction(
+            mnemonic="vload", args=VectorArgs(vd=1, rs1=2, imm12=0)
+        ),  # up W (fp8)
+        Instruction(
+            mnemonic="vload", args=VectorArgs(vd=2, rs1=3, imm12=0)
+        ),  # act (fp8)
         # Push weights to MXU0 WB slots 0 and 1
         Instruction(mnemonic="vmatpush.weight.mxu0", args=VectorArgs(vd=0, vs1=0)),
         Instruction(mnemonic="vmatpush.weight.mxu0", args=VectorArgs(vd=1, vs1=1)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=17)),
-
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
         # --- PHASE 3: Matrix Multiplications ---
         # Gate projection: activation @ gate_weight -> Acc/MRF
         # Note: Using MatrixArgs for matmul
         Instruction(mnemonic="vmatmul.mxu0", args=MatrixArgs(vd=0, vs1=2, vs2=0)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=33)),
-        Instruction(mnemonic="vmatpop.bf16.acc.mxu0", args=VectorArgs(vd=4, vs1=0)),  # gate -> mrf4+5
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
+        Instruction(
+            mnemonic="vmatpop.bf16.acc.mxu0", args=VectorArgs(vd=4, vs1=0)
+        ),  # gate -> mrf4+5
         # Up projection: activation @ up_weight -> Acc/MRF
         Instruction(mnemonic="vmatmul.mxu0", args=MatrixArgs(vd=0, vs1=2, vs2=1)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=33)),
-        Instruction(mnemonic="vmatpop.bf16.acc.mxu0", args=VectorArgs(vd=6, vs1=0)),  # up -> mrf6+7
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
+        Instruction(
+            mnemonic="vmatpop.bf16.acc.mxu0", args=VectorArgs(vd=6, vs1=0)
+        ),  # up -> mrf6+7
         # --- PHASE 4: Element-wise Multiplication (GeGLU Simplified) ---
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
         Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=8, vs1=4, vs2=6)),
         Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=9, vs1=5, vs2=7)),
         # --- PHASE 5: Store Results ---
         Instruction(mnemonic="vstore", args=VectorArgs(vd=8, rs1=4, imm12=0)),
         Instruction(mnemonic="vstore", args=VectorArgs(vd=9, rs1=4, imm12=32)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=40)),
-
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
         # VMEM -> DRAM (two 1024B tiles)
-        Instruction(mnemonic="addi", args=ScalarArgs(rd=11, rs1=4, imm=1024)),  # vmem+1024
-        Instruction(mnemonic="addi", args=ScalarArgs(rd=12, rs1=8, imm=1024)),  # dram+1024
-        Instruction(mnemonic="dma.store.ch<N>", args=DmaArgs(rd=8, rs1=4, rs2=10, channel=0)),
-        Instruction(mnemonic="dma.store.ch<N>", args=DmaArgs(rd=12, rs1=11, rs2=10, channel=1)),
+        Instruction(
+            mnemonic="addi", args=ScalarArgs(rd=11, rs1=4, imm=1024)
+        ),  # vmem+1024
+        Instruction(
+            mnemonic="addi", args=ScalarArgs(rd=12, rs1=8, imm=1024)
+        ),  # dram+1024
+        Instruction(
+            mnemonic="dma.store.ch<N>", args=DmaArgs(rd=8, rs1=4, rs2=10, channel=0)
+        ),
+        Instruction(
+            mnemonic="dma.store.ch<N>", args=DmaArgs(rd=12, rs1=11, rs2=10, channel=1)
+        ),
         Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
         Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=1)),
     ]
