@@ -9,35 +9,36 @@ from ..isa import InstructionType, AsmInstructionType, VectorArgs
 from .stage_data import StageData
 from .config import HardwareConfig
 
-SIMPLE_VPU_OPS = {
-    "vadd",
-    "vsub",
-    "vmul",
-    "mv.mm",
+# these all take 66 cycles for now
+VPU_ARITHMETIC = {
+    "vadd.bf16",
+    "vsub.bf16",
+    "vmul.bf16",
+    "vrecip.bf16",
+    "vexp.bf16",
+    "vexp2.bf16",
+    "vsin.bf16",
+    "vcos.bf16",
+    "vrelu.bf16",
+    "vtanh.bf16",
+    "vlog.bf16",
+    "vlog2.bf16",
+    "vmax.bf16",
+    "vmin.bf16",
+    "vredsum.bf16",
+    # delay not yet known
+    "vredmin.bf16",
+    "vredmax.bf16",
+    "vredsum.row.bf16",
+    "vredmin.row.bf16",
+    "vredmax.row.bf16",
+    "vmov",
 }
 
-NON_PIPELINEABLE_VPU_OPS = {
-    "vsqrt",
-    "vrcp",
-    "vexp",
-    "vlog2",
-    "vexp2",
-    "vsin",
-    "vcos",
-    "vtanh",
-}
 
-XLU_OPS = {
-    "vtrpose.h",
-    "vtrpose.l",
-    "vreduce.sum",
-    "vrot.reduce.sum",
-}
+# no specific delay at this point
+XLU_OPS = {"vtrpose.xlu"}
 
-VLS_OPS = {
-    "vload",
-    "vstore",
-}
 
 LOCAL_TRANSFER_TILE_BYTES = {
     "vmatpush.weight.mxu0": 1024,
@@ -52,6 +53,7 @@ LOCAL_TRANSFER_TILE_BYTES = {
     "vmatpop.bf16.acc.mxu1": 2048,
     "vmatpop.mxu0": 2048,
     "vmatpop.mxu1": 2048,
+    "vmov": 1024,
 }
 
 
@@ -75,6 +77,9 @@ class VectorExecutionUnit(ExecutionUnit):
         )
         self.reset()
 
+    def can_handle(self, uop: Uop[Any]) -> bool:
+        return True
+
     def reset(self) -> None:
         self.in_flight: Uop[VectorArgs] | None = None
         self._complete_count = 0
@@ -84,15 +89,7 @@ class VectorExecutionUnit(ExecutionUnit):
 
     def _execution_latency(self, uop: Uop[VectorArgs]) -> int:
         mnemonic = uop.insn.mnemonic
-        if mnemonic in VLS_OPS:
-            tensor_register_bytes = (
-                self.config.arch_state_config.mrf_depth
-                * self.config.arch_state_config.mrf_width
-            )
-            return max(
-                1,
-                math.ceil(tensor_register_bytes / self.config.vmem_bytes_per_cycle),
-            )
+        # FIXME - fake delay
         if mnemonic in LOCAL_TRANSFER_TILE_BYTES:
             return max(
                 1,
@@ -101,13 +98,13 @@ class VectorExecutionUnit(ExecutionUnit):
                     / self.config.vmem_bytes_per_cycle
                 ),
             )
+        # FIXME - fake delay
         if mnemonic in XLU_OPS:
             return self.config.xlu_transform_latency_cycles
-        if mnemonic in NON_PIPELINEABLE_VPU_OPS:
-            return self.config.vpu_non_pipelineable_op_latency_cycles
-        if mnemonic in SIMPLE_VPU_OPS:
-            return self.config.vpu_simple_op_latency_cycles
-        return self.config.vpu_simple_op_latency_cycles
+        if mnemonic in VPU_ARITHMETIC:
+            return self.config.vpu_arithmetic_latency_cycles
+        else:
+            return 1
 
     def tick(self, idu_output: StageData[Uop[Any] | None]) -> None:
         self.cycle += 1
@@ -201,4 +198,7 @@ class VectorExecutionUnit(ExecutionUnit):
 
     @property
     def supported_instruction_types(self) -> List[AsmInstructionType]:
-        return [InstructionType.VECTOR.VLS, InstructionType.VECTOR.VR, InstructionType.VECTOR.VI]
+        return [
+            InstructionType.VECTOR.VR,
+            InstructionType.VECTOR.VI,
+        ]

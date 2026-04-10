@@ -43,6 +43,9 @@ class DmaExecutionUnit(ExecutionUnit):
         )
         self.reset()
 
+    def can_handle(self, uop: Uop[Any]) -> bool:
+        return True
+
     def reset(self) -> None:
         self.in_flight: List[Uop[DmaArgs]] = []
         self._complete_count = 0

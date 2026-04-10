@@ -1,159 +1,140 @@
-# from typing import Optional, List, TYPE_CHECKING
+from __future__ import annotations
+import math
+from typing import List, Any
 
-# from .exu import ExecutionUnit, InFlightInsn
-# from .stage_data import StageData
-# from ..trace.logger import Logger
+from .exu import ExecutionUnit
+from ..logging.logger import Logger, LaneType
+from ..hardware.arch_state import ArchState
+from ..software.instruction import Uop
+from ..isa import InstructionType, AsmInstructionType, VectorArgs
+from .stage_data import StageData
+from .config import HardwareConfig
 
-# if TYPE_CHECKING:
-#     from ..software.insn import Instruction
-
-
-# class LoadStoreUnit(ExecutionUnit):
-#     """
-#     Load/Store Unit for DMA and memory operations.
-
-#     Only allows 1 in-flight instruction at a time. When busy, it won't
-#     claim new instructions, causing backpressure on the pipeline.
-#     """
-
-#     def __init__(
-#         self,
-#         name: str,
-#         logger: Logger,
-#         lane_id: int = 0,
-#         dispatch_lane_id: int = 1,
-#     ) -> None:
-#         super().__init__(
-#             name,
-#             logger,
-#             lane_id=lane_id,
-#             dispatch_lane_id=dispatch_lane_id,
-#         )
-#         self.reset()
-
-#     def reset(self) -> None:
-#         self._in_flight: Optional[InFlightInsn] = None
-#         self._completed_instructions: List["Instruction"] = []
-#         self._pending_completion: Optional["Instruction"] = None
-#         self._total_instructions = 0
-#         self._busy_cycles = 0
-
-#     def tick(self, diu_output: StageData[Optional["Instruction"]]) -> None:
-#         """
-#         Execute one cycle with single-issue constraint.
-
-#         Only claims a new instruction if no instruction is currently in flight.
-#         """
-#         # Log deferred completion from last cycle
-#         if self._pending_completion is not None:
-#             self.logger.log_stage_end(
-#                 self._pending_completion.id,
-#                 "E",
-#                 lane=self.lane_id,
-#             )
-#             self.logger.log_retire(self._pending_completion.id)
-#             self._pending_completion = None
-
-#         self._completed_instructions = []
-
-#         # Only claim if we have no in-flight instruction
-#         dispatched_insn = None
-#         if self._in_flight is None:
-#             dispatched_insn = diu_output.claim()
-
-#         # Accept new instruction
-#         if dispatched_insn is not None:
-#             self._in_flight = InFlightInsn(
-#                 insn=dispatched_insn,
-#                 cycles_remaining=dispatched_insn.op.ex_delay
-#             )
-#             self._total_instructions += 1
-#             # Log: end dispatch, start execute
-#             self.logger.log_stage_end(
-#                 dispatched_insn.id,
-#                 "D",
-#                 lane=self.dispatch_lane_id,
-#             )
-#             self.logger.log_stage_start(
-#                 dispatched_insn.id,
-#                 "E",
-#                 lane=self.lane_id,
-#             )
-
-#         # Track if EXU was busy
-#         if self._in_flight is not None:
-#             self._busy_cycles += 1
-
-#         # Process in-flight instruction
-#         if self._in_flight is not None:
-#             self._in_flight.cycles_remaining -= 1
-#             if self._in_flight.cycles_remaining <= 0:
-#                 self._completed_instructions.append(self._in_flight.insn)
-#                 self._pending_completion = self._in_flight.insn
-#                 self._in_flight = None
-
-#     def flush_completions(self) -> None:
-#         """Flush any pending completions (call at end of simulation)."""
-#         if self._pending_completion is not None:
-#             self.logger.log_stage_end(
-#                 self._pending_completion.id,
-#                 "E",
-#                 lane=self.lane_id,
-#             )
-#             self.logger.log_retire(self._pending_completion.id)
-#             self._pending_completion = None
-
-#     def has_in_flight(self) -> bool:
-#         """Check if there is an in-flight instruction."""
-#         return self._in_flight is not None
-
-#     @property
-#     def completed_instructions(self) -> List["Instruction"]:
-#         """Instructions completed this cycle."""
-#         return self._completed_instructions
-
-#     @property
-#     def total_instructions(self) -> int:
-#         """Total instructions executed."""
-#         return self._total_instructions
-
-#     @property
-#     def busy_cycles(self) -> int:
-#         """Number of cycles the EXU was busy."""
-#         return self._busy_cycles
+MEM_OPS = {
+    "lb",
+    "lh",
+    "lw",
+    "lbu",
+    "lhu",
+    "sb",
+    "sh",
+    "sw",
+    "seld",
+    "vload",
+    "vstore",
+}
 
 
-# class WeightLoadStoreUnit(LoadStoreUnit):
-#     """Load/Store Unit for weight memory operations."""
+class LoadStoreUnit(ExecutionUnit):
+    """
+    Load/Store Unit for DMA and memory operations.
 
-#     def __init__(
-#         self,
-#         name: str,
-#         logger: Logger,
-#         lane_id: int = 0,
-#         dispatch_lane_id: int = 1,
-#     ) -> None:
-#         super().__init__(
-#             name,
-#             logger,
-#             lane_id=lane_id,
-#             dispatch_lane_id=dispatch_lane_id,
-#         )
+    Only allows 1 in-flight instruction at a time. When busy, it won't
+    claim new instructions, causing backpressure on the pipeline.
+    """
 
+    def __init__(
+        self,
+        name: str,
+        logger: Logger,
+        arch_state: ArchState,
+        lane_id: int = 0,
+        config: HardwareConfig | None = None,
+    ) -> None:
+        super().__init__(name, logger, arch_state, lane_id, config)
+        self.reset()
 
-# class MatrixLoadStoreUnit(LoadStoreUnit):
-#     """Load/Store Unit for matrix/activation memory operations."""
+    def can_handle(self, uop: Uop[Any]) -> bool:
+        return uop.insn.mnemonic in MEM_OPS
 
-#     def __init__(
-#         self,
-#         name: str,
-#         logger: Logger,
-#         lane_id: int = 0,
-#         dispatch_lane_id: int = 1,
-#     ) -> None:
-#         super().__init__(
-#             name,
-#             logger,
-#             lane_id=lane_id,
-#             dispatch_lane_id=dispatch_lane_id,
-#         )
+    def reset(self) -> None:
+        self.in_flight: Uop[Any] | None = None
+        self._complete_count = 0
+        self._pending_completions: List[Uop[Any]] = []
+        self._total_instructions = 0
+        self._busy_cycles = 0
+
+    def _get_latency(self, uop: Uop[Any]) -> int:
+        if uop.insn.mnemonic in ["vload", "vstore"]:
+            # Assuming a standard 32x32 FP8 tile is 1024 bytes
+            return max(
+                1,
+                math.ceil(
+                    self.config.arch_state_config.mrf_width
+                    * self.config.arch_state_config.mrf_depth
+                    / self.config.vmem_bytes_per_cycle
+                ),
+            )
+        return 1
+
+    def tick(self, idu_output: StageData[Uop[Any] | None]) -> None:
+        self.cycle += 1
+        # Log deferred completions from last cycle
+        for uop in self._pending_completions:
+            self.logger.log_stage_end(uop.id, "E", lane=self.lane_id, cycle=self.cycle)
+            self.logger.log_retire(uop.id)
+
+        self._pending_completions = []
+        self._complete_count = 0
+
+        if self.in_flight is None:
+            uop = idu_output.peek()
+            if uop is not None and self.can_handle(uop):
+                uop.execute_delay = self._get_latency(uop)
+                self.in_flight = uop
+                self._total_instructions += 1
+                self.logger.log_stage_end(
+                    uop.id, "D", lane=LaneType.DIU.value, cycle=self.cycle
+                )
+                self.logger.log_stage_start(
+                    uop.id, "E", lane=self.lane_id, cycle=self.cycle
+                )
+
+        # Track if EXU was busy
+        if self.in_flight:
+            self._busy_cycles += 1
+            self.in_flight.execute_delay -= 1
+            if self.in_flight.execute_delay <= 0:
+                if self.in_flight.execute_fn is not None:
+                    self.in_flight.execute_fn(self.arch_state, self.in_flight.insn.args)
+                else:
+                    raise ValueError("No execute function specified for Uop.")
+
+                self._complete_count = 1
+                self._pending_completions.append(self.in_flight)
+                # Claim from DIU output only when finished (blocking semantic)
+                idu_output.claim()
+                self.in_flight = None
+
+    def flush_completions(self) -> None:
+        """Flush any pending completions (call at end of simulation)."""
+        for uop in self._pending_completions:
+            self.logger.log_stage_end(uop.id, "E", lane=self.lane_id)
+            self.logger.log_retire(uop.id)
+        self._pending_completions = []
+
+    @property
+    def has_in_flight(self) -> bool:
+        """Check if there is an in-flight instruction."""
+        return self.in_flight is not None
+
+    @property
+    def complete_count(self) -> int:
+        """Instructions completed this cycle."""
+        return self._complete_count
+
+    @property
+    def total_instructions(self) -> int:
+        return self._total_instructions
+
+    @property
+    def busy_cycles(self) -> int:
+        return self._busy_cycles
+
+    @property
+    def supported_instruction_types(self) -> List[AsmInstructionType]:
+        return [
+            InstructionType.VECTOR.VLS,
+            InstructionType.SCALAR.I,
+            InstructionType.SCALAR.S,
+        ]

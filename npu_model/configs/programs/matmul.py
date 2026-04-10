@@ -77,6 +77,7 @@ class MatmulProgram(Program):
         # MXU matmul latency is 32 cycles by default; add small slack.
         Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
         Instruction(mnemonic="vmatpop.bf16.acc.mxu0", args=VectorArgs(vd=2, vs1=0)),
+        Instruction(mnemonic="delay",args=ScalarArgs(imm=16)),
         # store to vmem
         Instruction(mnemonic="vstore", args=VectorArgs(vd=2, rs1=3, imm12=0)),
         Instruction(mnemonic="vstore", args=VectorArgs(vd=3, rs1=3, imm12=32)),

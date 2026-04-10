@@ -31,4 +31,5 @@ class DefaultHardwareConfig(HardwareConfig):
         "Matrix1": "MatrixExecutionUnitInner",
         "Vector0": "VectorExecutionUnit",
         "DMA0": "DmaExecutionUnit",
+        "LSU": "LoadStoreUnit"
     }

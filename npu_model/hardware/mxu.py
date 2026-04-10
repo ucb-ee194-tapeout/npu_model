@@ -29,6 +29,9 @@ class MatrixExecutionUnitSystolic(ExecutionUnit):
         )
         self.reset()
 
+    def can_handle(self, uop: Uop[Any]) -> bool:
+        return True
+
     def reset(self) -> None:
         self.in_flight: Uop[MatrixArgs] | None = None
         self._complete_count = 0
@@ -150,6 +153,9 @@ class MatrixExecutionUnitInner(ExecutionUnit):
             config,
         )
         self.reset()
+
+    def can_handle(self, uop: Uop[Any]) -> bool:
+        return True
 
     def reset(self) -> None:
         self.in_flight: Uop[MatrixArgs] | None = None
