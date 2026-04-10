@@ -36,24 +36,10 @@ VPU_ARITHMETIC = {
     "vmov",
 }
 
-
 # no specific delay at this point
 XLU_OPS = {"vtrpose.xlu"}
 
-
 LOCAL_TRANSFER_TILE_BYTES = {
-    "vmatpush.weight.mxu0": 1024,
-    "vmatpush.weight.mxu1": 1024,
-    "vmatpush.acc.fp8.mxu0": 1024,
-    "vmatpush.acc.fp8.mxu1": 1024,
-    "vmatpush.acc.bf16.mxu0": 2048,
-    "vmatpush.acc.bf16.mxu1": 2048,
-    "vmatpop.fp8.acc.mxu0": 1024,
-    "vmatpop.fp8.acc.mxu1": 1024,
-    "vmatpop.bf16.acc.mxu0": 2048,
-    "vmatpop.bf16.acc.mxu1": 2048,
-    "vmatpop.mxu0": 2048,
-    "vmatpop.mxu1": 2048,
     "vmov": 1024,
 }
 
@@ -92,7 +78,6 @@ class VectorExecutionUnit(ExecutionUnit):
 
     def _execution_latency(self, uop: Uop[VectorArgs]) -> int:
         mnemonic = uop.insn.mnemonic
-        # FIXME - fake delay
         if mnemonic in LOCAL_TRANSFER_TILE_BYTES:
             return max(
                 1,
@@ -101,7 +86,6 @@ class VectorExecutionUnit(ExecutionUnit):
                     / self.config.vmem_bytes_per_cycle
                 ),
             )
-        # FIXME - fake delay
         if mnemonic in XLU_OPS:
             return self.config.xlu_transform_latency_cycles
         if mnemonic in VPU_ARITHMETIC:
@@ -182,7 +166,6 @@ class VectorExecutionUnit(ExecutionUnit):
                 # claim the uop from the DIU
                 idu_output.claim()
                 self.in_flight = None
-                # print(f"MXU {self.name} completed instruction {self.in_flight.id}")
 
     def flush_completions(self) -> None:
         """Flush any pending completions (call at end of simulation)."""

@@ -184,6 +184,28 @@ def vmem_accesses(mnemonic: str, args: Any, arch_state: ArchState) -> frozenset[
     return frozenset()
 
 
+def weight_buffer_accesses(mnemonic: str) -> frozenset[int]:
+    """Return the set of MXU IDs whose weight buffer is accessed."""
+    if "weight.mxu0" in mnemonic or "matmul.mxu0" in mnemonic:
+        return frozenset({0})
+    if "weight.mxu1" in mnemonic or "matmul.mxu1" in mnemonic:
+        return frozenset({1})
+    return frozenset()
+
+
+def acc_buffer_accesses(mnemonic: str) -> frozenset[int]:
+    """Return the set of MXU IDs whose accumulation buffer is accessed."""
+    if ".acc." in mnemonic and "mxu0" in mnemonic:
+        return frozenset({0})
+    if ".acc." in mnemonic and "mxu1" in mnemonic:
+        return frozenset({1})
+    if "matmul.mxu0" in mnemonic:
+        return frozenset({0})
+    if "matmul.mxu1" in mnemonic:
+        return frozenset({1})
+    return frozenset()
+
+
 # ---------------------------------------------------------------------------
 # Error type
 # ---------------------------------------------------------------------------
@@ -218,14 +240,17 @@ class BankConflictChecker:
     """
 
     def __init__(self) -> None:
-        # Maps bank index -> description of the in-flight instruction holding it.
         self._mrf_in_use: dict[int, str] = {}
         self._vmem_in_use: dict[int, str] = {}
+        # Add tracking for MXU buffers
+        self._weight_buf_in_use: dict[int, str] = {}
+        self._acc_buf_in_use: dict[int, str] = {}
 
     def reset(self) -> None:
-        """Clear all tracked in-use resources."""
         self._mrf_in_use.clear()
         self._vmem_in_use.clear()
+        self._weight_buf_in_use.clear()
+        self._acc_buf_in_use.clear()
 
     # ------------------------------------------------------------------
     # MRF
@@ -253,6 +278,42 @@ class BankConflictChecker:
         """Release the given MRF banks."""
         for bank in banks:
             self._mrf_in_use.pop(bank, None)
+
+    # ------------------------------------------------------------------
+    # Weight Buffer
+    # ------------------------------------------------------------------
+    def acquire_weight_buf(self, mxus: frozenset[int], label: str) -> None:
+        conflict = frozenset(self._weight_buf_in_use) & mxus
+        if conflict:
+            holders = {self._weight_buf_in_use[b] for b in conflict}
+            raise BankConflictError(
+                f"Weight buffer conflict: '{label}' accesses MXU {sorted(conflict)} "
+                f"currently held by {holders}"
+            )
+        for mxu in mxus:
+            self._weight_buf_in_use[mxu] = label
+
+    def release_weight_buf(self, mxus: frozenset[int]) -> None:
+        for mxu in mxus:
+            self._weight_buf_in_use.pop(mxu, None)
+
+    # ------------------------------------------------------------------
+    # Accumulation Buffer
+    # ------------------------------------------------------------------
+    def acquire_acc_buf(self, mxus: frozenset[int], label: str) -> None:
+        conflict = frozenset(self._acc_buf_in_use) & mxus
+        if conflict:
+            holders = {self._acc_buf_in_use[b] for b in conflict}
+            raise BankConflictError(
+                f"Accumulation buffer conflict: '{label}' accesses MXU {sorted(conflict)} "
+                f"currently held by {holders}"
+            )
+        for mxu in mxus:
+            self._acc_buf_in_use[mxu] = label
+
+    def release_acc_buf(self, mxus: frozenset[int]) -> None:
+        for mxu in mxus:
+            self._acc_buf_in_use.pop(mxu, None)
 
     # ------------------------------------------------------------------
     # VMEM

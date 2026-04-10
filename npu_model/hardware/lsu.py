@@ -9,6 +9,7 @@ from ..software.instruction import Uop
 from ..isa import InstructionType, AsmInstructionType, VectorArgs
 from .stage_data import StageData
 from .config import HardwareConfig
+from .bank_conflict import mrf_accesses, vmem_accesses
 
 MEM_OPS = {
     "lb",
@@ -49,6 +50,8 @@ class LoadStoreUnit(ExecutionUnit):
 
     def reset(self) -> None:
         self.in_flight: Uop[Any] | None = None
+        self._in_flight_mrf_banks: frozenset[int] = frozenset()
+        self._in_flight_vmem_banks: frozenset[int] = frozenset()
         self._complete_count = 0
         self._pending_completions: List[Uop[Any]] = []
         self._total_instructions = 0
@@ -80,6 +83,18 @@ class LoadStoreUnit(ExecutionUnit):
         if self.in_flight is None:
             uop = idu_output.peek()
             if uop is not None and self.can_handle(uop):
+                # Check and acquire MRF and VMEM banks before accepting.
+                mnemonic = uop.insn.mnemonic
+                label = f"{self.name}:{mnemonic}"
+                mrf_banks = mrf_accesses(mnemonic, uop.insn.args)
+                vmem_banks = vmem_accesses(mnemonic, uop.insn.args, self.arch_state)
+
+                checker = self.arch_state.conflict_checker
+                checker.acquire_mrf(mrf_banks, label)
+                checker.acquire_vmem(vmem_banks, label)
+                self._in_flight_mrf_banks = mrf_banks
+                self._in_flight_vmem_banks = vmem_banks
+
                 uop.execute_delay = self._get_latency(uop)
                 self.in_flight = uop
                 self._total_instructions += 1
@@ -99,6 +114,13 @@ class LoadStoreUnit(ExecutionUnit):
                     self.in_flight.execute_fn(self.arch_state, self.in_flight.insn.args)
                 else:
                     raise ValueError("No execute function specified for Uop.")
+
+                # Release acquired banks before retiring the instruction.
+                checker = self.arch_state.conflict_checker
+                checker.release_mrf(self._in_flight_mrf_banks)
+                checker.release_vmem(self._in_flight_vmem_banks)
+                self._in_flight_mrf_banks = frozenset()
+                self._in_flight_vmem_banks = frozenset()
 
                 self._complete_count = 1
                 self._pending_completions.append(self.in_flight)
