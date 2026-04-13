@@ -37,7 +37,7 @@ class DMAStallProgram(Program):
         Instruction(mnemonic="vload", args=VectorArgs(vd=1, rs1=0, imm12=0)),
         # vload VMEM(x2=1024) -> Temporary MRF 1
         Instruction(mnemonic="vload", args=VectorArgs(vd=0, rs1=1, imm12=0)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=100)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
         # Push Temporary MRF 1 -> MXU0 Weight Buffer 1
         Instruction(mnemonic="vmatpush.weight.mxu0", args=VectorArgs(vd=0, vs1=0)),
         # --- 4. Do unnecessary loads (Overlapped with Matmul) ---
