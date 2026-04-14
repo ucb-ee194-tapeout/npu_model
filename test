@@ -1,1 +1,8 @@
 dma.wait.ch0
+dma.wait.ch1
+dma.wait.ch2
+dma.wait.ch3
+dma.wait.ch4
+dma.wait.ch5
+dma.wait.ch6
+dma.wait.ch7

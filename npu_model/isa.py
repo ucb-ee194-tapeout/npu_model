@@ -89,7 +89,6 @@ class RType(Instruction, instr=False):
 
 class IType[Reg: (ScalarReg, ExponentReg) = ScalarReg](Instruction, instr=False):
     funct3: Funct3         = NotImplemented
-    funct7: Funct7         = NotImplemented
     rd: Reg
     rs1: ScalarReg         = ScalarReg(0)
     size: Imm12            = Imm12(0)
@@ -105,10 +104,9 @@ class IType[Reg: (ScalarReg, ExponentReg) = ScalarReg](Instruction, instr=False)
 
         return (imm_b << 20) | (rs1_b << 15) | (funct3_b << 12) | (rd_b << 7) | opcode_b
     
-    def __init_subclass__(cls, exu: EXU, opcode: OpcodeL, funct3: Funct3L, funct7: Funct7L, mnemonic: str | None = None) -> None:
+    def __init_subclass__(cls, exu: EXU, opcode: OpcodeL, funct3: Funct3L, mnemonic: str | None = None) -> None:
         mnemonic = mnemonic if mnemonic != None else cls.__name__.lower().replace("_",".")
         cls.funct3 = Funct3(funct3)
-        cls.funct7 = Funct7(funct7)
         IsaSpec.I[mnemonic] = cls
         return super().__init_subclass__(exu, mnemonic, opcode, instr=True)
     

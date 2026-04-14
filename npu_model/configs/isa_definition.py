@@ -97,42 +97,42 @@ def _vmatmul(state: ArchState, unit: str, vd: Accumulator, vs1: MatrixReg, vs2: 
     state.write_acc_bf16(unit, vd, result_fp16.to(torch.bfloat16))
 
 
-class LB(ScalarOffsetLoad, IType, exu=EXU.SCALAR, opcode=0b0000011, funct3=0b000, funct7=0b0000000):
+class LB(ScalarOffsetLoad, IType, exu=EXU.SCALAR, opcode=0b0000011, funct3=0b000):
     def exec(self, state: ArchState) -> None:
         imm = _sign_extend(self.imm & 0xFFF, 12)
         value = _le_bytes_to_int(state.read_vmem(state.read_xrf(self.rs1), imm, 1))
         state.write_xrf(self.rd, _sign_extend(value, 8))
 
 
-class LH(ScalarOffsetLoad, IType, exu=EXU.SCALAR, opcode=0b0000011, funct3=0b001, funct7=0b0000000):
+class LH(ScalarOffsetLoad, IType, exu=EXU.SCALAR, opcode=0b0000011, funct3=0b001):
     def exec(self, state: ArchState) -> None:
         imm = _sign_extend(self.imm & 0xFFF, 12)
         value = _le_bytes_to_int(state.read_vmem(state.read_xrf(self.rs1), imm, 2))
         state.write_xrf(self.rd, _sign_extend(value, 16))
 
 
-class LW(ScalarOffsetLoad, IType, exu=EXU.SCALAR, opcode=0b0000011, funct3=0b010, funct7=0b0000000):
+class LW(ScalarOffsetLoad, IType, exu=EXU.SCALAR, opcode=0b0000011, funct3=0b010):
     def exec(self, state: ArchState) -> None:
         imm = _sign_extend(self.imm & 0xFFF, 12)
         value = _le_bytes_to_int(state.read_vmem(state.read_xrf(self.rs1), imm, 4))
         state.write_xrf(self.rd, value)
 
 
-class LBU(ScalarOffsetLoad, IType, exu=EXU.SCALAR, opcode=0b0000011, funct3=0b100, funct7=0b0000000):
+class LBU(ScalarOffsetLoad, IType, exu=EXU.SCALAR, opcode=0b0000011, funct3=0b100):
     def exec(self, state: ArchState) -> None:
         imm = _sign_extend(self.imm & 0xFFF, 12)
         value = _le_bytes_to_int(state.read_vmem(state.read_xrf(self.rs1), imm, 1))
         state.write_xrf(self.rd, value)
 
 
-class LHU(ScalarOffsetLoad, IType, exu=EXU.SCALAR, opcode=0b0000011, funct3=0b101, funct7=0b0000000):
+class LHU(ScalarOffsetLoad, IType, exu=EXU.SCALAR, opcode=0b0000011, funct3=0b101):
     def exec(self, state: ArchState) -> None:
         imm = _sign_extend(self.imm & 0xFFF, 12)
         value = _le_bytes_to_int(state.read_vmem(state.read_xrf(self.rs1), imm, 2))
         state.write_xrf(self.rd, value)
 
 
-class SELD(ExponentOffsetLoad, IType[ExponentReg], exu=EXU.SCALAR, opcode=0b0000011, funct3=0b110, funct7=0b0000000):
+class SELD(ExponentOffsetLoad, IType[ExponentReg], exu=EXU.SCALAR, opcode=0b0000011, funct3=0b110):
     def exec(self, state: ArchState) -> None:
         imm = _sign_extend(self.imm & 0xFFF, 12)
         state.write_erf(
@@ -141,7 +141,7 @@ class SELD(ExponentOffsetLoad, IType[ExponentReg], exu=EXU.SCALAR, opcode=0b0000
         )
 
 
-class SELI(ExponentImm, IType[ExponentReg], exu=EXU.SCALAR, opcode=0b0000011, funct3=0b111, funct7=0b0000000):
+class SELI(ExponentImm, IType[ExponentReg], exu=EXU.SCALAR, opcode=0b0000011, funct3=0b111):
     def exec(self, state: ArchState):
         state.write_erf(self.rd, _sign_extend(self.imm & 0xFFF, 12))
 
@@ -157,52 +157,52 @@ class VSTORE(TensorBaseOffset, VLSType, exu=EXU.VECTOR, opcode=0b0000111, funct2
         data = state.read_mrf_fp8(self.vd).view(torch.uint8)
         state.write_vmem(addr, 0, data)
 
-class FENCE(Nullary, IType, exu=EXU.SCALAR, opcode=0b0001111, funct3=0b000, funct7=0b0000000):
+class FENCE(Nullary, IType, exu=EXU.SCALAR, opcode=0b0001111, funct3=0b000):
     def exec(self, state: ArchState) -> None:
         pass
 
-class ADDI(ScalarComputeImm, IType, exu=EXU.SCALAR, opcode=0b0010011, funct3=0b000, funct7=0b0000000):
+class ADDI(ScalarComputeImm, IType, exu=EXU.SCALAR, opcode=0b0010011, funct3=0b000):
     def exec(self, state: ArchState) -> None:
         state.write_xrf(self.rd, state.xrf[self.rs1] + _sign_extend(self.imm & 0xFFF, 12))
 
 
-class SLLI(ScalarComputeShamt, IType, exu=EXU.SCALAR, opcode=0b0010011, funct3=0b001, funct7=0b0000000):
+class SLLI(ScalarComputeShamt, IType, exu=EXU.SCALAR, opcode=0b0010011, funct3=0b001):
     def exec(self, state: ArchState) -> None:
         state.write_xrf(self.rd, state.xrf[self.rs1] << (self.imm & 0x3F))
 
-class SLTI(ScalarComputeImm, IType, exu=EXU.SCALAR, opcode=0b0010011, funct3=0b010, funct7=0b0000000):
+class SLTI(ScalarComputeImm, IType, exu=EXU.SCALAR, opcode=0b0010011, funct3=0b010):
     def exec(self, state: ArchState) -> None:
         imm = _sign_extend(self.imm & 0xFFF, 12)
         state.write_xrf(self.rd, 1 if state.xrf[self.rs1] < imm else 0)
 
 
-class SLTIU(ScalarComputeImm, IType, exu=EXU.SCALAR, opcode=0b0010011, funct3=0b011, funct7=0b0000000):
+class SLTIU(ScalarComputeImm, IType, exu=EXU.SCALAR, opcode=0b0010011, funct3=0b011):
     def exec(self, state: ArchState) -> None:
         a = state.xrf[self.rs1] & _MASK64
         b = _sign_extend(self.imm & 0xFFF, 12) & _MASK64
         state.write_xrf(self.rd, 1 if a < b else 0)
 
 
-class XORI(ScalarComputeImm, IType, exu=EXU.SCALAR, opcode=0b0010011, funct3=0b100, funct7=0b0000000):
+class XORI(ScalarComputeImm, IType, exu=EXU.SCALAR, opcode=0b0010011, funct3=0b100):
     def exec(self, state: ArchState) -> None:
         state.write_xrf(self.rd, state.xrf[self.rs1] ^ _sign_extend(self.imm & 0xFFF, 12))
 
-class SRLI(ScalarComputeShamt, IType, exu=EXU.SCALAR, opcode=0b0010011, funct3=0b101, funct7=0b0000000):
+class SRLI(ScalarComputeShamt, IType, exu=EXU.SCALAR, opcode=0b0010011, funct3=0b101):
     def exec(self,state: ArchState) -> None:
         state.write_xrf(self.rd, state.xrf[self.rs1] >> (self.imm & 0x3F))
 
 
-class SRAI(ScalarComputeShamt, IType, exu=EXU.SCALAR, opcode=0b0010011, funct3=0b101, funct7=0b0000000):
+class SRAI(ScalarComputeShamt, IType, exu=EXU.SCALAR, opcode=0b0010011, funct3=0b101):
     UPPER_IMM = 0b0100000
     def exec(self, state: ArchState) -> None:
         state.write_xrf(self.rd, state.xrf[self.rs1] >> (self.imm & 0x3F))
 
-class ORI(ScalarComputeImm, IType, exu=EXU.SCALAR, opcode=0b0010011, funct3=0b110, funct7=0b0000000):
+class ORI(ScalarComputeImm, IType, exu=EXU.SCALAR, opcode=0b0010011, funct3=0b110):
     def ori(self, state: ArchState) -> None:
         state.write_xrf(self.rd, state.xrf[self.rs1] | _sign_extend(self.imm & 0xFFF, 12))
 
 
-class ANDI(ScalarComputeImm, IType, exu=EXU.SCALAR, opcode=0b0010011, funct3=0b111, funct7=0b0000000):
+class ANDI(ScalarComputeImm, IType, exu=EXU.SCALAR, opcode=0b0010011, funct3=0b111):
     def exec(self, state: ArchState) -> None:
         state.write_xrf(self.rd, state.xrf[self.rs1] & _sign_extend(self.imm & 0xFFF, 12))
 
@@ -493,13 +493,13 @@ class BGEU(ScalarBranchImm, SBType, exu=EXU.SCALAR, opcode=0b1100011, funct3=0b1
         if a >= b:
             state.set_npc(state.pc + imm - PIPELINE_LATENCY)
 
-class JALR(ScalarOffsetLoad, IType, exu=EXU.SCALAR, opcode=0b1100111, funct3=0b000, funct7=0b0000000):
+class JALR(ScalarOffsetLoad, IType, exu=EXU.SCALAR, opcode=0b1100111, funct3=0b000):
     def jalr(self, state: ArchState) -> None:
         imm = _sign_extend(self.imm & 0xFFF, 12)
         state.write_xrf(self.rd, state.pc + 4)
         state.set_npc(state.read_xrf(self.rs1) + imm - PIPELINE_LATENCY)
 
-class DELAY(UnaryImm, IType, exu=EXU.SCALAR, opcode=0b1100111, funct3=0b001, funct7=0b0000000):
+class DELAY(UnaryImm, IType, exu=EXU.SCALAR, opcode=0b1100111, funct3=0b001):
     def exec(self, state: ArchState) -> None:
         pass
 
@@ -551,11 +551,11 @@ class CSRRCI(ScalarComputeImm, CSRType, exu=EXU.SCALAR, opcode=0b1110011, funct3
         state.write_csrf(self.imm, old & ~(self.rs1 & 0b11111))
         state.write_xrf(self.rd, old)
 
-class ECALL(Nullary, IType, exu=EXU.SCALAR, opcode=0b1110011, funct3=0b000, funct7=0b0000000):
+class ECALL(Nullary, IType, exu=EXU.SCALAR, opcode=0b1110011, funct3=0b000):
     def exec(self, state: ArchState) -> None:
         pass
 
-class EBREAK(Nullary, IType, exu=EXU.SCALAR, opcode=0b1110011, funct3=0b000, funct7=0b0000000):
+class EBREAK(Nullary, IType, exu=EXU.SCALAR, opcode=0b1110011, funct3=0b000):
     imm: Imm12 = Imm12(1)
     def ebreak(self, state: ArchState) -> None:
         pass
@@ -656,25 +656,26 @@ class _DMA_CONFIG_CHN(DMARegUnary):
     def exec(self, state: ArchState) -> None:
         state.base = state.read_xrf(self.rs1)
 
-class DMA_CONFIG_CH0(_DMA_CONFIG_CHN, IType, exu=EXU.DMA, opcode=0b1111111, funct3=0b000, funct7=0b0000000): pass
-class DMA_CONFIG_CH1(_DMA_CONFIG_CHN, IType, exu=EXU.DMA, opcode=0b1111111, funct3=0b001, funct7=0b0000000): pass
-class DMA_CONFIG_CH2(_DMA_CONFIG_CHN, IType, exu=EXU.DMA, opcode=0b1111111, funct3=0b010, funct7=0b0000000): pass
-class DMA_CONFIG_CH3(_DMA_CONFIG_CHN, IType, exu=EXU.DMA, opcode=0b1111111, funct3=0b011, funct7=0b0000000): pass
-class DMA_CONFIG_CH4(_DMA_CONFIG_CHN, IType, exu=EXU.DMA, opcode=0b1111111, funct3=0b100, funct7=0b0000000): pass
-class DMA_CONFIG_CH5(_DMA_CONFIG_CHN, IType, exu=EXU.DMA, opcode=0b1111111, funct3=0b101, funct7=0b0000000): pass
-class DMA_CONFIG_CH6(_DMA_CONFIG_CHN, IType, exu=EXU.DMA, opcode=0b1111111, funct3=0b110, funct7=0b0000000): pass
-class DMA_CONFIG_CH7(_DMA_CONFIG_CHN, IType, exu=EXU.DMA, opcode=0b1111111, funct3=0b111, funct7=0b0000000): pass
+class DMA_CONFIG_CH0(_DMA_CONFIG_CHN, RType, exu=EXU.DMA, opcode=0b1111111, funct3=0b000, funct7=0b0000001): pass
+class DMA_CONFIG_CH1(_DMA_CONFIG_CHN, RType, exu=EXU.DMA, opcode=0b1111111, funct3=0b001, funct7=0b0000001): pass
+class DMA_CONFIG_CH2(_DMA_CONFIG_CHN, RType, exu=EXU.DMA, opcode=0b1111111, funct3=0b010, funct7=0b0000001): pass
+class DMA_CONFIG_CH3(_DMA_CONFIG_CHN, RType, exu=EXU.DMA, opcode=0b1111111, funct3=0b011, funct7=0b0000001): pass
+class DMA_CONFIG_CH4(_DMA_CONFIG_CHN, RType, exu=EXU.DMA, opcode=0b1111111, funct3=0b100, funct7=0b0000001): pass
+class DMA_CONFIG_CH5(_DMA_CONFIG_CHN, RType, exu=EXU.DMA, opcode=0b1111111, funct3=0b101, funct7=0b0000001): pass
+class DMA_CONFIG_CH6(_DMA_CONFIG_CHN, RType, exu=EXU.DMA, opcode=0b1111111, funct3=0b110, funct7=0b0000001): pass
+class DMA_CONFIG_CH7(_DMA_CONFIG_CHN, RType, exu=EXU.DMA, opcode=0b1111111, funct3=0b111, funct7=0b0000001): pass
 
 
 class _DMA_WAIT_CHN(Nullary):
+    imm = 1
     def exec(self, state: ArchState) -> None:
         pass
 
-class DMA_WAIT_CH0(_DMA_WAIT_CHN, IType, exu=EXU.DMA, opcode=0b1111111, funct3=0b000, funct7=0b0000001): pass
-class DMA_WAIT_CH1(_DMA_WAIT_CHN, IType, exu=EXU.DMA, opcode=0b1111111, funct3=0b001, funct7=0b0000001): pass
-class DMA_WAIT_CH2(_DMA_WAIT_CHN, IType, exu=EXU.DMA, opcode=0b1111111, funct3=0b010, funct7=0b0000001): pass
-class DMA_WAIT_CH3(_DMA_WAIT_CHN, IType, exu=EXU.DMA, opcode=0b1111111, funct3=0b011, funct7=0b0000001): pass
-class DMA_WAIT_CH4(_DMA_WAIT_CHN, IType, exu=EXU.DMA, opcode=0b1111111, funct3=0b100, funct7=0b0000001): pass
-class DMA_WAIT_CH5(_DMA_WAIT_CHN, IType, exu=EXU.DMA, opcode=0b1111111, funct3=0b101, funct7=0b0000001): pass
-class DMA_WAIT_CH6(_DMA_WAIT_CHN, IType, exu=EXU.DMA, opcode=0b1111111, funct3=0b110, funct7=0b0000001): pass
-class DMA_WAIT_CH7(_DMA_WAIT_CHN, IType, exu=EXU.DMA, opcode=0b1111111, funct3=0b111, funct7=0b0000001): pass
+class DMA_WAIT_CH0(_DMA_WAIT_CHN, RType, exu=EXU.DMA, opcode=0b1111111, funct3=0b000, funct7=0b0000001): pass
+class DMA_WAIT_CH1(_DMA_WAIT_CHN, RType, exu=EXU.DMA, opcode=0b1111111, funct3=0b001, funct7=0b0000001): pass
+class DMA_WAIT_CH2(_DMA_WAIT_CHN, RType, exu=EXU.DMA, opcode=0b1111111, funct3=0b010, funct7=0b0000001): pass
+class DMA_WAIT_CH3(_DMA_WAIT_CHN, RType, exu=EXU.DMA, opcode=0b1111111, funct3=0b011, funct7=0b0000001): pass
+class DMA_WAIT_CH4(_DMA_WAIT_CHN, RType, exu=EXU.DMA, opcode=0b1111111, funct3=0b100, funct7=0b0000001): pass
+class DMA_WAIT_CH5(_DMA_WAIT_CHN, RType, exu=EXU.DMA, opcode=0b1111111, funct3=0b101, funct7=0b0000001): pass
+class DMA_WAIT_CH6(_DMA_WAIT_CHN, RType, exu=EXU.DMA, opcode=0b1111111, funct3=0b110, funct7=0b0000001): pass
+class DMA_WAIT_CH7(_DMA_WAIT_CHN, RType, exu=EXU.DMA, opcode=0b1111111, funct3=0b111, funct7=0b0000001): pass
