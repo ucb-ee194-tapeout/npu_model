@@ -159,8 +159,7 @@ class InstructionDecode(Module):
                     f"{self.uop.insn.args.channel} still in-flight when instruction "
                     f"{self.uop.id} was dispatched"
                 )
-            else:
-                self.arch_state.set_flag(self.uop.insn.args.channel)
+            self.arch_state.set_flag(self.uop.insn.args.channel)
         self.uop = None
 
     def claim_uop(self, ifu_output: StageData[Uop[Any] | None]) -> None:
