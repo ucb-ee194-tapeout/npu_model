@@ -153,10 +153,14 @@ class InstructionDecode(Module):
 
         # if we dispatched a DMA instruction, set flag as busy here
         if isinstance(self.uop.insn.args, DmaArgs):
-            assert not self.arch_state.check_flag(
-                self.uop.insn.args.channel
-            ), f"Flag {self.uop.insn.args.channel} is already set, erroneous program"
-            self.arch_state.set_flag(self.uop.insn.args.channel)
+            if self.arch_state.check_flag(self.uop.insn.args.channel):
+                print(
+                    f"WARNING: resource hazard detected: DMA channel "
+                    f"{self.uop.insn.args.channel} still in-flight when instruction "
+                    f"{self.uop.id} was dispatched"
+                )
+            else:
+                self.arch_state.set_flag(self.uop.insn.args.channel)
         self.uop = None
 
     def claim_uop(self, ifu_output: StageData[Uop[Any] | None]) -> None:
@@ -169,11 +173,14 @@ class InstructionDecode(Module):
 
         if exu_type == InstructionType.BARRIER.I and isinstance(uop.insn.args, DmaArgs):
             if self.arch_state.check_flag(uop.insn.args.channel):
-                self._stalled = True
-                return True
-            else:
-                self._stalled = False
-                return False
+                print(
+                    f"WARNING: data hazard detected: DMA channel "
+                    f"{uop.insn.args.channel} still in-flight when barrier "
+                    f"instruction {uop.id} was issued"
+                )
+            self._stalled = False
+            return False
+
         exu_list = self.exu_map[exu_type]
         target_exu = exu_list[0]
         if self.outputs[target_exu].should_stall():
