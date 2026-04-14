@@ -1,8 +1,7 @@
+addi x1 x0 0x2000
+addi x2 x0 0x2400
+addi x3 x0 0x0000
+addi x4 x0 0x0400
+addi x5 x0 1024
+dma.config.ch0 x0
 dma.wait.ch0
-dma.wait.ch1
-dma.wait.ch2
-dma.wait.ch3
-dma.wait.ch4
-dma.wait.ch5
-dma.wait.ch6
-dma.wait.ch7

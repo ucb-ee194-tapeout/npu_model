@@ -151,9 +151,17 @@ class ScalarReg(BoundedInt):
             if not val.startswith("x"):
                 raise ValueError(f"Attempted to intialize a malformed scalar register (missing 'x'): {val}")
             
-            val = int(val)
+            val = int(val[1:])
         
         return cls.lower_bound <= val <= cls.upper_bound
+
+    def __new__(cls, val: str | int):
+        if isinstance(val, str):
+            if not val.startswith("x"):
+                raise ValueError(f"Attempted to intialize a malformed scalar register (missing 'x'): {val}")
+            val = int(val[1:])
+
+        return super().__new__(cls, val)
 
 # Exponent Registers
 type ExponentRegL = Literal[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31]
@@ -173,11 +181,19 @@ class ExponentReg(BoundedInt):
     def accepts(cls, val: str | int) -> bool:
         if isinstance(val, str):
             if not val.startswith("e"):
-                raise ValueError(f"Attempted to intialize a malformed scalar register (missing 'e'): {val}")
+                raise ValueError(f"Attempted to intialize a malformed exponent register (missing 'e'): {val}")
             
-            val = int(val)
+            val = int(val[1:])
         
         return cls.lower_bound <= val <= cls.upper_bound
+    
+    def __new__(cls, val: str | int):
+        if isinstance(val, str):
+            if not val.startswith("e"):
+                raise ValueError(f"Attempted to intialize a malformed exponent register (missing 'e'): {val}")
+            val = int(val[1:])
+
+        return super().__new__(cls, val)
 
 # Matrix Registers
 type MatrixRegL = Literal[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63]
@@ -197,11 +213,19 @@ class MatrixReg(BoundedInt):
     def accepts(cls, val: str | int) -> bool:
         if isinstance(val, str):
             if not val.startswith("m"):
-                raise ValueError(f"Attempted to intialize a malformed scalar register (missing 'm'): {val}")
+                raise ValueError(f"Attempted to intialize a malformed matrix register (missing 'm'): {val}")
             
-            val = int(val)
+            val = int(val[1:])
         
         return cls.lower_bound <= val <= cls.upper_bound
+        
+    def __new__(cls, val: str | int):
+        if isinstance(val, str):
+            if not val.startswith("m"):
+                raise ValueError(f"Attempted to intialize a malformed matrix register (missing 'm'): {val}")
+            val = int(val[1:])
+
+        return super().__new__(cls, val)
 
 type AccumulatorL = Literal[0,1]
 class Accumulator(BoundedInt):
@@ -220,11 +244,19 @@ class Accumulator(BoundedInt):
     def accepts(cls, val: str | int) -> bool:
         if isinstance(val, str):
             if not val.startswith("a"):
-                raise ValueError(f"Attempted to intialize a malformed scalar register (missing 'a'): {val}")
+                raise ValueError(f"Attempted to intialize a malformed accumulator (missing 'a'): {val}")
             
-            val = int(val)
+            val = int(val[1:])
         
         return cls.lower_bound <= val <= cls.upper_bound
+    
+    def __new__(cls, val: str | int):
+        if isinstance(val, str):
+            if not val.startswith("a"):
+                raise ValueError(f"Attempted to intialize a malformed accumulator (missing 'a'): {val}")
+            val = int(val[1:])
+
+        return super().__new__(cls, val)
     
 type WeightBufferL = Literal[0,1]
 class WeightBuffer(BoundedInt):
@@ -243,12 +275,19 @@ class WeightBuffer(BoundedInt):
     def accepts(cls, val: str | int) -> bool:
         if isinstance(val, str):
             if not val.startswith("w"):
-                raise ValueError(f"Attempted to intialize a malformed scalar register (missing 'w'): {val}")
+                raise ValueError(f"Attempted to intialize a malformed weight buffer (missing 'w'): {val}")
             
-            val = int(val)
+            val = int(val[1:])
         
         return cls.lower_bound <= val <= cls.upper_bound
 
+    def __new__(cls, val: str | int):
+        if isinstance(val, str):
+            if not val.startswith("w"):
+                raise ValueError(f"Attempted to intialize a malformed weight buffer (missing 'w'): {val}")
+            val = int(val[1:])
+
+        return super().__new__(cls, val)
 # Register
 RegisterT = TypeVar('RegisterT', type[ScalarReg], type[ExponentReg], type[MatrixReg])
 
