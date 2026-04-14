@@ -112,8 +112,13 @@ def main():
                     .reshape(golden_tensor.shape)
                     .clone()
                 )
+                # Per-program tolerance override — kernels with legitimate
+                # fp8 quantization noise (e.g. attention) can opt into a
+                # looser rtol/atol by defining a ``kernel_tolerance``
+                # class attribute. Defaults to bf16-ULP-tight (1e-2, 1e-2).
+                rtol, atol = getattr(program, "kernel_tolerance", (1e-2, 1e-2))
                 if not torch.allclose(
-                    actual.float(), golden_tensor.float(), rtol=1e-2, atol=1e-2
+                    actual.float(), golden_tensor.float(), rtol=rtol, atol=atol
                 ):
                     diff = (actual.float() - golden_tensor.float()).abs().max()
                     raise AssertionError(

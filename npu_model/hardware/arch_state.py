@@ -131,7 +131,10 @@ class ArchState:
             value.numel()
             == self.cfg.mrf_depth * self.cfg.mrf_width // torch.float8_e4m3fn.itemsize
         )
-        self.mrf[vd].view(torch.float8_e4m3fn)[:] = value.flatten()
+        # Byte-level copy: view target as uint8 and assign, otherwise PyTorch
+        # value-casts uint8→fp8 (e.g. 173 → 176.0, bytes 115) instead of
+        # reinterpreting the bits.
+        self.mrf[vd].view(torch.uint8)[:] = value.flatten()
 
     def read_mrf_fp8(self, vs: int) -> torch.Tensor:
         return (

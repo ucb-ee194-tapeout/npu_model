@@ -567,7 +567,7 @@ def vpack_bf16_fp8(state: ArchState, args: VectorArgs) -> None:
     reg_high = state.read_mrf_bf16(args.vs1 + 1)
     combined_bf16 = torch.cat([reg_low, reg_high], dim=1)
     quantized_fp8 = (combined_bf16 * scale).to(torch.float8_e4m3fn)
-    state.write_mrf_fp8(args.vd, quantized_fp8)
+    state.write_mrf_fp8(args.vd, quantized_fp8.view(torch.uint8))
 
 
 @instr(
