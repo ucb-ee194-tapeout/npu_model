@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import sys
 from npu_model.hardware.config import HardwareConfig
 from npu_model.logging import LoggerConfig, Logger
 from npu_model.hardware import Core
@@ -15,6 +16,7 @@ class SimulationStatistics:
     cycles: int
     total_instructions: int
     ipc: float
+    runtime_errors: int
     exu_stats: dict[str, ExecutionUnitStatistics]
 
 
@@ -25,6 +27,7 @@ class Simulation:
         logger_config: LoggerConfig,
         program: Program,
         verbose: bool = True,
+        ignore_runtime_errors: bool = False,
     ):
         """
         Create a simple NPU hardware configuration.
@@ -41,6 +44,8 @@ class Simulation:
         self.hardware_config = hardware_config
         self.program = program
         self.verbose = verbose
+        self.ignore_runtime_errors = ignore_runtime_errors
+        self.runtime_errors: list[tuple[int, str, str]] = []
 
         # Create logger for trace output
         lane_names = {0: "IFU", 1: "DIU"}
@@ -57,6 +62,8 @@ class Simulation:
             config=hardware_config,
             logger=self.logger,
         )
+        self.core.ignore_runtime_errors = ignore_runtime_errors
+        self.core.runtime_error_reporter = self._report_runtime_error
 
         self.core.load_program(self.program)
         if self.verbose:
@@ -66,6 +73,7 @@ class Simulation:
             print("  - Fetch width: 1 instruction/cycle (in-order)")
             print(f"  - Execution units: {[str(exu) for exu in self.core.exus]}")
             print(f"  - Trace output: {self.logger_config.filename}")
+            print(f"  - Bypass runtime errors: {self.ignore_runtime_errors}")
 
             # Run simulation
             print("\n" + "-" * 60)
@@ -100,6 +108,7 @@ class Simulation:
             print(f"{'Total Cycles':<30} {stats.cycles:>15}")
             print(f"{'Instructions Completed':<30} {stats.total_instructions:>15}")
             print(f"{'IPC (Instr per Cycle)':<30} {stats.ipc:>15.3f}")
+            print(f"{'Suppressed Runtime Errors':<30} {stats.runtime_errors:>15}")
 
             print("\nExecution Unit Utilization")
             print("-" * 45)
@@ -128,6 +137,7 @@ class Simulation:
                 if self.cycle_count > 0
                 else 0.0
             ),
+            runtime_errors=len(self.runtime_errors),
             exu_stats={}
         )
 
@@ -141,3 +151,13 @@ class Simulation:
             )
 
         return stats
+
+    def _report_runtime_error(self, stage: str, exc: Exception) -> None:
+        cycle = self.cycle_count + 1
+        message = str(exc)
+        self.runtime_errors.append((cycle, stage, message))
+        warning = (
+            f"\033[1;91mWARNING: bypassed runtime error at cycle {cycle} "
+            f"in {stage}: {message}\033[0m"
+        )
+        print(warning, file=sys.stderr)

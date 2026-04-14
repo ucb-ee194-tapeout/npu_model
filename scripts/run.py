@@ -55,6 +55,11 @@ Examples:
     parser.add_argument(
         "--max-cycles", type=int, default=10000, help="Maximum cycles to simulate"
     )
+    parser.add_argument(
+        "--ignore-runtime-errors",
+        action="store_true",
+        help="Bypass runtime assertions/exceptions, print bright red warnings, and continue execution",
+    )
 
     args = parser.parse_args()
 
@@ -81,6 +86,7 @@ Examples:
         hardware_config=hardware_config,
         logger_config=LoggerConfig(filename=args.output),
         program=program,
+        ignore_runtime_errors=args.ignore_runtime_errors,
     )
     sim.run(max_cycles=args.max_cycles)
 

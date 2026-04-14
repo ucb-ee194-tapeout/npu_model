@@ -7,7 +7,8 @@ Everything lives in this one file:
     - The MLIR op definition (as a string, compilable with iree.compiler)
     - The PyTorch reference implementation
     - The NPU ISA program
-    - The golden result (computed from PyTorch, cross-checked with MLIR if IREE available)
+    - The golden result (computed from PyTorch, optionally cross-checked with
+      MLIR when NPU_MODEL_ENABLE_IREE_CROSSCHECK=1)
 
 Model context:
     SiLU appears 32 times in SmolVLA (once per Gemma MLP layer).
@@ -24,6 +25,8 @@ How to add your own SmolVLA kernel:
     3. Replace SILU_MLIR, silu_reference, and the ISA instructions.
     4. Run: uv run python scripts/test_programs.py --verbose
 """
+
+import os
 
 from typing import Any, List, Tuple
 
@@ -72,31 +75,44 @@ def silu_reference(x: torch.Tensor) -> torch.Tensor:
 # 3. Golden data — deterministic input + expected output.
 # ═══════════════════════════════════════════════════════════════════════════
 
+
+def _iree_crosscheck_enabled() -> bool:
+    value = os.environ.get("NPU_MODEL_ENABLE_IREE_CROSSCHECK", "")
+    return value.lower() in {"1", "true", "yes", "on"}
+
+
+def _maybe_crosscheck_with_iree(expected: torch.Tensor) -> torch.Tensor:
+    """Optionally validate the MLIR with IREE without impacting normal startup."""
+    if not _iree_crosscheck_enabled():
+        return expected
+
+    try:
+        import numpy as np
+        import iree.compiler as compiler
+        import iree.runtime as runtime
+    except ImportError:
+        return expected
+
+    vmfb = compiler.compile_str(
+        SILU_MLIR,
+        target_backends=["llvm-cpu"],
+        extra_args=["--iree-llvmcpu-target-cpu=generic"],
+    )
+    config = runtime.Config("local-task")
+    ctx = runtime.SystemContext(config=config)
+    ctx.add_vm_module(runtime.VmModule.copy_buffer(ctx.instance, vmfb))
+    iree_out = ctx.modules.module["silu"](INPUT.float().numpy())
+    iree_expected = torch.from_numpy(np.array(iree_out)).to(torch.bfloat16)
+    diff = (expected.float() - iree_expected.float()).abs().max().item()
+    assert diff < 1e-3, f"MLIR vs PyTorch mismatch: {diff}"
+    return iree_expected
+
 torch.manual_seed(42)
 INPUT = torch.randn(32, 16, dtype=torch.bfloat16)
 
 # Primary golden: PyTorch reference
 EXPECTED = silu_reference(INPUT)
-
-# Optional cross-check: compile + run the MLIR via IREE (if available).
-# This verifies that the MLIR definition matches the PyTorch reference.
-try:
-    import numpy as np
-    import iree.compiler as compiler
-    import iree.runtime as runtime
-
-    _vmfb = compiler.compile_str(SILU_MLIR, target_backends=["llvm-cpu"])
-    _config = runtime.Config("local-task")
-    _ctx = runtime.SystemContext(config=_config)
-    _ctx.add_vm_module(runtime.VmModule.copy_buffer(_ctx.instance, _vmfb))
-    _iree_out = _ctx.modules.module["silu"](INPUT.float().numpy())
-    _iree_expected = torch.from_numpy(np.array(_iree_out)).to(torch.bfloat16)
-    _diff = (EXPECTED.float() - _iree_expected.float()).abs().max().item()
-    assert _diff < 1e-3, f"MLIR vs PyTorch mismatch: {_diff}"
-    # Use IREE output as golden (it's the compiler's ground truth)
-    EXPECTED = _iree_expected
-except ImportError:
-    pass  # IREE not available — use PyTorch reference (fine for CI)
+EXPECTED = _maybe_crosscheck_with_iree(EXPECTED)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
