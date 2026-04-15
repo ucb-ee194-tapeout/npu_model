@@ -50,6 +50,7 @@ class DMAStallProgram(Program):
         Instruction(
             mnemonic="dma.load.ch<N>", args=DmaArgs(rd=4, rs1=1, rs2=1, channel=1)
         ),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
         # --- 5. Do matmul ---
         Instruction(mnemonic="vmatmul.mxu0", args=MatrixArgs(vd=0, vs1=1, vs2=0)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),  # TODO - verify delays

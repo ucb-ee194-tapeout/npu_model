@@ -58,6 +58,7 @@ class Scenario:
     expected_stale: int
     expected_fresh: int
     final_word_addr: int
+    expect_violating_load_blocked: bool = False
 
 
 def repeated_word_bytes(word: int, total_bytes: int) -> torch.Tensor:
@@ -135,9 +136,10 @@ def make_vstore_visibility_scenario(cfg: DefaultHardwareConfig) -> Scenario:
         seed_state=seed_state,
         stale_reg=10,
         fresh_reg=11,
-        expected_stale=STALE_WORD,
+        expected_stale=0,
         expected_fresh=FRESH_WORD,
         final_word_addr=VMEM_DST_BASE,
+        expect_violating_load_blocked=True,
     )
 
 
@@ -151,6 +153,11 @@ def run_scenario(scenario: Scenario, cfg: DefaultHardwareConfig) -> None:
             logger_config=LoggerConfig(filename=trace_path),
             program=scenario.program,
             verbose=False,
+            # These scenarios intentionally issue violating loads before the
+            # producer's modeled latency has elapsed so we can observe stale
+            # data visibility. Keep the scheduler strict and suppress the
+            # resulting runtime error in the harness.
+            ignore_runtime_errors=True,
         )
         scenario.seed_state(sim.core.arch_state)
         with redirect_stdout(io.StringIO()):
@@ -162,10 +169,21 @@ def run_scenario(scenario: Scenario, cfg: DefaultHardwareConfig) -> None:
             sim.core.arch_state.read_vmem(scenario.final_word_addr, 0, 4)
         )
 
-        assert stale_seen == scenario.expected_stale, (
-            f"{scenario.name}: violating load should observe stale value "
-            f"0x{scenario.expected_stale:08X}, got 0x{stale_seen:08X}"
-        )
+        if scenario.expect_violating_load_blocked:
+            assert sim.runtime_errors, (
+                f"{scenario.name}: expected scheduler/runtime rejection for the "
+                "violating load, but none occurred"
+            )
+            assert stale_seen == scenario.expected_stale, (
+                f"{scenario.name}: violating load should be blocked and leave the "
+                f"destination register unchanged (0x{scenario.expected_stale:08X}), "
+                f"got 0x{stale_seen:08X}"
+            )
+        else:
+            assert stale_seen == scenario.expected_stale, (
+                f"{scenario.name}: violating load should observe stale value "
+                f"0x{scenario.expected_stale:08X}, got 0x{stale_seen:08X}"
+            )
         assert fresh_seen == scenario.expected_fresh, (
             f"{scenario.name}: delayed load should observe fresh value "
             f"0x{scenario.expected_fresh:08X}, got 0x{fresh_seen:08X}"
@@ -175,9 +193,10 @@ def run_scenario(scenario: Scenario, cfg: DefaultHardwareConfig) -> None:
             f"0x{scenario.expected_fresh:08X}, got 0x{final_word:08X}"
         )
 
+        early_label = "blocked" if scenario.expect_violating_load_blocked else "early"
         print(
             f"OK  {scenario.name:<20} latency={scenario.latency_cycles:>2} cycles  "
-            f"early=0x{stale_seen:08X}  late=0x{fresh_seen:08X}"
+            f"{early_label}=0x{stale_seen:08X}  late=0x{fresh_seen:08X}"
         )
     finally:
         Path(trace_path).unlink(missing_ok=True)

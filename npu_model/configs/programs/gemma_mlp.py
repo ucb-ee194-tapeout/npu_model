@@ -97,13 +97,13 @@ class GemmaMlpProgram(Program):
         Instruction(
             mnemonic="vmatpop.bf16.acc.mxu0", args=VectorArgs(vd=4, vs1=0)
         ),  # gate -> mrf4+5
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
         # Up projection: activation @ up_weight -> Acc/MRF
         Instruction(mnemonic="vmatmul.mxu0", args=MatrixArgs(vd=0, vs1=2, vs2=1)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
         Instruction(mnemonic="vmatpop.bf16.acc.mxu0", args=VectorArgs(vd=6, vs1=0)),  # up -> mrf6+7
         Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
         # --- PHASE 4: Element-wise Multiplication (GeGLU Simplified) ---
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
         Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=8, vs1=4, vs2=6)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=2)),
         Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=9, vs1=5, vs2=7)),
