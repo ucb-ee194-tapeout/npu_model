@@ -77,17 +77,16 @@ class GemmaMlpProgram(Program):
         Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=1)),
         Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=2)),
         # VMEM -> MRF (weights + activation)
-        Instruction(
-            mnemonic="vload", args=VectorArgs(vd=0, rs1=1, imm12=0)
-        ),  # gate W (fp8)
-        Instruction(
-            mnemonic="vload", args=VectorArgs(vd=1, rs1=2, imm12=0)
-        ),  # up W (fp8)
-        Instruction(
-            mnemonic="vload", args=VectorArgs(vd=2, rs1=3, imm12=0)
-        ),  # act (fp8)
+        Instruction(mnemonic="vload", args=VectorArgs(vd=0, rs1=1, imm12=0)),  # gate W (fp8)
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="vload", args=VectorArgs(vd=1, rs1=2, imm12=0)),  # up W (fp8)
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="vload", args=VectorArgs(vd=2, rs1=3, imm12=0)),  # act (fp8)
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+
         # Push weights to MXU0 WB slots 0 and 1
         Instruction(mnemonic="vmatpush.weight.mxu0", args=VectorArgs(vd=0, vs1=0)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
         Instruction(mnemonic="vmatpush.weight.mxu0", args=VectorArgs(vd=1, vs1=1)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
         # --- PHASE 3: Matrix Multiplications ---
@@ -101,15 +100,17 @@ class GemmaMlpProgram(Program):
         # Up projection: activation @ up_weight -> Acc/MRF
         Instruction(mnemonic="vmatmul.mxu0", args=MatrixArgs(vd=0, vs1=2, vs2=1)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
-        Instruction(
-            mnemonic="vmatpop.bf16.acc.mxu0", args=VectorArgs(vd=6, vs1=0)
-        ),  # up -> mrf6+7
+        Instruction(mnemonic="vmatpop.bf16.acc.mxu0", args=VectorArgs(vd=6, vs1=0)),  # up -> mrf6+7
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
         # --- PHASE 4: Element-wise Multiplication (GeGLU Simplified) ---
         Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
         Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=8, vs1=4, vs2=6)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=2)),
         Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=9, vs1=5, vs2=7)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=2)),
         # --- PHASE 5: Store Results ---
         Instruction(mnemonic="vstore", args=VectorArgs(vd=8, rs1=4, imm12=0)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
         Instruction(mnemonic="vstore", args=VectorArgs(vd=9, rs1=4, imm12=32)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
         # VMEM -> DRAM (two 1024B tiles)

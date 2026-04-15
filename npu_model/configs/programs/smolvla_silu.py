@@ -147,21 +147,22 @@ class SmolVLASiluProgram(Program):
         Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
         # ── Load input to MRF + constants ──
         Instruction(mnemonic="vload", args=VectorArgs(vd=0, rs1=1, imm12=0)),   # v0 = x
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
         Instruction(mnemonic="vli.all", args=VectorArgs(vd=1, imm=-1)),          # v1 = -1.0
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=2)),
         Instruction(mnemonic="vli.all", args=VectorArgs(vd=2, imm=1)),           # v2 = +1.0
-        # Wait for vload (16 cycles) to populate v0
-        Instruction("delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=2)),
         # ── SiLU: x / (1 + exp(-x)) ──
         Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=3, vs1=0, vs2=1)),  # v3 = -x
-        Instruction("delay", args=ScalarArgs(imm=2)), # wait for vmul (2 cycles)
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=2)),
         Instruction(mnemonic="vexp.bf16", args=VectorArgs(vd=4, vs1=3)),          # v4 = exp(-x)
-        Instruction("delay", args=ScalarArgs(imm=8)), # wait for vexp (8 cycles)
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=2)),
         Instruction(mnemonic="vadd.bf16", args=VectorArgs(vd=5, vs1=4, vs2=2)),  # v5 = 1+exp(-x)
-        Instruction("delay", args=ScalarArgs(imm=2)), # wait for vadd (2 cycles)
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=2)),
         Instruction(mnemonic="vrecip.bf16", args=VectorArgs(vd=6, vs1=5)),        # v6 = sigmoid(x)
-        Instruction("delay", args=ScalarArgs(imm=8)), # wait for vrecip (8 cycles)
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=2)),
         Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=7, vs1=0, vs2=6)),  # v7 = silu(x)
-        Instruction("delay", args=ScalarArgs(imm=2)), # wait for vmul (2 cycles)
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=2)),
         # ── Store: MRF → VMEM → DRAM ──
         Instruction(mnemonic="vstore", args=VectorArgs(vd=7, rs1=2, imm12=0)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=20)),
