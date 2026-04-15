@@ -1,12 +1,30 @@
+import math
 from typing import List, Any
 
 from .exu import ExecutionUnit
 from ..logging.logger import Logger, LaneType
 from ..hardware.arch_state import ArchState
 from ..software.instruction import Uop, is_matrix_uop
-from ..isa import InstructionType, AsmInstructionType, MatrixArgs
+from ..isa import InstructionType, AsmInstructionType
 from .stage_data import StageData
 from .config import HardwareConfig
+from .bank_conflict import mrf_accesses, weight_buffer_accesses, acc_buffer_accesses
+
+
+LOCAL_TRANSFER_TILE_BYTES = {
+    "vmatpush.weight.mxu0": 1024,
+    "vmatpush.weight.mxu1": 1024,
+    "vmatpush.acc.fp8.mxu0": 1024,
+    "vmatpush.acc.fp8.mxu1": 1024,
+    "vmatpush.acc.bf16.mxu0": 2048,
+    "vmatpush.acc.bf16.mxu1": 2048,
+    "vmatpop.fp8.acc.mxu0": 1024,
+    "vmatpop.fp8.acc.mxu1": 1024,
+    "vmatpop.bf16.acc.mxu0": 2048,
+    "vmatpop.bf16.acc.mxu1": 2048,
+    "vmatpop.mxu0": 2048,
+    "vmatpop.mxu1": 2048,
+}
 
 
 class MatrixExecutionUnitSystolic(ExecutionUnit):
@@ -29,12 +47,30 @@ class MatrixExecutionUnitSystolic(ExecutionUnit):
         )
         self.reset()
 
+    def can_handle(self, uop: Uop[Any]) -> bool:
+        return True
+
     def reset(self) -> None:
-        self.in_flight: Uop[MatrixArgs] | None = None
+        self.in_flight: Uop[Any] | None = None
+        self._in_flight_mrf_banks: frozenset[int] = frozenset()
+        self._in_flight_weight_banks: frozenset[int] = frozenset()
+        self._in_flight_acc_banks: frozenset[int] = frozenset()
         self._complete_count = 0
-        self._pending_completions: List[Uop[MatrixArgs]] = []
+        self._pending_completions: List[Uop[Any]] = []
         self._total_instructions = 0
         self._busy_cycles = 0
+
+    def _execution_latency(self, uop: Uop[Any]) -> int:
+        mnemonic = uop.insn.mnemonic
+        if mnemonic in LOCAL_TRANSFER_TILE_BYTES:
+            return max(
+                1,
+                math.ceil(
+                    LOCAL_TRANSFER_TILE_BYTES[mnemonic]
+                    / self.config.vmem_bytes_per_cycle
+                ),
+            )
+        return self.config.mxu0_matmul_latency_cycles
 
     def tick(self, idu_output: StageData[Uop[Any] | None]) -> None:
         self.cycle += 1
@@ -55,9 +91,29 @@ class MatrixExecutionUnitSystolic(ExecutionUnit):
 
             # Accept new instruction
             if uop is not None:
-                assert is_matrix_uop(uop), "Non-Matrix Args passed to MXU"
-                # tag instruction with execution delay
-                uop.execute_delay = self.config.mxu0_matmul_latency_cycles
+                # Accept matrix ops OR push/pop ops which are routed here
+                assert (
+                    is_matrix_uop(uop)
+                    or "vmatpush" in uop.insn.mnemonic
+                    or "vmatpop" in uop.insn.mnemonic
+                ), "Invalid instruction type passed to MXU"
+
+                mnemonic = uop.insn.mnemonic
+                label = f"{self.name}:{mnemonic}"
+                mrf_banks = mrf_accesses(mnemonic, uop.insn.args)
+                weight_banks = weight_buffer_accesses(mnemonic)
+                acc_banks = acc_buffer_accesses(mnemonic)
+
+                self.arch_state.conflict_checker.acquire_mrf(mrf_banks, label)
+                self.arch_state.conflict_checker.acquire_weight_buf(weight_banks, label)
+                self.arch_state.conflict_checker.acquire_acc_buf(acc_banks, label)
+
+                self._in_flight_mrf_banks = mrf_banks
+                self._in_flight_weight_banks = weight_banks
+                self._in_flight_acc_banks = acc_banks
+
+                # tag instruction with execution delay dynamically
+                uop.execute_delay = self._execution_latency(uop)
                 self.in_flight = uop
                 self._total_instructions += 1
                 # Log: end dispatch, start execute
@@ -88,12 +144,24 @@ class MatrixExecutionUnitSystolic(ExecutionUnit):
                 else:
                     raise ValueError("No execute function specified for Uop.")
                 self._complete_count = 1
+
+                # Release acquired MRF/acc/weight banks before retiring the instruction.
+                self.arch_state.conflict_checker.release_mrf(self._in_flight_mrf_banks)
+                self.arch_state.conflict_checker.release_weight_buf(
+                    self._in_flight_weight_banks
+                )
+                self.arch_state.conflict_checker.release_acc_buf(
+                    self._in_flight_acc_banks
+                )
+
+                self._in_flight_mrf_banks = frozenset()
+                self._in_flight_weight_banks = frozenset()
+                self._in_flight_acc_banks = frozenset()
                 # Defer completion logging to next tick
                 self._pending_completions.append(self.in_flight)
                 # claim the uop from the DIU
                 idu_output.claim()
                 self.in_flight = None
-                # print(f"MXU {self.name} completed instruction {self.in_flight.id}")
 
     def flush_completions(self) -> None:
         """Flush any pending completions (call at end of simulation)."""
@@ -151,12 +219,30 @@ class MatrixExecutionUnitInner(ExecutionUnit):
         )
         self.reset()
 
+    def can_handle(self, uop: Uop[Any]) -> bool:
+        return True
+
     def reset(self) -> None:
-        self.in_flight: Uop[MatrixArgs] | None = None
+        self.in_flight: Uop[Any] | None = None
+        self._in_flight_mrf_banks: frozenset[int] = frozenset()
+        self._in_flight_weight_banks: frozenset[int] = frozenset()
+        self._in_flight_acc_banks: frozenset[int] = frozenset()
         self._complete_count = 0
-        self._pending_completions: List[Uop[MatrixArgs]] = []
+        self._pending_completions: List[Uop[Any]] = []
         self._total_instructions = 0
         self._busy_cycles = 0
+
+    def _execution_latency(self, uop: Uop[Any]) -> int:
+        mnemonic = uop.insn.mnemonic
+        if mnemonic in LOCAL_TRANSFER_TILE_BYTES:
+            return max(
+                1,
+                math.ceil(
+                    LOCAL_TRANSFER_TILE_BYTES[mnemonic]
+                    / self.config.vmem_bytes_per_cycle
+                ),
+            )
+        return self.config.mxu1_matmul_latency_cycles
 
     def tick(self, idu_output: StageData[Uop[Any] | None]) -> None:
         self.cycle += 1
@@ -177,9 +263,30 @@ class MatrixExecutionUnitInner(ExecutionUnit):
 
             # Accept new instruction
             if uop is not None:
-                assert is_matrix_uop(uop), "Non-Matrix Args passed to MXU"
-                # tag instruction with execution delay
-                uop.execute_delay = self.config.mxu1_matmul_latency_cycles
+                # Accept matrix ops OR push/pop ops which are routed here
+                assert (
+                    is_matrix_uop(uop)
+                    or "vmatpush" in uop.insn.mnemonic
+                    or "vmatpop" in uop.insn.mnemonic
+                ), "Invalid instruction type passed to MXU"
+
+                mnemonic = uop.insn.mnemonic
+                label = f"{self.name}:{mnemonic}"
+
+                mrf_banks = mrf_accesses(mnemonic, uop.insn.args)
+                weight_banks = weight_buffer_accesses(mnemonic)
+                acc_banks = acc_buffer_accesses(mnemonic)
+
+                self.arch_state.conflict_checker.acquire_mrf(mrf_banks, label)
+                self.arch_state.conflict_checker.acquire_weight_buf(weight_banks, label)
+                self.arch_state.conflict_checker.acquire_acc_buf(acc_banks, label)
+
+                self._in_flight_mrf_banks = mrf_banks
+                self._in_flight_weight_banks = weight_banks
+                self._in_flight_acc_banks = acc_banks
+
+                # tag instruction with execution delay dynamically
+                uop.execute_delay = self._execution_latency(uop)
                 self.in_flight = uop
                 self._total_instructions += 1
                 # Log: end dispatch, start execute
@@ -210,12 +317,23 @@ class MatrixExecutionUnitInner(ExecutionUnit):
                 else:
                     raise ValueError("No execute function specified for Uop.")
                 self._complete_count = 1
+                # Release acquired MRF/acc/weight banks before retiring the instruction.
+                self.arch_state.conflict_checker.release_mrf(self._in_flight_mrf_banks)
+                self.arch_state.conflict_checker.release_weight_buf(
+                    self._in_flight_weight_banks
+                )
+                self.arch_state.conflict_checker.release_acc_buf(
+                    self._in_flight_acc_banks
+                )
+
+                self._in_flight_mrf_banks = frozenset()
+                self._in_flight_weight_banks = frozenset()
+                self._in_flight_acc_banks = frozenset()
                 # Defer completion logging to next tick
                 self._pending_completions.append(self.in_flight)
                 # claim the uop from the DIU
                 idu_output.claim()
                 self.in_flight = None
-                # print(f"MXU {self.name} completed instruction {self.in_flight.id}")
 
     def flush_completions(self) -> None:
         """Flush any pending completions (call at end of simulation)."""

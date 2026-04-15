@@ -45,19 +45,21 @@ class GemmaRmsNormProgram(Program):
         Instruction(mnemonic="addi", args=ScalarArgs(rd=6, rs1=6, imm=-2048)),
         # byte length for bf16 tile
         Instruction(mnemonic="addi", args=ScalarArgs(rd=7, rs1=0, imm=1024)),
-
         # DRAM -> VMEM
         Instruction(mnemonic="dma.config.ch<N>", args=DmaArgs(rs1=0, channel=0)),
         Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
-        Instruction(mnemonic="dma.load.ch<N>", args=DmaArgs(rd=1, rs1=4, rs2=7, channel=0)),
-        Instruction(mnemonic="dma.load.ch<N>", args=DmaArgs(rd=2, rs1=5, rs2=7, channel=1)),
+        Instruction(
+            mnemonic="dma.load.ch<N>", args=DmaArgs(rd=1, rs1=4, rs2=7, channel=0)
+        ),
+        Instruction(
+            mnemonic="dma.load.ch<N>", args=DmaArgs(rd=2, rs1=5, rs2=7, channel=1)
+        ),
         Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
         Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=1)),
-
         # VMEM -> MRF
         Instruction(mnemonic="vload", args=VectorArgs(vd=0, rs1=1, imm12=0)),  # x
         Instruction(mnemonic="vload", args=VectorArgs(vd=1, rs1=2, imm12=0)),  # eps
-
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
         # x_sq = x * x
         Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=2, vs1=0, vs2=0)),
         # sum_sq over columns, broadcast back across each row
@@ -73,11 +75,12 @@ class GemmaRmsNormProgram(Program):
         Instruction(mnemonic="vrecip.bf16", args=VectorArgs(vd=9, vs1=8)),
         # output = x * rsqrt
         Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=10, vs1=0, vs2=9)),
-
         # MRF -> VMEM -> DRAM
         Instruction(mnemonic="vstore", args=VectorArgs(vd=10, rs1=3, imm12=0)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
-        Instruction(mnemonic="dma.store.ch<N>", args=DmaArgs(rd=6, rs1=3, rs2=7, channel=0)),
+        Instruction(
+            mnemonic="dma.store.ch<N>", args=DmaArgs(rd=6, rs1=3, rs2=7, channel=0)
+        ),
         Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
     ]
 

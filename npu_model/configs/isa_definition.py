@@ -1,3 +1,4 @@
+from sympy import Matrix
 import torch
 
 from typing import Any
@@ -860,31 +861,31 @@ def ebreak(state: ArchState, args: ScalarArgs) -> None:
 
 @instr(
     "vmatpush.weight.mxu0",
-    instruction_type=InstructionType.VECTOR.VR,
+    instruction_type=InstructionType.MATRIX_SYSTOLIC.VR,
     opcode=0b1110111,
     funct7=0b0000000,
 )
-def vmatpush_weight_mxu0(state: ArchState, args: VectorArgs) -> None:
+def vmatpush_weight_mxu0(state: ArchState, args: MatrixArgs) -> None:
     state.write_wb_u8("mxu0", args.vd, state.mrf[args.vs1].view(torch.uint8))
 
 
 @instr(
     "vmatpush.weight.mxu1",
-    instruction_type=InstructionType.VECTOR.VR,
+    instruction_type=InstructionType.MATRIX_IPT.VR,
     opcode=0b1110111,
     funct7=0b0000001,
 )
-def vmatpush_weight_mxu1(state: ArchState, args: VectorArgs) -> None:
+def vmatpush_weight_mxu1(state: ArchState, args: MatrixArgs) -> None:
     state.write_wb_u8("mxu1", args.vd, state.mrf[args.vs1].view(torch.uint8))
 
 
 @instr(
     "vmatpush.acc.fp8.mxu0",
-    instruction_type=InstructionType.VECTOR.VR,
+    instruction_type=InstructionType.MATRIX_SYSTOLIC.VR,
     opcode=0b1110111,
     funct7=0b0000010,
 )
-def vmatpush_acc_fp8_mxu0(state: ArchState, args: VectorArgs) -> None:
+def vmatpush_acc_fp8_mxu0(state: ArchState, args: MatrixArgs) -> None:
     state.write_acc_bf16(
         "mxu0", args.vd, state.read_mrf_fp8(args.vs1).to(torch.bfloat16)
     )
@@ -892,11 +893,11 @@ def vmatpush_acc_fp8_mxu0(state: ArchState, args: VectorArgs) -> None:
 
 @instr(
     "vmatpush.acc.fp8.mxu1",
-    instruction_type=InstructionType.VECTOR.VR,
+    instruction_type=InstructionType.MATRIX_IPT.VR,
     opcode=0b1110111,
     funct7=0b0000011,
 )
-def vmatpush_acc_fp8_mxu1(state: ArchState, args: VectorArgs) -> None:
+def vmatpush_acc_fp8_mxu1(state: ArchState, args: MatrixArgs) -> None:
     state.write_acc_bf16(
         "mxu1", args.vd, state.read_mrf_fp8(args.vs1).to(torch.bfloat16)
     )
@@ -904,63 +905,63 @@ def vmatpush_acc_fp8_mxu1(state: ArchState, args: VectorArgs) -> None:
 
 @instr(
     "vmatpush.acc.bf16.mxu0",
-    instruction_type=InstructionType.VECTOR.VR,
+    instruction_type=InstructionType.MATRIX_SYSTOLIC.VR,
     opcode=0b1110111,
     funct7=0b0000100,
 )
-def vmatpush_acc_bf16_mxu0(state: ArchState, args: VectorArgs) -> None:
+def vmatpush_acc_bf16_mxu0(state: ArchState, args: MatrixArgs) -> None:
     state.write_acc_bf16("mxu0", args.vd, state.read_mrf_bf16_tile(args.vs1))
 
 
 @instr(
     "vmatpush.acc.bf16.mxu1",
-    instruction_type=InstructionType.VECTOR.VR,
+    instruction_type=InstructionType.MATRIX_IPT.VR,
     opcode=0b1110111,
     funct7=0b0000101,
 )
-def vmatpush_acc_bf16_mxu1(state: ArchState, args: VectorArgs) -> None:
+def vmatpush_acc_bf16_mxu1(state: ArchState, args: MatrixArgs) -> None:
     state.write_acc_bf16("mxu1", args.vd, state.read_mrf_bf16_tile(args.vs1))
 
 
 @instr(
     "vmatpop.fp8.acc.mxu0",
-    instruction_type=InstructionType.VECTOR.VR,
+    instruction_type=InstructionType.MATRIX_SYSTOLIC.VR,
     opcode=0b1110111,
     funct7=0b0000110,
 )
-def vmatpop_fp8_acc_mxu0(state: ArchState, args: VectorArgs) -> None:
+def vmatpop_fp8_acc_mxu0(state: ArchState, args: MatrixArgs) -> None:
     quantized = state.read_acc_bf16("mxu0", args.vs1).to(torch.float8_e4m3fn)
     state.write_mrf_u8(args.vd, quantized.view(torch.uint8))
 
 
 @instr(
     "vmatpop.fp8.acc.mxu1",
-    instruction_type=InstructionType.VECTOR.VR,
+    instruction_type=InstructionType.MATRIX_IPT.VR,
     opcode=0b1110111,
     funct7=0b0000111,
 )
-def vmatpop_fp8_acc_mxu1(state: ArchState, args: VectorArgs) -> None:
+def vmatpop_fp8_acc_mxu1(state: ArchState, args: MatrixArgs) -> None:
     quantized = state.read_acc_bf16("mxu1", args.vs1).to(torch.float8_e4m3fn)
     state.write_mrf_fp8(args.vd, quantized.view(torch.uint8))
 
 
 @instr(
     "vmatpop.bf16.acc.mxu0",
-    instruction_type=InstructionType.VECTOR.VR,
+    instruction_type=InstructionType.MATRIX_SYSTOLIC.VR,
     opcode=0b1110111,
     funct7=0b0001000,
 )
-def vmatpop_bf16_acc_mxu0(state: ArchState, args: VectorArgs) -> None:
+def vmatpop_bf16_acc_mxu0(state: ArchState, args: MatrixArgs) -> None:
     state.write_mrf_bf16_tile(args.vd, state.read_acc_bf16("mxu0", args.vs1))
 
 
 @instr(
     "vmatpop.bf16.acc.mxu1",
-    instruction_type=InstructionType.VECTOR.VR,
+    instruction_type=InstructionType.MATRIX_IPT.VR,
     opcode=0b1110111,
     funct7=0b0001001,
 )
-def vmatpop_bf16_acc_mxu1(state: ArchState, args: VectorArgs) -> None:
+def vmatpop_bf16_acc_mxu1(state: ArchState, args: MatrixArgs) -> None:
     state.write_mrf_bf16_tile(args.vd, state.read_acc_bf16("mxu1", args.vs1))
 
 

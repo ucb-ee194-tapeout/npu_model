@@ -31,3 +31,6 @@ jobs:
 
       - name: Run arch state tests
         run: uv run python scripts/test_archstate.py
+
+      - name: Run bank conflict detection tests
+        run: uv run python scripts/test_bank_conflict.py

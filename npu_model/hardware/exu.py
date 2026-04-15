@@ -31,10 +31,10 @@ class ExecutionUnit(Module):
         lane_id: int = 0,
         # hardware configuration
         config: HardwareConfig | None = None,
-    ) -> None:  
+    ) -> None:
         if config == None:
             raise ValueError("A HardwareConfig must be specified.")
-        
+
         self.name = name
         self.logger = logger
         self.arch_state = arch_state
@@ -42,6 +42,10 @@ class ExecutionUnit(Module):
         self.config = config
         self.cycle: int = 0
 
+    @abstractmethod
+    def can_handle(self, uop: Uop[Any]) -> bool:
+        """Check if this execution unit can handle the given instruction."""
+        pass
 
     @abstractmethod
     def reset(self) -> None:
@@ -116,6 +120,23 @@ class ScalarExecutionUnit(ExecutionUnit):
         )
         self.reset()
 
+    def can_handle(self, uop: Uop[Any]) -> bool:
+        # List of memory instructions that should go to the LSU instead
+        mem_ops = {
+            "lb",
+            "lh",
+            "lw",
+            "lbu",
+            "lhu",
+            "sb",
+            "sh",
+            "sw",
+            "seld",
+            "vload",
+            "vstore",
+        }
+        return uop.insn.mnemonic not in mem_ops
+
     def reset(self) -> None:
         # variables
         self._pending_completion_uop: Uop[ScalarArgs] | None = None
@@ -144,7 +165,9 @@ class ScalarExecutionUnit(ExecutionUnit):
 
         # Accept new instruction
         if uop is not None:
-            assert is_scalar_uop(uop), "Attempted to pass non-scalar args to Scalar Excution Unit."
+            assert is_scalar_uop(
+                uop
+            ), "Attempted to pass non-scalar args to Scalar Excution Unit."
             # tag instruction with execution delay
             uop.execute_delay = 1
             self._pending_completion_uop = uop
