@@ -126,15 +126,12 @@ class ArchState:
         )
 
     def write_mrf_fp8(self, vd: int, value: torch.Tensor) -> None:
-        assert value.dtype == torch.uint8
+        assert value.dtype == torch.float8_e4m3fn
         assert (
             value.numel()
             == self.cfg.mrf_depth * self.cfg.mrf_width // torch.float8_e4m3fn.itemsize
         )
-        # Byte-level copy: view target as uint8 and assign, otherwise PyTorch
-        # value-casts uint8→fp8 (e.g. 173 → 176.0, bytes 115) instead of
-        # reinterpreting the bits.
-        self.mrf[vd].view(torch.uint8)[:] = value.flatten()
+        self.mrf[vd].view(torch.float8_e4m3fn)[:] = value.flatten()
 
     def read_mrf_fp8(self, vs: int) -> torch.Tensor:
         return (
