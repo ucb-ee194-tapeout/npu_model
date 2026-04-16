@@ -74,6 +74,7 @@ DRAM_X_H0 = 0x0000
 DRAM_X_H1 = 0x0400
 DRAM_OUT_H0 = 0x0B00
 DRAM_OUT_H1 = 0x0F00
+EXPECTED_STACKED = torch.cat((EXPECTED[:, :16], EXPECTED[:, 16:]), dim=0)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -145,6 +146,5 @@ class SmolVLASoftmaxProgram(Program):
 
     golden_result: tuple[int, torch.Tensor] = (
         DRAM_OUT_H0,
-        EXPECTED[:, :16],
+        EXPECTED_STACKED,
     )
-

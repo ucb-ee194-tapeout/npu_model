@@ -147,6 +147,7 @@ DRAM_INV_DIM = 0x0800      # broadcast 1/dim, 1024 B
 DRAM_EPS = 0x0C00          # broadcast eps, 1024 B
 DRAM_OUT_H0 = 0x1000       # y's first half, 1024 B
 DRAM_OUT_H1 = 0x1400       # y's second half, 1024 B
+EXPECTED_STACKED = torch.cat((EXPECTED[:, :16], EXPECTED[:, 16:]), dim=0)
 
 VMEM_X_H0    = 0x2000
 VMEM_X_H1    = 0x2400
@@ -255,7 +256,5 @@ class SmolVLARmsNormProgram(Program):
 
     golden_result: tuple[int, torch.Tensor] = (
         DRAM_OUT_H0,
-        # The kernel writes two halves at DRAM_OUT_H0 and DRAM_OUT_H1.
-        # Read the first half and compare against cols 0-15 of EXPECTED.
-        EXPECTED[:, :16],
+        EXPECTED_STACKED,
     )

@@ -91,6 +91,7 @@ DRAM_B_H0 = 0x0800
 DRAM_B_H1 = 0x0C00
 DRAM_OUT_H0 = 0x0C00  # written after B_h1 is read into VMEM
 DRAM_OUT_H1 = 0x1000
+EXPECTED_STACKED = torch.cat((EXPECTED[:, :16], EXPECTED[:, 16:]), dim=0)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -161,6 +162,5 @@ class SmolVLAElementwiseDivProgram(Program):
 
     golden_result: tuple[int, torch.Tensor] = (
         DRAM_OUT_H0,
-        EXPECTED[:, :16],
+        EXPECTED_STACKED,
     )
-

@@ -111,6 +111,7 @@ DRAM_V = 0x0800
 DRAM_SCALE = 0x0C00
 DRAM_OUT_H0 = 0x1000
 DRAM_OUT_H1 = 0x1400
+EXPECTED_STACKED = torch.cat((EXPECTED[:, :16], EXPECTED[:, 16:]), dim=0)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -218,8 +219,7 @@ class SmolVLAAttentionProgram(Program):
 
     golden_result: tuple[int, torch.Tensor] = (
         DRAM_OUT_H0,
-        EXPECTED[:, :16],
+        EXPECTED_STACKED,
     )
     # fp8 quantization + softmax noise; allow looser tolerance.
     kernel_tolerance = (0.2, 0.2)
-
