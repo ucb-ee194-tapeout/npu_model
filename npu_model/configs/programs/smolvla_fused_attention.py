@@ -97,39 +97,41 @@ from npu_model.isa import DmaArgs, MatrixArgs, ScalarArgs, VectorArgs
 
 
 def fused_attention_reference(
-    Q: torch.Tensor,      # [q_rows, head_dim] float
-    K: torch.Tensor,      # [k_seq,  head_dim] float  (MLIR layout, not transposed)
-    V_mlir: torch.Tensor, # [head_dim, k_seq]  float  (MLIR layout, head_dim-first)
+    Q: torch.Tensor,  # [q_rows, head_dim] float
+    K: torch.Tensor,  # [k_seq,  head_dim] float  (MLIR layout, not transposed)
+    V_mlir: torch.Tensor,  # [head_dim, k_seq]  float  (MLIR layout, head_dim-first)
     scale: float,
 ) -> torch.Tensor:
     """Exact SDPA matching the MLIR affine maps. Returns [q_rows, head_dim] float."""
-    scores = Q @ K.t() * scale                        # [q_rows, k_seq]
+    scores = Q @ K.t() * scale  # [q_rows, k_seq]
     row_max = scores.max(dim=1, keepdim=True).values
     exp_s = torch.exp(scores - row_max)
     attn = exp_s / exp_s.sum(dim=1, keepdim=True)
-    return attn @ V_mlir.t()                          # [q_rows, head_dim]
+    return attn @ V_mlir.t()  # [q_rows, head_dim]
 
 
 # ── shapes ────────────────────────────────────────────────────────────────────
-Q_ROWS   = 32
-K_SEQ    = 64   # two K tiles; forces the online-softmax correction to be non-trivial
-HEAD_DIM = 64   # matches MLIR head_dim
+Q_ROWS = 32
+K_SEQ = 64  # two K tiles; forces the online-softmax correction to be non-trivial
+HEAD_DIM = 64  # matches MLIR head_dim
 SCALE_VALUE = 1.0 / math.sqrt(float(HEAD_DIM))
 
 torch.manual_seed(42)
 
 # MLIR-shaped inputs (bf16, as the op receives them)
-Q_RAW    = (torch.randn(Q_ROWS, HEAD_DIM) * 0.5).to(torch.bfloat16)   # [32, 64]
+Q_RAW = (torch.randn(Q_ROWS, HEAD_DIM) * 0.5).to(torch.bfloat16)  # [32, 64]
 
 # K tiles from MLIR K[batch, k_seq, head_dim]: tile shape [32, 64]
-K0_RAW   = (torch.randn(Q_ROWS, HEAD_DIM) * 0.5).to(torch.bfloat16)   # k pos  0:32
-K1_RAW   = (torch.randn(Q_ROWS, HEAD_DIM) * 0.5).to(torch.bfloat16)   # k pos 32:64
+K0_RAW = (torch.randn(Q_ROWS, HEAD_DIM) * 0.5).to(torch.bfloat16)  # k pos  0:32
+K1_RAW = (torch.randn(Q_ROWS, HEAD_DIM) * 0.5).to(torch.bfloat16)  # k pos 32:64
 
 # V tiles from MLIR V[batch, head_dim, k_seq]: tile shape [64, 32] (head_dim-first)
-V0_MLIR  = (torch.randn(HEAD_DIM, Q_ROWS) * 0.5).to(torch.bfloat16)   # k pos  0:32
-V1_MLIR  = (torch.randn(HEAD_DIM, Q_ROWS) * 0.5).to(torch.bfloat16)   # k pos 32:64
+V0_MLIR = (torch.randn(HEAD_DIM, Q_ROWS) * 0.5).to(torch.bfloat16)  # k pos  0:32
+V1_MLIR = (torch.randn(HEAD_DIM, Q_ROWS) * 0.5).to(torch.bfloat16)  # k pos 32:64
 
-SCALE_DATA = torch.full((Q_ROWS, HEAD_DIM // 4), SCALE_VALUE, dtype=torch.bfloat16)  # [32,16]
+SCALE_DATA = torch.full(
+    (Q_ROWS, HEAD_DIM // 4), SCALE_VALUE, dtype=torch.bfloat16
+)  # [32,16]
 
 
 def _col_block(t: torch.Tensor) -> torch.Tensor:
@@ -144,23 +146,25 @@ def _col_block(t: torch.Tensor) -> torch.Tensor:
     blocks = []
     for row_start in range(0, rows, 32):
         for col_start in range(0, cols, 16):
-            blocks.append(t[row_start:row_start+32, col_start:col_start+16].contiguous())
+            blocks.append(
+                t[row_start : row_start + 32, col_start : col_start + 16].contiguous()
+            )
     return torch.cat(blocks, dim=0)
 
 
 # K tiles: MLIR has K[k_seq, head_dim]; pre-transpose to K^T[head_dim, k_seq] for MXU.
-KT0_RAW  = K0_RAW.T.contiguous()   # [64, 32] bf16
-KT1_RAW  = K1_RAW.T.contiguous()   # [64, 32] bf16
+KT0_RAW = K0_RAW.T.contiguous()  # [64, 32] bf16
+KT1_RAW = K1_RAW.T.contiguous()  # [64, 32] bf16
 
 # V tiles: MLIR has V[head_dim, k_seq]; pre-transpose to V_std[k_seq, head_dim] for MXU.
-VT0_RAW  = V0_MLIR.T.contiguous()  # [32, 64] bf16
-VT1_RAW  = V1_MLIR.T.contiguous()  # [32, 64] bf16
+VT0_RAW = V0_MLIR.T.contiguous()  # [32, 64] bf16
+VT1_RAW = V1_MLIR.T.contiguous()  # [32, 64] bf16
 
-Q_DATA   = _col_block(Q_RAW)   # [128, 16] bf16
-KT0_DATA = _col_block(KT0_RAW) # [128, 16] bf16
-KT1_DATA = _col_block(KT1_RAW) # [128, 16] bf16
-VT0_DATA = _col_block(VT0_RAW) # [128, 16] bf16
-VT1_DATA = _col_block(VT1_RAW) # [128, 16] bf16
+Q_DATA = _col_block(Q_RAW)  # [128, 16] bf16
+KT0_DATA = _col_block(KT0_RAW)  # [128, 16] bf16
+KT1_DATA = _col_block(KT1_RAW)  # [128, 16] bf16
+VT0_DATA = _col_block(VT0_RAW)  # [128, 16] bf16
+VT1_DATA = _col_block(VT1_RAW)  # [128, 16] bf16
 
 
 def _golden(Q_raw, K0_raw, K1_raw, V0_mlir, V1_mlir, scale_val):
@@ -168,28 +172,32 @@ def _golden(Q_raw, K0_raw, K1_raw, V0_mlir, V1_mlir, scale_val):
     Q_lo_fp8 = Q_raw[:, :32].to(torch.float8_e4m3fn)  # [32,32]
     Q_hi_fp8 = Q_raw[:, 32:].to(torch.float8_e4m3fn)  # [32,32]
 
-    scale_r = torch.full((Q_ROWS, HEAD_DIM // 4), scale_val, dtype=torch.bfloat16)  # [32,16]
-    m  = torch.full((Q_ROWS, HEAD_DIM // 4), -100.0, dtype=torch.bfloat16)
-    l  = torch.zeros(Q_ROWS, HEAD_DIM // 4, dtype=torch.bfloat16)
+    scale_r = torch.full(
+        (Q_ROWS, HEAD_DIM // 4), scale_val, dtype=torch.bfloat16
+    )  # [32,16]
+    m = torch.full((Q_ROWS, HEAD_DIM // 4), -100.0, dtype=torch.bfloat16)
+    l = torch.zeros(Q_ROWS, HEAD_DIM // 4, dtype=torch.bfloat16)
     Oll = torch.zeros(Q_ROWS, HEAD_DIM // 4, dtype=torch.bfloat16)  # O[:, 0:16]
     Olr = torch.zeros(Q_ROWS, HEAD_DIM // 4, dtype=torch.bfloat16)  # O[:, 16:32]
     Orl = torch.zeros(Q_ROWS, HEAD_DIM // 4, dtype=torch.bfloat16)  # O[:, 32:48]
     Orr = torch.zeros(Q_ROWS, HEAD_DIM // 4, dtype=torch.bfloat16)  # O[:, 48:64]
 
     for k_raw, v_mlir in [(K0_raw, V0_mlir), (K1_raw, V1_mlir)]:
-        KT = k_raw.T                                   # [64, 32]
+        KT = k_raw.T  # [64, 32]
         KT_top_fp8 = KT[:32, :].to(torch.float8_e4m3fn)  # [32,32]
         KT_bot_fp8 = KT[32:, :].to(torch.float8_e4m3fn)  # [32,32]
 
-        V_std = v_mlir.T                               # [32, 64]
-        V_left_fp8  = V_std[:, :32].to(torch.float8_e4m3fn)  # [32,32]
+        V_std = v_mlir.T  # [32, 64]
+        V_left_fp8 = V_std[:, :32].to(torch.float8_e4m3fn)  # [32,32]
         V_right_fp8 = V_std[:, 32:].to(torch.float8_e4m3fn)  # [32,32]
 
         # Q @ K^T: two MXU passes accumulating over head_dim
         scores = (
             Q_lo_fp8.to(torch.float16) @ KT_top_fp8.to(torch.float16)
             + Q_hi_fp8.to(torch.float16) @ KT_bot_fp8.to(torch.float16)
-        ).to(torch.bfloat16)  # [32, 32]
+        ).to(
+            torch.bfloat16
+        )  # [32, 32]
 
         sl, sr = scores[:, :16], scores[:, 16:]
         sl = (sl * scale_r).to(torch.bfloat16)
@@ -214,8 +222,12 @@ def _golden(Q_raw, K0_raw, K1_raw, V0_mlir, V1_mlir, scale_val):
         exp_s_fp8 = torch.cat([esl, esr], dim=1).to(torch.float8_e4m3fn)
 
         # exp_s @ V (two independent [32,32] matmuls)
-        vc_left  = (exp_s_fp8.to(torch.float16) @ V_left_fp8.to(torch.float16)).to(torch.bfloat16)
-        vc_right = (exp_s_fp8.to(torch.float16) @ V_right_fp8.to(torch.float16)).to(torch.bfloat16)
+        vc_left = (exp_s_fp8.to(torch.float16) @ V_left_fp8.to(torch.float16)).to(
+            torch.bfloat16
+        )
+        vc_right = (exp_s_fp8.to(torch.float16) @ V_right_fp8.to(torch.float16)).to(
+            torch.bfloat16
+        )
 
         Oll = (Oll + vc_left[:, :16]).to(torch.bfloat16)
         Olr = (Olr + vc_left[:, 16:]).to(torch.bfloat16)
@@ -224,7 +236,9 @@ def _golden(Q_raw, K0_raw, K1_raw, V0_mlir, V1_mlir, scale_val):
 
         rs_l = esl.sum(dim=1, keepdim=True).expand(-1, 16).to(torch.bfloat16)
         rs_r = esr.sum(dim=1, keepdim=True).expand(-1, 16).to(torch.bfloat16)
-        l = ((exp_diff * l).to(torch.bfloat16) + (rs_l + rs_r).to(torch.bfloat16)).to(torch.bfloat16)
+        l = ((exp_diff * l).to(torch.bfloat16) + (rs_l + rs_r).to(torch.bfloat16)).to(
+            torch.bfloat16
+        )
         m = m_new
 
     inv_l = (1.0 / l).to(torch.bfloat16)
@@ -244,60 +258,70 @@ EXPECTED = _golden(Q_RAW, K0_RAW, K1_RAW, V0_MLIR, V1_MLIR, SCALE_VALUE)
 # ``_golden``. The simulator-vs-EXPECTED check still uses _golden;
 # this block independently verifies the MLIR encodes the same SDPA
 # semantics as the high-level reference.
-try:
-    import numpy as np
-    import iree.compiler as compiler
-    import iree.runtime as runtime
+import os
 
-    # IREE inputs at MLIR shapes (1, 32, 64, 64) all f32.
-    K_concat = torch.cat([K0_RAW, K1_RAW], dim=0).float().numpy()      # [64, 64]
-    V_concat = torch.cat([V0_MLIR, V1_MLIR], dim=1).float().numpy()    # [64, 64]
-    _Q_in = Q_RAW.float().numpy().reshape(1, 32, 64)
-    _K_in = K_concat.reshape(1, 64, 64)
-    _V_in = V_concat.reshape(1, 64, 64)
-    _scale_in = np.array(SCALE_VALUE, dtype=np.float32).reshape(())
-    _mask_in = np.ones((1, 32, 64), dtype=bool)
+if os.environ.get("NPU_MODEL_ENABLE_IREE_CROSSCHECK", "").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}:
+    try:
+        import numpy as np
+        import iree.compiler as compiler
+        import iree.runtime as runtime
 
-    _vmfb = compiler.compile_str(
-        FUSED_ATTENTION_MLIR,
-        target_backends=["llvm-cpu"],
-        extra_args=["--iree-llvmcpu-target-cpu=generic"],
-    )
-    _cfg = runtime.Config("local-task")
-    _ctx = runtime.SystemContext(config=_cfg)
-    _ctx.add_vm_module(runtime.VmModule.copy_buffer(_ctx.instance, _vmfb))
-    _iree_out = _ctx.modules.module["fused_attention"](
-        _Q_in, _K_in, _V_in, _scale_in, _mask_in
-    )
-    _iree_arr = np.array(_iree_out).reshape(32, 64)
-    # High-level f32 SDPA reference for the same Q/K/V/scale.
-    K_full = torch.cat([K0_RAW, K1_RAW], dim=0).float()
-    V_full = torch.cat([V0_MLIR, V1_MLIR], dim=1).float()
-    _ref = fused_attention_reference(Q_RAW.float(), K_full, V_full, SCALE_VALUE).numpy()
-    _diff = np.abs(_iree_arr - _ref).max()
-    assert _diff < 5e-2, f"MLIR vs PyTorch mismatch: {_diff}"
-except ImportError:
-    pass
+        # IREE inputs at MLIR shapes (1, 32, 64, 64) all f32.
+        K_concat = torch.cat([K0_RAW, K1_RAW], dim=0).float().numpy()  # [64, 64]
+        V_concat = torch.cat([V0_MLIR, V1_MLIR], dim=1).float().numpy()  # [64, 64]
+        _Q_in = Q_RAW.float().numpy().reshape(1, 32, 64)
+        _K_in = K_concat.reshape(1, 64, 64)
+        _V_in = V_concat.reshape(1, 64, 64)
+        _scale_in = np.array(SCALE_VALUE, dtype=np.float32).reshape(())
+        _mask_in = np.ones((1, 32, 64), dtype=bool)
+
+        _vmfb = compiler.compile_str(
+            FUSED_ATTENTION_MLIR,
+            target_backends=["llvm-cpu"],
+            extra_args=["--iree-llvmcpu-target-cpu=generic"],
+        )
+        _cfg = runtime.Config("local-task")
+        _ctx = runtime.SystemContext(config=_cfg)
+        _ctx.add_vm_module(runtime.VmModule.copy_buffer(_ctx.instance, _vmfb))
+        _iree_out = _ctx.modules.module["fused_attention"](
+            _Q_in, _K_in, _V_in, _scale_in, _mask_in
+        )
+        _iree_arr = np.array(_iree_out).reshape(32, 64)
+        # High-level f32 SDPA reference for the same Q/K/V/scale.
+        K_full = torch.cat([K0_RAW, K1_RAW], dim=0).float()
+        V_full = torch.cat([V0_MLIR, V1_MLIR], dim=1).float()
+        _ref = fused_attention_reference(
+            Q_RAW.float(), K_full, V_full, SCALE_VALUE
+        ).numpy()
+        _diff = np.abs(_iree_arr - _ref).max()
+        assert _diff < 5e-2, f"MLIR vs PyTorch mismatch: {_diff}"
+    except ImportError:
+        pass
 
 # ── memory layout ─────────────────────────────────────────────────────────────
-TILE_BYTES  = Q_ROWS * HEAD_DIM * 2   # 4096 — one [32,64] bf16 tile
+TILE_BYTES = Q_ROWS * HEAD_DIM * 2  # 4096 — one [32,64] bf16 tile
 SCALE_BYTES = Q_ROWS * (HEAD_DIM // 4) * 2  # 1024 — one [32,16] bf16 register
 
-DRAM_Q     = 0x0000
-DRAM_KT0   = 0x1000
-DRAM_KT1   = 0x2000
-DRAM_VT0   = 0x3000
-DRAM_VT1   = 0x4000
+DRAM_Q = 0x0000
+DRAM_KT0 = 0x1000
+DRAM_KT1 = 0x2000
+DRAM_VT0 = 0x3000
+DRAM_VT1 = 0x4000
 DRAM_SCALE = 0x5000
-DRAM_OUT   = 0x6000
+DRAM_OUT = 0x6000
 
-VMEM_Q     = 0x8000
-VMEM_KT0   = 0x9000
-VMEM_KT1   = 0xA000
-VMEM_VT0   = 0xB000
-VMEM_VT1   = 0xC000
+VMEM_Q = 0x8000
+VMEM_KT0 = 0x9000
+VMEM_KT1 = 0xA000
+VMEM_VT0 = 0xB000
+VMEM_VT1 = 0xC000
 VMEM_SCALE = 0xD000
-VMEM_OUT   = 0xE000
+VMEM_OUT = 0xE000
 
 
 class SmolVLAFusedAttentionProgram(Program):
@@ -343,271 +367,391 @@ class SmolVLAFusedAttentionProgram(Program):
     Sizes: x15=4096 (tile)  x16=1024 (scale)
     """
 
+    # Pair-op rewrite. MRF layout (all pair-op BF16 destinations use EVEN
+    # indices so (m[vd], m[vd+1]) exactly matches a (32, 32) BF16 tile):
+    #   Persistent:
+    #     (m0, m1)   = Q_lo BF16 (Q[:, 0:32]), (m2, m3) = Q_hi BF16 (Q[:, 32:64])
+    #     m4         = Q_lo FP8, m5 = Q_hi FP8
+    #     (m6, m7)   = scale (broadcast 1/sqrt(64))
+    #     (m8, m9)   = m_prev (running row-max; init -100 as -inf proxy)
+    #     (m10, m11) = l_prev (running row-sum; init 0)
+    #     (m12, m13) = O_left  (cols 0:32), (m14, m15) = O_right (cols 32:64)
+    #   Per tile reused:
+    #     (m16, m17) = K^T_top BF16  (pair reads blocks 0, 1 of KT tile)
+    #     (m18, m19) = K^T_bot BF16  (pair reads blocks 2, 3 of KT tile)
+    #     m20        = K^T_top FP8, m22 = K^T_bot FP8
+    #     (m24, m25) = V_left BF16, (m26, m27) = V_right BF16
+    #     m28        = V_left FP8, m30 = V_right FP8
+    #   Per-iteration temporaries (reused):
+    #     (m32, m33) = scores BF16 (from vmatpop.bf16.acc)
+    #     (m34, m35) = scaled BF16
+    #     (m36, m37) = tile_max (rowmax broadcast) / exp_diff
+    #     (m38, m39) = m_new
+    #     (m40, m41) = exp_s BF16
+    #     m42        = exp_s FP8
+    #     (m44, m45) = vc_left BF16, (m46, m47) = vc_right BF16
+    #     (m48, m49) = exp_diff * l (scratch)
+    #     (m50, m51) = rowsum(exp_s)
     instructions: List[Instruction[Any]] = [
-
         # ── scalar setup: VMEM addresses ──────────────────────────────────────
-        Instruction(mnemonic="lui",  args=ScalarArgs(rd=1,  imm=0x8)),   # x1  = 0x8000 VMEM_Q
-        Instruction(mnemonic="lui",  args=ScalarArgs(rd=2,  imm=0x9)),   # x2  = 0x9000 VMEM_KT0
-        Instruction(mnemonic="lui",  args=ScalarArgs(rd=3,  imm=0xA)),   # x3  = 0xA000 VMEM_KT1
-        Instruction(mnemonic="lui",  args=ScalarArgs(rd=4,  imm=0xB)),   # x4  = 0xB000 VMEM_VT0
-        Instruction(mnemonic="lui",  args=ScalarArgs(rd=5,  imm=0xC)),   # x5  = 0xC000 VMEM_VT1
-        Instruction(mnemonic="lui",  args=ScalarArgs(rd=6,  imm=0xD)),   # x6  = 0xD000 VMEM_SCALE
-        Instruction(mnemonic="lui",  args=ScalarArgs(rd=7,  imm=0xE)),   # x7  = 0xE000 VMEM_OUT
-
+        Instruction(
+            mnemonic="lui", args=ScalarArgs(rd=1, imm=0x8)
+        ),  # x1  = 0x8000 VMEM_Q
+        Instruction(
+            mnemonic="lui", args=ScalarArgs(rd=2, imm=0x9)
+        ),  # x2  = 0x9000 VMEM_KT0
+        Instruction(
+            mnemonic="lui", args=ScalarArgs(rd=3, imm=0xA)
+        ),  # x3  = 0xA000 VMEM_KT1
+        Instruction(
+            mnemonic="lui", args=ScalarArgs(rd=4, imm=0xB)
+        ),  # x4  = 0xB000 VMEM_VT0
+        Instruction(
+            mnemonic="lui", args=ScalarArgs(rd=5, imm=0xC)
+        ),  # x5  = 0xC000 VMEM_VT1
+        Instruction(
+            mnemonic="lui", args=ScalarArgs(rd=6, imm=0xD)
+        ),  # x6  = 0xD000 VMEM_SCALE
+        Instruction(
+            mnemonic="lui", args=ScalarArgs(rd=7, imm=0xE)
+        ),  # x7  = 0xE000 VMEM_OUT
         # ── scalar setup: DRAM addresses ──────────────────────────────────────
         # x0 = 0 = DRAM_Q (hardwired)
-        Instruction(mnemonic="lui",  args=ScalarArgs(rd=9,  imm=0x1)),   # x9  = 0x1000 DRAM_KT0
-        Instruction(mnemonic="lui",  args=ScalarArgs(rd=10, imm=0x2)),   # x10 = 0x2000 DRAM_KT1
-        Instruction(mnemonic="lui",  args=ScalarArgs(rd=11, imm=0x3)),   # x11 = 0x3000 DRAM_VT0
-        Instruction(mnemonic="lui",  args=ScalarArgs(rd=12, imm=0x4)),   # x12 = 0x4000 DRAM_VT1
-        Instruction(mnemonic="lui",  args=ScalarArgs(rd=13, imm=0x5)),   # x13 = 0x5000 DRAM_SCALE
-        Instruction(mnemonic="lui",  args=ScalarArgs(rd=14, imm=0x6)),   # x14 = 0x6000 DRAM_OUT
-        Instruction(mnemonic="lui",  args=ScalarArgs(rd=15, imm=0x1)),   # x15 = 0x1000 = 4096
-        Instruction(mnemonic="addi", args=ScalarArgs(rd=16, rs1=0, imm=1024)),  # x16 = 1024
-
+        Instruction(
+            mnemonic="lui", args=ScalarArgs(rd=9, imm=0x1)
+        ),  # x9  = 0x1000 DRAM_KT0
+        Instruction(
+            mnemonic="lui", args=ScalarArgs(rd=10, imm=0x2)
+        ),  # x10 = 0x2000 DRAM_KT1
+        Instruction(
+            mnemonic="lui", args=ScalarArgs(rd=11, imm=0x3)
+        ),  # x11 = 0x3000 DRAM_VT0
+        Instruction(
+            mnemonic="lui", args=ScalarArgs(rd=12, imm=0x4)
+        ),  # x12 = 0x4000 DRAM_VT1
+        Instruction(
+            mnemonic="lui", args=ScalarArgs(rd=13, imm=0x5)
+        ),  # x13 = 0x5000 DRAM_SCALE
+        Instruction(
+            mnemonic="lui", args=ScalarArgs(rd=14, imm=0x6)
+        ),  # x14 = 0x6000 DRAM_OUT
+        Instruction(
+            mnemonic="lui", args=ScalarArgs(rd=15, imm=0x1)
+        ),  # x15 = 0x1000 = 4096
+        Instruction(
+            mnemonic="addi", args=ScalarArgs(rd=16, rs1=0, imm=1024)
+        ),  # x16 = 1024
         # ── DMA: DRAM → VMEM ─────────────────────────────────────────────────
         Instruction(mnemonic="dma.config.ch<N>", args=DmaArgs(rs1=0, channel=0)),
-        Instruction(mnemonic="dma.wait.ch<N>",   args=DmaArgs(channel=0)),
-        Instruction(mnemonic="dma.load.ch<N>", args=DmaArgs(rd=1,  rs1=0,  rs2=15, channel=0)),  # Q
-        Instruction(mnemonic="dma.load.ch<N>", args=DmaArgs(rd=2,  rs1=9,  rs2=15, channel=1)),  # KT0
-        Instruction(mnemonic="dma.load.ch<N>", args=DmaArgs(rd=3,  rs1=10, rs2=15, channel=2)),  # KT1
-        Instruction(mnemonic="dma.load.ch<N>", args=DmaArgs(rd=4,  rs1=11, rs2=15, channel=3)),  # VT0
+        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
+        Instruction(
+            mnemonic="dma.load.ch<N>", args=DmaArgs(rd=1, rs1=0, rs2=15, channel=0)
+        ),  # Q
+        Instruction(
+            mnemonic="dma.load.ch<N>", args=DmaArgs(rd=2, rs1=9, rs2=15, channel=1)
+        ),  # KT0
+        Instruction(
+            mnemonic="dma.load.ch<N>", args=DmaArgs(rd=3, rs1=10, rs2=15, channel=2)
+        ),  # KT1
+        Instruction(
+            mnemonic="dma.load.ch<N>", args=DmaArgs(rd=4, rs1=11, rs2=15, channel=3)
+        ),  # VT0
         Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
         Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=1)),
         Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=2)),
         Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=3)),
-        Instruction(mnemonic="dma.load.ch<N>", args=DmaArgs(rd=5,  rs1=12, rs2=15, channel=0)),  # VT1
-        Instruction(mnemonic="dma.load.ch<N>", args=DmaArgs(rd=6,  rs1=13, rs2=16, channel=1)),  # SCALE
+        Instruction(
+            mnemonic="dma.load.ch<N>", args=DmaArgs(rd=5, rs1=12, rs2=15, channel=0)
+        ),  # VT1
+        Instruction(
+            mnemonic="dma.load.ch<N>", args=DmaArgs(rd=6, rs1=13, rs2=16, channel=1)
+        ),  # SCALE
         Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
         Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=1)),
-
         # ── Q: VMEM → MRF, then bf16 → fp8 via acc[1] roundtrip ──────────────
-        # Load four [32,16] blocks: Q_col0/col1/col2/col3  (imm12 in units of 32 bytes)
-        Instruction(mnemonic="vload", args=VectorArgs(vd=9,  rs1=1, imm12=0)),
-        Instruction(mnemonic="vload", args=VectorArgs(vd=10, rs1=1, imm12=32)),
-        Instruction(mnemonic="vload", args=VectorArgs(vd=11, rs1=1, imm12=64)),
-        Instruction(mnemonic="vload", args=VectorArgs(vd=12, rs1=1, imm12=96)),
-        # Q_lo [32,32] bf16 = (v9, v10) → v0 fp8
-        Instruction(mnemonic="vmatpush.acc.bf16.mxu0", args=VectorArgs(vd=1, vs1=9)),
-        Instruction(mnemonic="vmatpop.fp8.acc.mxu0",   args=VectorArgs(vd=0, vs1=1)),
-        # Q_hi [32,32] bf16 = (v11, v12) → v1 fp8
-        Instruction(mnemonic="vmatpush.acc.bf16.mxu0", args=VectorArgs(vd=1, vs1=11)),
-        Instruction(mnemonic="vmatpop.fp8.acc.mxu0",   args=VectorArgs(vd=1, vs1=1)),
-
-        # ── load scale ────────────────────────────────────────────────────────
-        Instruction(mnemonic="vload", args=VectorArgs(vd=8, rs1=6, imm12=0)),
-
-        # ── initialize online-softmax state ───────────────────────────────────
-        Instruction(mnemonic="vli.all", args=VectorArgs(vd=2, imm=-100)),  # m_prev = -100 ≈ -∞
-        Instruction(mnemonic="vli.all", args=VectorArgs(vd=3, imm=0)),     # l_prev = 0
-        Instruction(mnemonic="vli.all", args=VectorArgs(vd=4, imm=0)),     # O_col0 = 0
-        Instruction(mnemonic="vli.all", args=VectorArgs(vd=5, imm=0)),     # O_col1 = 0
-        Instruction(mnemonic="vli.all", args=VectorArgs(vd=6, imm=0)),     # O_col2 = 0
-        Instruction(mnemonic="vli.all", args=VectorArgs(vd=7, imm=0)),     # O_col3 = 0
-
+        # Load four [32,16] blocks into (m0, m1, m2, m3): Q_lo = (m0,m1), Q_hi = (m2,m3).
+        Instruction(mnemonic="vload", args=VectorArgs(vd=0, rs1=1, imm12=0)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="vload", args=VectorArgs(vd=1, rs1=1, imm12=32)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="vload", args=VectorArgs(vd=2, rs1=1, imm12=64)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="vload", args=VectorArgs(vd=3, rs1=1, imm12=96)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        # Q_lo (m0, m1) → m4 fp8 via acc[1] roundtrip
+        Instruction(mnemonic="vmatpush.acc.bf16.mxu0", args=MatrixArgs(vd=1, vs1=0)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
+        Instruction(mnemonic="vmatpop.fp8.acc.mxu0", args=MatrixArgs(vd=4, vs1=1)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        # Q_hi (m2, m3) → m5 fp8
+        Instruction(mnemonic="vmatpush.acc.bf16.mxu0", args=MatrixArgs(vd=1, vs1=2)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
+        Instruction(mnemonic="vmatpop.fp8.acc.mxu0", args=MatrixArgs(vd=5, vs1=1)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        # ── load scale into both halves of (m6, m7) ──────────────────────────
+        Instruction(mnemonic="vload", args=VectorArgs(vd=6, rs1=6, imm12=0)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="vload", args=VectorArgs(vd=7, rs1=6, imm12=0)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        # ── initialize online-softmax state (both halves of each pair) ───────
+        Instruction(
+            mnemonic="vli.all", args=VectorArgs(vd=8, imm=-100)
+        ),  # m_prev half0
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(
+            mnemonic="vli.all", args=VectorArgs(vd=9, imm=-100)
+        ),  # m_prev half1
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="vli.all", args=VectorArgs(vd=10, imm=0)),  # l_prev half0
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="vli.all", args=VectorArgs(vd=11, imm=0)),  # l_prev half1
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="vli.all", args=VectorArgs(vd=12, imm=0)),  # O_left half0
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="vli.all", args=VectorArgs(vd=13, imm=0)),  # O_left half1
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="vli.all", args=VectorArgs(vd=14, imm=0)),  # O_right half0
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="vli.all", args=VectorArgs(vd=15, imm=0)),  # O_right half1
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
         # ══════════════════════════════════════════════════════════════════════
         # K TILE 0  (k_seq 0:32)
         # ══════════════════════════════════════════════════════════════════════
-
-        # Load KT0: K^T[64,32] bf16, column-blocked → 4 × [32,16] blocks
-        Instruction(mnemonic="vload", args=VectorArgs(vd=9,  rs1=2, imm12=0)),   # K^T_top left
-        Instruction(mnemonic="vload", args=VectorArgs(vd=10, rs1=2, imm12=32)),  # K^T_top right
-        Instruction(mnemonic="vload", args=VectorArgs(vd=11, rs1=2, imm12=64)),  # K^T_bot left
-        Instruction(mnemonic="vload", args=VectorArgs(vd=12, rs1=2, imm12=96)),  # K^T_bot right
-        # K^T_top (v9, v10) → v9 fp8
-        Instruction(mnemonic="vmatpush.acc.bf16.mxu0", args=VectorArgs(vd=1, vs1=9)),
-        Instruction(mnemonic="vmatpop.fp8.acc.mxu0",   args=VectorArgs(vd=9, vs1=1)),
-        # K^T_bot (v11, v12) → v11 fp8
-        Instruction(mnemonic="vmatpush.acc.bf16.mxu0", args=VectorArgs(vd=1, vs1=11)),
-        Instruction(mnemonic="vmatpop.fp8.acc.mxu0",   args=VectorArgs(vd=11, vs1=1)),
-
-        # Load VT0: V_std[32,64] bf16, column-blocked → 4 × [32,16] blocks
-        Instruction(mnemonic="vload", args=VectorArgs(vd=12, rs1=4, imm12=0)),   # V_left col0
-        Instruction(mnemonic="vload", args=VectorArgs(vd=13, rs1=4, imm12=32)),  # V_left col1
-        Instruction(mnemonic="vload", args=VectorArgs(vd=14, rs1=4, imm12=64)),  # V_right col0
-        Instruction(mnemonic="vload", args=VectorArgs(vd=15, rs1=4, imm12=96)),  # V_right col1
-        # V_left (v12, v13) → v12 fp8
-        Instruction(mnemonic="vmatpush.acc.bf16.mxu0", args=VectorArgs(vd=1, vs1=12)),
-        Instruction(mnemonic="vmatpop.fp8.acc.mxu0",   args=VectorArgs(vd=12, vs1=1)),
-        # V_right (v14, v15) → v14 fp8
-        Instruction(mnemonic="vmatpush.acc.bf16.mxu0", args=VectorArgs(vd=1, vs1=14)),
-        Instruction(mnemonic="vmatpop.fp8.acc.mxu0",   args=VectorArgs(vd=14, vs1=1)),
-
-        # Q @ K^T, accumulating over head_dim (two 32-wide passes)
-        Instruction(mnemonic="vmatpush.weight.mxu0",  args=VectorArgs(vd=0, vs1=9)),   # WB[0] = K^T_top
-        Instruction(mnemonic="delay",                 args=ScalarArgs(imm=17)),
-        Instruction(mnemonic="vmatmul.mxu0",          args=MatrixArgs(vd=0, vs1=0, vs2=0)),  # acc[0] = Q_lo @ K^T_top
-        Instruction(mnemonic="delay",                 args=ScalarArgs(imm=64)),  # ≥ MT=64 cycles
-        Instruction(mnemonic="vmatpush.weight.mxu0",  args=VectorArgs(vd=0, vs1=11)),  # WB[0] = K^T_bot
-        Instruction(mnemonic="delay",                 args=ScalarArgs(imm=17)),
-        Instruction(mnemonic="vmatmul.acc.mxu0",      args=MatrixArgs(vd=0, vs1=1, vs2=0)),  # acc[0] += Q_hi @ K^T_bot
-        Instruction(mnemonic="delay",                 args=ScalarArgs(imm=64)),  # ≥ MT=64 cycles
-        Instruction(mnemonic="vmatpop.bf16.acc.mxu0", args=VectorArgs(vd=16, vs1=0)),  # v16=sl, v17=sr
-
-        # scale scores
-        Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=18, vs1=16, vs2=8)),
-        Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=19, vs1=17, vs2=8)),
-
-        # m_new = max(m_prev, rowmax(sl), rowmax(sr))
-        Instruction(mnemonic="vredmax.row.bf16", args=VectorArgs(vd=20, vs1=18)),
-        Instruction(mnemonic="vredmax.row.bf16", args=VectorArgs(vd=21, vs1=19)),
-        Instruction(mnemonic="vmaximum.bf16",    args=VectorArgs(vd=20, vs1=20, vs2=21)),
-        Instruction(mnemonic="vmaximum.bf16",    args=VectorArgs(vd=21, vs1=2,  vs2=20)),  # m_new
-
+        # Load KT0: K^T[64,32] column-blocked → (m16,m17)=KT_top, (m18,m19)=KT_bot
+        Instruction(mnemonic="vload", args=VectorArgs(vd=16, rs1=2, imm12=0)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="vload", args=VectorArgs(vd=17, rs1=2, imm12=32)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="vload", args=VectorArgs(vd=18, rs1=2, imm12=64)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="vload", args=VectorArgs(vd=19, rs1=2, imm12=96)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        # KT_top bf16 → m20 fp8
+        Instruction(mnemonic="vmatpush.acc.bf16.mxu0", args=MatrixArgs(vd=1, vs1=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
+        Instruction(mnemonic="vmatpop.fp8.acc.mxu0", args=MatrixArgs(vd=20, vs1=1)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        # KT_bot bf16 → m22 fp8
+        Instruction(mnemonic="vmatpush.acc.bf16.mxu0", args=MatrixArgs(vd=1, vs1=18)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
+        Instruction(mnemonic="vmatpop.fp8.acc.mxu0", args=MatrixArgs(vd=22, vs1=1)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        # Load VT0: V_std[32,64] column-blocked → (m24,m25)=V_left, (m26,m27)=V_right
+        Instruction(mnemonic="vload", args=VectorArgs(vd=24, rs1=4, imm12=0)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="vload", args=VectorArgs(vd=25, rs1=4, imm12=32)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="vload", args=VectorArgs(vd=26, rs1=4, imm12=64)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="vload", args=VectorArgs(vd=27, rs1=4, imm12=96)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        # V_left bf16 → m28 fp8
+        Instruction(mnemonic="vmatpush.acc.bf16.mxu0", args=MatrixArgs(vd=1, vs1=24)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
+        Instruction(mnemonic="vmatpop.fp8.acc.mxu0", args=MatrixArgs(vd=28, vs1=1)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        # V_right bf16 → m30 fp8
+        Instruction(mnemonic="vmatpush.acc.bf16.mxu0", args=MatrixArgs(vd=1, vs1=26)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
+        Instruction(mnemonic="vmatpop.fp8.acc.mxu0", args=MatrixArgs(vd=30, vs1=1)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        # Q @ K^T: acc[0] = Q_lo @ KT_top + Q_hi @ KT_bot
+        Instruction(mnemonic="vmatpush.weight.mxu0", args=MatrixArgs(vd=0, vs1=20)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="vmatmul.mxu0", args=MatrixArgs(vd=0, vs1=4, vs2=0)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
+        Instruction(mnemonic="vmatpush.weight.mxu0", args=MatrixArgs(vd=0, vs1=22)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="vmatmul.acc.mxu0", args=MatrixArgs(vd=0, vs1=5, vs2=0)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
+        Instruction(
+            mnemonic="vmatpop.bf16.acc.mxu0", args=MatrixArgs(vd=32, vs1=0)
+        ),  # (m32, m33) scores
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
+        # scaled = scores * scale
+        Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=34, vs1=32, vs2=6)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
+        # tile_max = rowmax(scaled)
+        Instruction(mnemonic="vredmax.row.bf16", args=VectorArgs(vd=36, vs1=34)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
+        # m_new = max(m_prev, tile_max)
+        Instruction(mnemonic="vmaximum.bf16", args=VectorArgs(vd=38, vs1=8, vs2=36)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
         # exp_diff = exp(m_prev - m_new)
-        Instruction(mnemonic="vsub.bf16", args=VectorArgs(vd=20, vs1=2,  vs2=21)),
-        Instruction(mnemonic="vexp.bf16", args=VectorArgs(vd=20, vs1=20)),
-
-        # rescale output accumulator (all 4 halves)
-        Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=4, vs1=4, vs2=20)),
-        Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=5, vs1=5, vs2=20)),
-        Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=6, vs1=6, vs2=20)),
-        Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=7, vs1=7, vs2=20)),
-
-        # exp_s = exp(scores_sc - m_new)
-        Instruction(mnemonic="vsub.bf16", args=VectorArgs(vd=22, vs1=18, vs2=21)),
-        Instruction(mnemonic="vsub.bf16", args=VectorArgs(vd=23, vs1=19, vs2=21)),
-        Instruction(mnemonic="vexp.bf16", args=VectorArgs(vd=22, vs1=22)),
-        Instruction(mnemonic="vexp.bf16", args=VectorArgs(vd=23, vs1=23)),
-
-        # quantize exp_s [32,32] to fp8 via acc[1] roundtrip
-        Instruction(mnemonic="vmatpush.acc.bf16.mxu0", args=VectorArgs(vd=1, vs1=22)),  # reads v22,v23
-        Instruction(mnemonic="vmatpop.fp8.acc.mxu0",   args=VectorArgs(vd=24, vs1=1)),
-
-        # exp_s @ V_left → acc[0]
-        Instruction(mnemonic="vmatpush.weight.mxu0",  args=VectorArgs(vd=0, vs1=12)),
-        Instruction(mnemonic="delay",                 args=ScalarArgs(imm=17)),
-        Instruction(mnemonic="vmatmul.mxu0",          args=MatrixArgs(vd=0, vs1=24, vs2=0)),
-        Instruction(mnemonic="delay",                 args=ScalarArgs(imm=64)),  # ≥ MT=64 cycles
-        Instruction(mnemonic="vmatpop.bf16.acc.mxu0", args=VectorArgs(vd=25, vs1=0)),  # v25=vc_ll, v26=vc_lr
-
-        # exp_s @ V_right → acc[1]
-        Instruction(mnemonic="vmatpush.weight.mxu0",  args=VectorArgs(vd=0, vs1=14)),
-        Instruction(mnemonic="delay",                 args=ScalarArgs(imm=17)),
-        Instruction(mnemonic="vmatmul.mxu0",          args=MatrixArgs(vd=1, vs1=24, vs2=0)),
-        Instruction(mnemonic="delay",                 args=ScalarArgs(imm=64)),  # ≥ MT=64 cycles
-        Instruction(mnemonic="vmatpop.bf16.acc.mxu0", args=VectorArgs(vd=27, vs1=1)),  # v27=vc_rl, v28=vc_rr
-
+        Instruction(mnemonic="vsub.bf16", args=VectorArgs(vd=36, vs1=8, vs2=38)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
+        Instruction(mnemonic="vexp.bf16", args=VectorArgs(vd=36, vs1=36)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        # O *= exp_diff (O_left and O_right are each pair-op tiles)
+        Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=12, vs1=12, vs2=36)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
+        Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=14, vs1=14, vs2=36)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
+        # exp_s = exp(scaled - m_new)
+        Instruction(mnemonic="vsub.bf16", args=VectorArgs(vd=40, vs1=34, vs2=38)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
+        Instruction(mnemonic="vexp.bf16", args=VectorArgs(vd=40, vs1=40)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        # Quantize exp_s → m42 fp8
+        Instruction(mnemonic="vmatpush.acc.bf16.mxu0", args=MatrixArgs(vd=1, vs1=40)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
+        Instruction(mnemonic="vmatpop.fp8.acc.mxu0", args=MatrixArgs(vd=42, vs1=1)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        # vc_left = exp_s @ V_left
+        Instruction(mnemonic="vmatpush.weight.mxu0", args=MatrixArgs(vd=0, vs1=28)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="vmatmul.mxu0", args=MatrixArgs(vd=0, vs1=42, vs2=0)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
+        Instruction(mnemonic="vmatpop.bf16.acc.mxu0", args=MatrixArgs(vd=44, vs1=0)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
+        # vc_right = exp_s @ V_right
+        Instruction(mnemonic="vmatpush.weight.mxu0", args=MatrixArgs(vd=0, vs1=30)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="vmatmul.mxu0", args=MatrixArgs(vd=0, vs1=42, vs2=0)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
+        Instruction(mnemonic="vmatpop.bf16.acc.mxu0", args=MatrixArgs(vd=46, vs1=0)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
         # O += V contribution
-        Instruction(mnemonic="vadd.bf16", args=VectorArgs(vd=4, vs1=4, vs2=25)),
-        Instruction(mnemonic="vadd.bf16", args=VectorArgs(vd=5, vs1=5, vs2=26)),
-        Instruction(mnemonic="vadd.bf16", args=VectorArgs(vd=6, vs1=6, vs2=27)),
-        Instruction(mnemonic="vadd.bf16", args=VectorArgs(vd=7, vs1=7, vs2=28)),
-
-        # l = exp_diff * l + rowsum(exp_s_left) + rowsum(exp_s_right)
-        Instruction(mnemonic="vmul.bf16",        args=VectorArgs(vd=25, vs1=20, vs2=3)),
-        Instruction(mnemonic="vredsum.row.bf16", args=VectorArgs(vd=26, vs1=22)),
-        Instruction(mnemonic="vredsum.row.bf16", args=VectorArgs(vd=27, vs1=23)),
-        Instruction(mnemonic="vadd.bf16",        args=VectorArgs(vd=26, vs1=26, vs2=27)),
-        Instruction(mnemonic="vadd.bf16",        args=VectorArgs(vd=3,  vs1=25, vs2=26)),
-
-        # m_prev = m_new
-        Instruction(mnemonic="vmov", args=VectorArgs(vd=2, vs1=21)),
-
+        Instruction(mnemonic="vadd.bf16", args=VectorArgs(vd=12, vs1=12, vs2=44)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
+        Instruction(mnemonic="vadd.bf16", args=VectorArgs(vd=14, vs1=14, vs2=46)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
+        # l = exp_diff * l + rowsum(exp_s)
+        Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=48, vs1=36, vs2=10)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
+        Instruction(mnemonic="vredsum.row.bf16", args=VectorArgs(vd=50, vs1=40)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
+        Instruction(mnemonic="vadd.bf16", args=VectorArgs(vd=10, vs1=48, vs2=50)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
+        # m_prev = m_new (pair copy: two vmov ops for both halves)
+        Instruction(mnemonic="vmov", args=VectorArgs(vd=8, vs1=38)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="vmov", args=VectorArgs(vd=9, vs1=39)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
         # ══════════════════════════════════════════════════════════════════════
-        # K TILE 1  (k_seq 32:64) — identical body, different KT/VT tiles
+        # K TILE 1  (k_seq 32:64) — same body, K1/V1 inputs
         # ══════════════════════════════════════════════════════════════════════
-
-        Instruction(mnemonic="vload", args=VectorArgs(vd=9,  rs1=3, imm12=0)),
-        Instruction(mnemonic="vload", args=VectorArgs(vd=10, rs1=3, imm12=32)),
-        Instruction(mnemonic="vload", args=VectorArgs(vd=11, rs1=3, imm12=64)),
-        Instruction(mnemonic="vload", args=VectorArgs(vd=12, rs1=3, imm12=96)),
-        Instruction(mnemonic="vmatpush.acc.bf16.mxu0", args=VectorArgs(vd=1, vs1=9)),
-        Instruction(mnemonic="vmatpop.fp8.acc.mxu0",   args=VectorArgs(vd=9, vs1=1)),
-        Instruction(mnemonic="vmatpush.acc.bf16.mxu0", args=VectorArgs(vd=1, vs1=11)),
-        Instruction(mnemonic="vmatpop.fp8.acc.mxu0",   args=VectorArgs(vd=11, vs1=1)),
-
-        Instruction(mnemonic="vload", args=VectorArgs(vd=12, rs1=5, imm12=0)),
-        Instruction(mnemonic="vload", args=VectorArgs(vd=13, rs1=5, imm12=32)),
-        Instruction(mnemonic="vload", args=VectorArgs(vd=14, rs1=5, imm12=64)),
-        Instruction(mnemonic="vload", args=VectorArgs(vd=15, rs1=5, imm12=96)),
-        Instruction(mnemonic="vmatpush.acc.bf16.mxu0", args=VectorArgs(vd=1, vs1=12)),
-        Instruction(mnemonic="vmatpop.fp8.acc.mxu0",   args=VectorArgs(vd=12, vs1=1)),
-        Instruction(mnemonic="vmatpush.acc.bf16.mxu0", args=VectorArgs(vd=1, vs1=14)),
-        Instruction(mnemonic="vmatpop.fp8.acc.mxu0",   args=VectorArgs(vd=14, vs1=1)),
-
-        Instruction(mnemonic="vmatpush.weight.mxu0",  args=VectorArgs(vd=0, vs1=9)),
-        Instruction(mnemonic="delay",                 args=ScalarArgs(imm=17)),
-        Instruction(mnemonic="vmatmul.mxu0",          args=MatrixArgs(vd=0, vs1=0, vs2=0)),
-        Instruction(mnemonic="delay",                 args=ScalarArgs(imm=64)),  # ≥ MT=64 cycles
-        Instruction(mnemonic="vmatpush.weight.mxu0",  args=VectorArgs(vd=0, vs1=11)),
-        Instruction(mnemonic="delay",                 args=ScalarArgs(imm=17)),
-        Instruction(mnemonic="vmatmul.acc.mxu0",      args=MatrixArgs(vd=0, vs1=1, vs2=0)),
-        Instruction(mnemonic="delay",                 args=ScalarArgs(imm=64)),  # ≥ MT=64 cycles
-        Instruction(mnemonic="vmatpop.bf16.acc.mxu0", args=VectorArgs(vd=16, vs1=0)),
-
-        Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=18, vs1=16, vs2=8)),
-        Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=19, vs1=17, vs2=8)),
-
-        Instruction(mnemonic="vredmax.row.bf16", args=VectorArgs(vd=20, vs1=18)),
-        Instruction(mnemonic="vredmax.row.bf16", args=VectorArgs(vd=21, vs1=19)),
-        Instruction(mnemonic="vmaximum.bf16",    args=VectorArgs(vd=20, vs1=20, vs2=21)),
-        Instruction(mnemonic="vmaximum.bf16",    args=VectorArgs(vd=21, vs1=2,  vs2=20)),
-
-        Instruction(mnemonic="vsub.bf16", args=VectorArgs(vd=20, vs1=2,  vs2=21)),
-        Instruction(mnemonic="vexp.bf16", args=VectorArgs(vd=20, vs1=20)),
-
-        Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=4, vs1=4, vs2=20)),
-        Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=5, vs1=5, vs2=20)),
-        Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=6, vs1=6, vs2=20)),
-        Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=7, vs1=7, vs2=20)),
-
-        Instruction(mnemonic="vsub.bf16", args=VectorArgs(vd=22, vs1=18, vs2=21)),
-        Instruction(mnemonic="vsub.bf16", args=VectorArgs(vd=23, vs1=19, vs2=21)),
-        Instruction(mnemonic="vexp.bf16", args=VectorArgs(vd=22, vs1=22)),
-        Instruction(mnemonic="vexp.bf16", args=VectorArgs(vd=23, vs1=23)),
-
-        Instruction(mnemonic="vmatpush.acc.bf16.mxu0", args=VectorArgs(vd=1, vs1=22)),
-        Instruction(mnemonic="vmatpop.fp8.acc.mxu0",   args=VectorArgs(vd=24, vs1=1)),
-
-        Instruction(mnemonic="vmatpush.weight.mxu0",  args=VectorArgs(vd=0, vs1=12)),
-        Instruction(mnemonic="delay",                 args=ScalarArgs(imm=17)),
-        Instruction(mnemonic="vmatmul.mxu0",          args=MatrixArgs(vd=0, vs1=24, vs2=0)),
-        Instruction(mnemonic="delay",                 args=ScalarArgs(imm=64)),  # ≥ MT=64 cycles
-        Instruction(mnemonic="vmatpop.bf16.acc.mxu0", args=VectorArgs(vd=25, vs1=0)),
-
-        Instruction(mnemonic="vmatpush.weight.mxu0",  args=VectorArgs(vd=0, vs1=14)),
-        Instruction(mnemonic="delay",                 args=ScalarArgs(imm=17)),
-        Instruction(mnemonic="vmatmul.mxu0",          args=MatrixArgs(vd=1, vs1=24, vs2=0)),
-        Instruction(mnemonic="delay",                 args=ScalarArgs(imm=64)),  # ≥ MT=64 cycles
-        Instruction(mnemonic="vmatpop.bf16.acc.mxu0", args=VectorArgs(vd=27, vs1=1)),
-
-        Instruction(mnemonic="vadd.bf16", args=VectorArgs(vd=4, vs1=4, vs2=25)),
-        Instruction(mnemonic="vadd.bf16", args=VectorArgs(vd=5, vs1=5, vs2=26)),
-        Instruction(mnemonic="vadd.bf16", args=VectorArgs(vd=6, vs1=6, vs2=27)),
-        Instruction(mnemonic="vadd.bf16", args=VectorArgs(vd=7, vs1=7, vs2=28)),
-
-        Instruction(mnemonic="vmul.bf16",        args=VectorArgs(vd=25, vs1=20, vs2=3)),
-        Instruction(mnemonic="vredsum.row.bf16", args=VectorArgs(vd=26, vs1=22)),
-        Instruction(mnemonic="vredsum.row.bf16", args=VectorArgs(vd=27, vs1=23)),
-        Instruction(mnemonic="vadd.bf16",        args=VectorArgs(vd=26, vs1=26, vs2=27)),
-        Instruction(mnemonic="vadd.bf16",        args=VectorArgs(vd=3,  vs1=25, vs2=26)),
-
-        Instruction(mnemonic="vmov", args=VectorArgs(vd=2, vs1=21)),
-
+        # Load KT1
+        Instruction(mnemonic="vload", args=VectorArgs(vd=16, rs1=3, imm12=0)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="vload", args=VectorArgs(vd=17, rs1=3, imm12=32)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="vload", args=VectorArgs(vd=18, rs1=3, imm12=64)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="vload", args=VectorArgs(vd=19, rs1=3, imm12=96)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="vmatpush.acc.bf16.mxu0", args=MatrixArgs(vd=1, vs1=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
+        Instruction(mnemonic="vmatpop.fp8.acc.mxu0", args=MatrixArgs(vd=20, vs1=1)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="vmatpush.acc.bf16.mxu0", args=MatrixArgs(vd=1, vs1=18)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
+        Instruction(mnemonic="vmatpop.fp8.acc.mxu0", args=MatrixArgs(vd=22, vs1=1)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        # Load VT1
+        Instruction(mnemonic="vload", args=VectorArgs(vd=24, rs1=5, imm12=0)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="vload", args=VectorArgs(vd=25, rs1=5, imm12=32)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="vload", args=VectorArgs(vd=26, rs1=5, imm12=64)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="vload", args=VectorArgs(vd=27, rs1=5, imm12=96)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="vmatpush.acc.bf16.mxu0", args=MatrixArgs(vd=1, vs1=24)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
+        Instruction(mnemonic="vmatpop.fp8.acc.mxu0", args=MatrixArgs(vd=28, vs1=1)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="vmatpush.acc.bf16.mxu0", args=MatrixArgs(vd=1, vs1=26)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
+        Instruction(mnemonic="vmatpop.fp8.acc.mxu0", args=MatrixArgs(vd=30, vs1=1)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        # Q @ K1^T
+        Instruction(mnemonic="vmatpush.weight.mxu0", args=MatrixArgs(vd=0, vs1=20)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="vmatmul.mxu0", args=MatrixArgs(vd=0, vs1=4, vs2=0)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
+        Instruction(mnemonic="vmatpush.weight.mxu0", args=MatrixArgs(vd=0, vs1=22)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="vmatmul.acc.mxu0", args=MatrixArgs(vd=0, vs1=5, vs2=0)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
+        Instruction(mnemonic="vmatpop.bf16.acc.mxu0", args=MatrixArgs(vd=32, vs1=0)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
+        Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=34, vs1=32, vs2=6)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
+        Instruction(mnemonic="vredmax.row.bf16", args=VectorArgs(vd=36, vs1=34)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
+        Instruction(mnemonic="vmaximum.bf16", args=VectorArgs(vd=38, vs1=8, vs2=36)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
+        Instruction(mnemonic="vsub.bf16", args=VectorArgs(vd=36, vs1=8, vs2=38)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
+        Instruction(mnemonic="vexp.bf16", args=VectorArgs(vd=36, vs1=36)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=12, vs1=12, vs2=36)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
+        Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=14, vs1=14, vs2=36)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
+        Instruction(mnemonic="vsub.bf16", args=VectorArgs(vd=40, vs1=34, vs2=38)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
+        Instruction(mnemonic="vexp.bf16", args=VectorArgs(vd=40, vs1=40)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="vmatpush.acc.bf16.mxu0", args=MatrixArgs(vd=1, vs1=40)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
+        Instruction(mnemonic="vmatpop.fp8.acc.mxu0", args=MatrixArgs(vd=42, vs1=1)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="vmatpush.weight.mxu0", args=MatrixArgs(vd=0, vs1=28)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="vmatmul.mxu0", args=MatrixArgs(vd=0, vs1=42, vs2=0)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
+        Instruction(mnemonic="vmatpop.bf16.acc.mxu0", args=MatrixArgs(vd=44, vs1=0)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
+        Instruction(mnemonic="vmatpush.weight.mxu0", args=MatrixArgs(vd=0, vs1=30)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="vmatmul.mxu0", args=MatrixArgs(vd=0, vs1=42, vs2=0)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
+        Instruction(mnemonic="vmatpop.bf16.acc.mxu0", args=MatrixArgs(vd=46, vs1=0)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
+        Instruction(mnemonic="vadd.bf16", args=VectorArgs(vd=12, vs1=12, vs2=44)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
+        Instruction(mnemonic="vadd.bf16", args=VectorArgs(vd=14, vs1=14, vs2=46)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
+        Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=48, vs1=36, vs2=10)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
+        Instruction(mnemonic="vredsum.row.bf16", args=VectorArgs(vd=50, vs1=40)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
+        Instruction(mnemonic="vadd.bf16", args=VectorArgs(vd=10, vs1=48, vs2=50)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
+        Instruction(mnemonic="vmov", args=VectorArgs(vd=8, vs1=38)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="vmov", args=VectorArgs(vd=9, vs1=39)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
         # ── normalize: O /= l ─────────────────────────────────────────────────
-        Instruction(mnemonic="vrecip.bf16", args=VectorArgs(vd=8,  vs1=3)),   # reuse v8 (scale no longer needed)
-        Instruction(mnemonic="vmul.bf16",   args=VectorArgs(vd=4,  vs1=4, vs2=8)),
-        Instruction(mnemonic="vmul.bf16",   args=VectorArgs(vd=5,  vs1=5, vs2=8)),
-        Instruction(mnemonic="vmul.bf16",   args=VectorArgs(vd=6,  vs1=6, vs2=8)),
-        Instruction(mnemonic="vmul.bf16",   args=VectorArgs(vd=7,  vs1=7, vs2=8)),
-
-        # ── store: MRF → VMEM (4 blocks) → DRAM ──────────────────────────────
-        Instruction(mnemonic="vstore", args=VectorArgs(vd=4, rs1=7, imm12=0)),
-        Instruction(mnemonic="vstore", args=VectorArgs(vd=5, rs1=7, imm12=32)),
-        Instruction(mnemonic="vstore", args=VectorArgs(vd=6, rs1=7, imm12=64)),
-        Instruction(mnemonic="vstore", args=VectorArgs(vd=7, rs1=7, imm12=96)),
-        Instruction(mnemonic="delay",           args=ScalarArgs(imm=20)),
-        Instruction(mnemonic="dma.store.ch<N>", args=DmaArgs(rd=14, rs1=7, rs2=15, channel=0)),
-        Instruction(mnemonic="dma.wait.ch<N>",  args=DmaArgs(channel=0)),
+        Instruction(mnemonic="vrecip.bf16", args=VectorArgs(vd=48, vs1=10)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=12, vs1=12, vs2=48)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
+        Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=14, vs1=14, vs2=48)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
+        # ── store: 4 halves (m12, m13, m14, m15) → VMEM → DRAM ───────────────
+        Instruction(mnemonic="vstore", args=VectorArgs(vd=12, rs1=7, imm12=0)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="vstore", args=VectorArgs(vd=13, rs1=7, imm12=32)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="vstore", args=VectorArgs(vd=14, rs1=7, imm12=64)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="vstore", args=VectorArgs(vd=15, rs1=7, imm12=96)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(
+            mnemonic="dma.store.ch<N>", args=DmaArgs(rd=14, rs1=7, rs2=15, channel=0)
+        ),
+        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
     ]
 
     memory_regions: List[Tuple[int, torch.Tensor]] = [
-        (DRAM_Q,     Q_DATA),
-        (DRAM_KT0,   KT0_DATA),
-        (DRAM_KT1,   KT1_DATA),
-        (DRAM_VT0,   VT0_DATA),
-        (DRAM_VT1,   VT1_DATA),
+        (DRAM_Q, Q_DATA),
+        (DRAM_KT0, KT0_DATA),
+        (DRAM_KT1, KT1_DATA),
+        (DRAM_VT0, VT0_DATA),
+        (DRAM_VT1, VT1_DATA),
         (DRAM_SCALE, SCALE_DATA),
     ]
 

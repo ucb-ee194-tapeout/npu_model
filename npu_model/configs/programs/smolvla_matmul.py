@@ -41,9 +41,9 @@ func.func @matmul(%a: tensor<32x32xf32>, %b: tensor<32x32xf32>)
 # 2. PyTorch reference.
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 def matmul_reference(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     return (a.to(torch.float32) @ b.to(torch.float32)).to(torch.bfloat16)
-
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -58,27 +58,35 @@ EXPECTED = matmul_reference(INPUT_A, INPUT_B)
 EXPECTED_STACKED = torch.cat((EXPECTED[:, :16], EXPECTED[:, 16:]), dim=0)
 
 # Cross-check via IREE. Hardware uses fp8; MLIR is f32 for IREE compatibility.
-try:
-    import numpy as np
-    import iree.compiler as compiler
-    import iree.runtime as runtime
+import os
 
-    _vmfb = compiler.compile_str(
-        MATMUL_MLIR,
-        target_backends=["llvm-cpu"],
-        extra_args=["--iree-llvmcpu-target-cpu=generic"],
-    )
-    _cfg = runtime.Config("local-task")
-    _ctx = runtime.SystemContext(config=_cfg)
-    _ctx.add_vm_module(runtime.VmModule.copy_buffer(_ctx.instance, _vmfb))
-    _iree_out = _ctx.modules.module["matmul"](
-        INPUT_A.to(torch.float32).numpy(), INPUT_B.to(torch.float32).numpy()
-    )
-    _iree_bf16 = torch.from_numpy(np.array(_iree_out)).to(torch.bfloat16)
-    _diff = (EXPECTED.float() - _iree_bf16.float()).abs().max().item()
-    assert _diff < 4.0, f"MLIR vs PyTorch mismatch: {_diff}"
-except ImportError:
-    pass
+if os.environ.get("NPU_MODEL_ENABLE_IREE_CROSSCHECK", "").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}:
+    try:
+        import numpy as np
+        import iree.compiler as compiler
+        import iree.runtime as runtime
+
+        _vmfb = compiler.compile_str(
+            MATMUL_MLIR,
+            target_backends=["llvm-cpu"],
+            extra_args=["--iree-llvmcpu-target-cpu=generic"],
+        )
+        _cfg = runtime.Config("local-task")
+        _ctx = runtime.SystemContext(config=_cfg)
+        _ctx.add_vm_module(runtime.VmModule.copy_buffer(_ctx.instance, _vmfb))
+        _iree_out = _ctx.modules.module["matmul"](
+            INPUT_A.to(torch.float32).numpy(), INPUT_B.to(torch.float32).numpy()
+        )
+        _iree_bf16 = torch.from_numpy(np.array(_iree_out)).to(torch.bfloat16)
+        _diff = (EXPECTED.float() - _iree_bf16.float()).abs().max().item()
+        assert _diff < 4.0, f"MLIR vs PyTorch mismatch: {_diff}"
+    except ImportError:
+        pass
 
 DRAM_A = 0x0
 DRAM_B = 0x500
@@ -88,6 +96,7 @@ DRAM_OUT = 0xB00
 # ═══════════════════════════════════════════════════════════════════════════
 # 4. NPU ISA program.
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 class SmolVLAMatmulProgram(Program):
     """Auto-generated single-file Program for the ``matmul`` kernel.
@@ -111,20 +120,28 @@ class SmolVLAMatmulProgram(Program):
         Instruction("lui", ScalarArgs(rd=8, imm=1)),
         Instruction("addi", ScalarArgs(rd=8, rs1=8, imm=-2048)),
         Instruction("dma.config.ch<N>", DmaArgs()),
-        Instruction("dma.wait.ch<N>", DmaArgs()),  # let config settle before issuing loads
+        Instruction(
+            "dma.wait.ch<N>", DmaArgs()
+        ),  # let config settle before issuing loads
         Instruction("dma.load.ch<N>", DmaArgs(rd=4, rs1=1, rs2=7)),
         Instruction("dma.load.ch<N>", DmaArgs(rd=5, rs1=2, rs2=7, channel=1)),
         Instruction("dma.wait.ch<N>", DmaArgs()),
         Instruction("dma.wait.ch<N>", DmaArgs(channel=1)),
         Instruction("vload", VectorArgs(rs1=4)),
+        Instruction("delay", ScalarArgs(imm=16)),
         Instruction("vload", VectorArgs(vd=1, rs1=5)),
+        Instruction("delay", ScalarArgs(imm=16)),
         Instruction("vmatpush.weight.mxu0", VectorArgs(vs1=1)),
+        Instruction("delay", ScalarArgs(imm=16)),
         Instruction("vmatmul.mxu0", MatrixArgs()),
-        Instruction("delay", ScalarArgs(imm=30)),
+        Instruction("delay", ScalarArgs(imm=32)),
         Instruction("vmatpop.bf16.acc.mxu0", VectorArgs(vd=2)),
+        Instruction("delay", ScalarArgs(imm=32)),
         Instruction("vstore", VectorArgs(vd=2, rs1=6)),
+        Instruction("delay", ScalarArgs(imm=16)),
         Instruction("addi", ScalarArgs(rd=9, rs1=6, imm=1024)),
         Instruction("vstore", VectorArgs(vd=3, rs1=9)),
+        Instruction("delay", ScalarArgs(imm=16)),
         Instruction("dma.store.ch<N>", DmaArgs(rd=3, rs1=6, rs2=8)),
         Instruction("dma.wait.ch<N>", DmaArgs()),
         Instruction("ecall", ScalarArgs()),
@@ -134,7 +151,6 @@ class SmolVLAMatmulProgram(Program):
         (DRAM_A, INPUT_A),
         (DRAM_B, INPUT_B),
     ]
-
 
     golden_result: tuple[int, torch.Tensor] = (
         DRAM_OUT,

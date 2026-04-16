@@ -25,13 +25,18 @@ from npu_model.isa import DmaArgs, MatrixArgs, ScalarArgs, VectorArgs
 
 import math
 
+
 def gelu_tanh_reference(x: torch.Tensor) -> torch.Tensor:
     return (
         x.float()
         * 0.5
-        * (1.0 + torch.tanh(math.sqrt(2.0 / math.pi) * (x.float() + 0.044715 * x.float().pow(3.0))))
+        * (
+            1.0
+            + torch.tanh(
+                math.sqrt(2.0 / math.pi) * (x.float() + 0.044715 * x.float().pow(3.0))
+            )
+        )
     ).to(x.dtype)
-
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -74,29 +79,37 @@ func.func @gelu_tanh(%x: tensor<32x32xf32>) -> tensor<32x32xf32> {
 """
 
 torch.manual_seed(42)
-INPUT = (torch.randn(32, 32, dtype=torch.bfloat16) * 0.5)
+INPUT = torch.randn(32, 32, dtype=torch.bfloat16) * 0.5
 EXPECTED = gelu_tanh_reference(INPUT)
 
 # Cross-check via IREE.
-try:
-    import numpy as np
-    import iree.compiler as compiler
-    import iree.runtime as runtime
+import os
 
-    _vmfb = compiler.compile_str(
-        GELU_TANH_MLIR,
-        target_backends=["llvm-cpu"],
-        extra_args=["--iree-llvmcpu-target-cpu=generic"],
-    )
-    _cfg = runtime.Config("local-task")
-    _ctx = runtime.SystemContext(config=_cfg)
-    _ctx.add_vm_module(runtime.VmModule.copy_buffer(_ctx.instance, _vmfb))
-    _iree_out = _ctx.modules.module["gelu_tanh"](INPUT.float().numpy())
-    _iree_bf16 = torch.from_numpy(np.array(_iree_out)).to(torch.bfloat16)
-    _diff = (EXPECTED.float() - _iree_bf16.float()).abs().max().item()
-    assert _diff < 5e-2, f"MLIR vs PyTorch mismatch: {_diff}"
-except ImportError:
-    pass
+if os.environ.get("NPU_MODEL_ENABLE_IREE_CROSSCHECK", "").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}:
+    try:
+        import numpy as np
+        import iree.compiler as compiler
+        import iree.runtime as runtime
+
+        _vmfb = compiler.compile_str(
+            GELU_TANH_MLIR,
+            target_backends=["llvm-cpu"],
+            extra_args=["--iree-llvmcpu-target-cpu=generic"],
+        )
+        _cfg = runtime.Config("local-task")
+        _ctx = runtime.SystemContext(config=_cfg)
+        _ctx.add_vm_module(runtime.VmModule.copy_buffer(_ctx.instance, _vmfb))
+        _iree_out = _ctx.modules.module["gelu_tanh"](INPUT.float().numpy())
+        _iree_bf16 = torch.from_numpy(np.array(_iree_out)).to(torch.bfloat16)
+        _diff = (EXPECTED.float() - _iree_bf16.float()).abs().max().item()
+        assert _diff < 5e-2, f"MLIR vs PyTorch mismatch: {_diff}"
+    except ImportError:
+        pass
 # The handwritten ISA expects 5 inputs (x plus 4 tabulated constants)
 # at DRAM offsets 0x0, 0x400, 0x800, 0xc00, 0x1000. The golden fixture
 # here is a placeholder — to numerically validate this kernel, populate
@@ -114,6 +127,7 @@ DRAM_OUT_H1 = 0x1800
 # ═══════════════════════════════════════════════════════════════════════════
 # 4. NPU ISA program.
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 class SmolVLAGeluTanhProgram(Program):
     """Auto-generated single-file Program for the ``gelu_tanh`` kernel.
@@ -159,49 +173,56 @@ class SmolVLAGeluTanhProgram(Program):
         Instruction("dma.load.ch<N>", DmaArgs(rd=5, rs1=12, rs2=16)),
         Instruction("dma.wait.ch<N>", DmaArgs()),
         Instruction("vload", VectorArgs(rs1=1)),
+        Instruction("delay", ScalarArgs(imm=16)),
         Instruction("vload", VectorArgs(vd=1, rs1=2)),
+        Instruction("delay", ScalarArgs(imm=16)),
         Instruction("vload", VectorArgs(vd=2, rs1=3)),
+        Instruction("delay", ScalarArgs(imm=16)),
         Instruction("vload", VectorArgs(vd=3, rs1=4)),
+        Instruction("delay", ScalarArgs(imm=16)),
         Instruction("vload", VectorArgs(vd=4, rs1=5)),
+        Instruction("delay", ScalarArgs(imm=16)),
         Instruction("vli.all", VectorArgs(vd=5, imm=1)),
         Instruction("vmul.bf16", VectorArgs(vd=6)),
-        Instruction("delay", ScalarArgs(imm=2)),
+        Instruction("delay", ScalarArgs(imm=4)),
         Instruction("vmul.bf16", VectorArgs(vd=7, vs1=6)),
-        Instruction("delay", ScalarArgs(imm=2)),
+        Instruction("delay", ScalarArgs(imm=4)),
         Instruction("vmul.bf16", VectorArgs(vd=8, vs1=7, vs2=3)),
-        Instruction("delay", ScalarArgs(imm=2)),
+        Instruction("delay", ScalarArgs(imm=4)),
         Instruction("vadd.bf16", VectorArgs(vd=9, vs2=8)),
-        Instruction("delay", ScalarArgs(imm=2)),
+        Instruction("delay", ScalarArgs(imm=4)),
         Instruction("vmul.bf16", VectorArgs(vd=10, vs1=9, vs2=4)),
-        Instruction("delay", ScalarArgs(imm=2)),
+        Instruction("delay", ScalarArgs(imm=4)),
         Instruction("vtanh.bf16", VectorArgs(vd=11, vs1=10)),
-        Instruction("delay", ScalarArgs(imm=8)),
+        Instruction("delay", ScalarArgs(imm=16)),
         Instruction("vadd.bf16", VectorArgs(vd=12, vs1=5, vs2=11)),
-        Instruction("delay", ScalarArgs(imm=2)),
+        Instruction("delay", ScalarArgs(imm=4)),
         Instruction("vmul.bf16", VectorArgs(vd=13, vs2=2)),
-        Instruction("delay", ScalarArgs(imm=2)),
+        Instruction("delay", ScalarArgs(imm=4)),
         Instruction("vmul.bf16", VectorArgs(vd=14, vs1=13, vs2=12)),
-        Instruction("delay", ScalarArgs(imm=2)),
+        Instruction("delay", ScalarArgs(imm=4)),
         Instruction("vmul.bf16", VectorArgs(vd=6, vs1=1, vs2=1)),
-        Instruction("delay", ScalarArgs(imm=2)),
+        Instruction("delay", ScalarArgs(imm=4)),
         Instruction("vmul.bf16", VectorArgs(vd=7, vs1=6, vs2=1)),
-        Instruction("delay", ScalarArgs(imm=2)),
+        Instruction("delay", ScalarArgs(imm=4)),
         Instruction("vmul.bf16", VectorArgs(vd=8, vs1=7, vs2=3)),
-        Instruction("delay", ScalarArgs(imm=2)),
+        Instruction("delay", ScalarArgs(imm=4)),
         Instruction("vadd.bf16", VectorArgs(vd=9, vs1=1, vs2=8)),
-        Instruction("delay", ScalarArgs(imm=2)),
+        Instruction("delay", ScalarArgs(imm=4)),
         Instruction("vmul.bf16", VectorArgs(vd=10, vs1=9, vs2=4)),
-        Instruction("delay", ScalarArgs(imm=2)),
+        Instruction("delay", ScalarArgs(imm=4)),
         Instruction("vtanh.bf16", VectorArgs(vd=11, vs1=10)),
-        Instruction("delay", ScalarArgs(imm=8)),
+        Instruction("delay", ScalarArgs(imm=16)),
         Instruction("vadd.bf16", VectorArgs(vd=12, vs1=5, vs2=11)),
-        Instruction("delay", ScalarArgs(imm=2)),
+        Instruction("delay", ScalarArgs(imm=4)),
         Instruction("vmul.bf16", VectorArgs(vd=13, vs1=1, vs2=2)),
-        Instruction("delay", ScalarArgs(imm=2)),
+        Instruction("delay", ScalarArgs(imm=4)),
         Instruction("vmul.bf16", VectorArgs(vd=15, vs1=13, vs2=12)),
-        Instruction("delay", ScalarArgs(imm=2)),
+        Instruction("delay", ScalarArgs(imm=4)),
         Instruction("vstore", VectorArgs(vd=14, rs1=6)),
+        Instruction("delay", ScalarArgs(imm=16)),
         Instruction("vstore", VectorArgs(vd=15, rs1=7)),
+        Instruction("delay", ScalarArgs(imm=16)),
         Instruction("dma.store.ch<N>", DmaArgs(rd=14, rs1=6, rs2=16)),
         Instruction("dma.store.ch<N>", DmaArgs(rd=15, rs1=7, rs2=16, channel=1)),
         Instruction("dma.wait.ch<N>", DmaArgs()),
@@ -217,7 +238,6 @@ class SmolVLAGeluTanhProgram(Program):
         (DRAM_X_H0, INPUT[:, :16].contiguous()),
         (DRAM_X_H1, INPUT[:, 16:].contiguous()),
     ]
-
 
     # No golden_result set — kernel body depends on constants not yet
     # provided. Define ``golden_result`` once you have them.

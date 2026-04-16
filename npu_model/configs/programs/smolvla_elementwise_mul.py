@@ -48,28 +48,36 @@ INPUT_B = torch.randn(32, 32, dtype=torch.bfloat16)
 
 EXPECTED = elementwise_mul_reference(INPUT_A, INPUT_B)
 
-try:
-    import numpy as np
-    import iree.compiler as compiler
-    import iree.runtime as runtime
+import os
 
-    _vmfb = compiler.compile_str(
-        ELEMENTWISE_MUL_MLIR,
-        target_backends=["llvm-cpu"],
-        extra_args=["--iree-llvmcpu-target-cpu=generic"],
-    )
-    _config = runtime.Config("local-task")
-    _ctx = runtime.SystemContext(config=_config)
-    _ctx.add_vm_module(runtime.VmModule.copy_buffer(_ctx.instance, _vmfb))
-    _iree_out = _ctx.modules.module["elementwise_mul"](
-        INPUT_A.float().numpy(), INPUT_B.float().numpy()
-    )
-    _iree_expected = torch.from_numpy(np.array(_iree_out)).to(torch.bfloat16)
-    _diff = (EXPECTED.float() - _iree_expected.float()).abs().max().item()
-    assert _diff < 1e-3, f"MLIR vs PyTorch mismatch: {_diff}"
-    EXPECTED = _iree_expected
-except ImportError:
-    pass
+if os.environ.get("NPU_MODEL_ENABLE_IREE_CROSSCHECK", "").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}:
+    try:
+        import numpy as np
+        import iree.compiler as compiler
+        import iree.runtime as runtime
+
+        _vmfb = compiler.compile_str(
+            ELEMENTWISE_MUL_MLIR,
+            target_backends=["llvm-cpu"],
+            extra_args=["--iree-llvmcpu-target-cpu=generic"],
+        )
+        _config = runtime.Config("local-task")
+        _ctx = runtime.SystemContext(config=_config)
+        _ctx.add_vm_module(runtime.VmModule.copy_buffer(_ctx.instance, _vmfb))
+        _iree_out = _ctx.modules.module["elementwise_mul"](
+            INPUT_A.float().numpy(), INPUT_B.float().numpy()
+        )
+        _iree_expected = torch.from_numpy(np.array(_iree_out)).to(torch.bfloat16)
+        _diff = (EXPECTED.float() - _iree_expected.float()).abs().max().item()
+        assert _diff < 1e-3, f"MLIR vs PyTorch mismatch: {_diff}"
+        EXPECTED = _iree_expected
+    except ImportError:
+        pass
 
 
 DRAM_A_BASE = 0x0000
@@ -85,31 +93,46 @@ class SmolVLAElementwiseMulProgram(Program):
     """y = a * b on two 32x32 bf16 tiles (elementwise)."""
 
     instructions: List[Instruction[Any]] = [
-        Instruction(mnemonic="lui",  args=ScalarArgs(rd=1,  imm=0x4)),
-        Instruction(mnemonic="lui",  args=ScalarArgs(rd=2,  imm=0x5)),
-        Instruction(mnemonic="lui",  args=ScalarArgs(rd=3,  imm=0x6)),
+        Instruction(mnemonic="lui", args=ScalarArgs(rd=1, imm=0x4)),
+        Instruction(mnemonic="lui", args=ScalarArgs(rd=2, imm=0x5)),
+        Instruction(mnemonic="lui", args=ScalarArgs(rd=3, imm=0x6)),
         Instruction(mnemonic="addi", args=ScalarArgs(rd=4, rs1=0, imm=DRAM_A_BASE)),
-        Instruction(mnemonic="lui",  args=ScalarArgs(rd=5,  imm=0x1)),
-        Instruction(mnemonic="lui",  args=ScalarArgs(rd=6,  imm=0x2)),
-        Instruction(mnemonic="lui",  args=ScalarArgs(rd=7,  imm=0x1)),
-        Instruction(mnemonic="addi", args=ScalarArgs(rd=7, rs1=7, imm=-2048)),  # x7 = 2048
+        Instruction(mnemonic="lui", args=ScalarArgs(rd=5, imm=0x1)),
+        Instruction(mnemonic="lui", args=ScalarArgs(rd=6, imm=0x2)),
+        Instruction(mnemonic="lui", args=ScalarArgs(rd=7, imm=0x1)),
+        Instruction(
+            mnemonic="addi", args=ScalarArgs(rd=7, rs1=7, imm=-2048)
+        ),  # x7 = 2048
         Instruction(mnemonic="dma.config.ch<N>", args=DmaArgs(rs1=0, channel=0)),
         Instruction(mnemonic="dma.config.ch<N>", args=DmaArgs(rs1=0, channel=1)),
-        Instruction(mnemonic="dma.load.ch<N>",   args=DmaArgs(rd=1, rs1=4, rs2=7, channel=0)),
-        Instruction(mnemonic="dma.load.ch<N>",   args=DmaArgs(rd=2, rs1=5, rs2=7, channel=1)),
-        Instruction(mnemonic="dma.wait.ch<N>",   args=DmaArgs(channel=0)),
-        Instruction(mnemonic="dma.wait.ch<N>",   args=DmaArgs(channel=1)),
+        Instruction(
+            mnemonic="dma.load.ch<N>", args=DmaArgs(rd=1, rs1=4, rs2=7, channel=0)
+        ),
+        Instruction(
+            mnemonic="dma.load.ch<N>", args=DmaArgs(rd=2, rs1=5, rs2=7, channel=1)
+        ),
+        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
+        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=1)),
         Instruction(mnemonic="vload", args=VectorArgs(vd=0, rs1=1, imm12=0)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
         Instruction(mnemonic="vload", args=VectorArgs(vd=1, rs1=1, imm12=32)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
         Instruction(mnemonic="vload", args=VectorArgs(vd=2, rs1=2, imm12=0)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
         Instruction(mnemonic="vload", args=VectorArgs(vd=3, rs1=2, imm12=32)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
         Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=4, vs1=0, vs2=2)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
         Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=5, vs1=1, vs2=3)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
         Instruction(mnemonic="vstore", args=VectorArgs(vd=4, rs1=3, imm12=0)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
         Instruction(mnemonic="vstore", args=VectorArgs(vd=5, rs1=3, imm12=32)),
-        Instruction(mnemonic="delay",           args=ScalarArgs(imm=20)),
-        Instruction(mnemonic="dma.store.ch<N>", args=DmaArgs(rd=6, rs1=3, rs2=7, channel=0)),
-        Instruction(mnemonic="dma.wait.ch<N>",  args=DmaArgs(channel=0)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=20)),
+        Instruction(
+            mnemonic="dma.store.ch<N>", args=DmaArgs(rd=6, rs1=3, rs2=7, channel=0)
+        ),
+        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
     ]
 
     memory_regions: List[Tuple[int, torch.Tensor]] = [

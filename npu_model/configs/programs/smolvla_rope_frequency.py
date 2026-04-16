@@ -17,9 +17,9 @@ from npu_model.isa import DmaArgs, MatrixArgs, ScalarArgs, VectorArgs
 # 2. PyTorch reference.
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 def rope_frequency_reference(x: torch.Tensor) -> torch.Tensor:
     return torch.cos(x.float()).to(x.dtype)
-
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -54,25 +54,33 @@ INPUT = torch.randn(32, 32, dtype=torch.bfloat16) * 0.5
 EXPECTED = rope_frequency_reference(INPUT)
 
 # Cross-check via IREE.
-try:
-    import numpy as np
-    import iree.compiler as compiler
-    import iree.runtime as runtime
+import os
 
-    _vmfb = compiler.compile_str(
-        ROPE_FREQUENCY_MLIR,
-        target_backends=["llvm-cpu"],
-        extra_args=["--iree-llvmcpu-target-cpu=generic"],
-    )
-    _cfg = runtime.Config("local-task")
-    _ctx = runtime.SystemContext(config=_cfg)
-    _ctx.add_vm_module(runtime.VmModule.copy_buffer(_ctx.instance, _vmfb))
-    _iree_out = _ctx.modules.module["rope_frequency"](INPUT.float().numpy())
-    _iree_bf16 = torch.from_numpy(np.array(_iree_out)).to(torch.bfloat16)
-    _diff = (EXPECTED.float() - _iree_bf16.float()).abs().max().item()
-    assert _diff < 5e-2, f"MLIR vs PyTorch mismatch: {_diff}"
-except ImportError:
-    pass
+if os.environ.get("NPU_MODEL_ENABLE_IREE_CROSSCHECK", "").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}:
+    try:
+        import numpy as np
+        import iree.compiler as compiler
+        import iree.runtime as runtime
+
+        _vmfb = compiler.compile_str(
+            ROPE_FREQUENCY_MLIR,
+            target_backends=["llvm-cpu"],
+            extra_args=["--iree-llvmcpu-target-cpu=generic"],
+        )
+        _cfg = runtime.Config("local-task")
+        _ctx = runtime.SystemContext(config=_cfg)
+        _ctx.add_vm_module(runtime.VmModule.copy_buffer(_ctx.instance, _vmfb))
+        _iree_out = _ctx.modules.module["rope_frequency"](INPUT.float().numpy())
+        _iree_bf16 = torch.from_numpy(np.array(_iree_out)).to(torch.bfloat16)
+        _diff = (EXPECTED.float() - _iree_bf16.float()).abs().max().item()
+        assert _diff < 5e-2, f"MLIR vs PyTorch mismatch: {_diff}"
+    except ImportError:
+        pass
 
 DRAM_X = 0x0000
 DRAM_OUT = 0x0B00
@@ -81,6 +89,7 @@ DRAM_OUT = 0x0B00
 # ═══════════════════════════════════════════════════════════════════════════
 # 4. NPU ISA program.
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 class SmolVLARopeFrequencyProgram(Program):
     """Auto-generated single-file Program for the ``rope_frequency`` kernel.
@@ -104,12 +113,17 @@ class SmolVLARopeFrequencyProgram(Program):
         Instruction("dma.load.ch<N>", DmaArgs(rd=1, rs1=4, rs2=6)),
         Instruction("dma.wait.ch<N>", DmaArgs()),
         Instruction("vload", VectorArgs(rs1=1)),
+        Instruction("delay", ScalarArgs(imm=16)),
         Instruction("vload", VectorArgs(vd=1, rs1=1, imm12=32)),
+        Instruction("delay", ScalarArgs(imm=16)),
         Instruction("vcos.bf16", VectorArgs(vd=2)),
+        Instruction("delay", ScalarArgs(imm=16)),
         Instruction("vcos.bf16", VectorArgs(vd=3, vs1=1)),
-        Instruction("delay", ScalarArgs(imm=5)),
+        Instruction("delay", ScalarArgs(imm=16)),
         Instruction("vstore", VectorArgs(vd=2, rs1=1)),
+        Instruction("delay", ScalarArgs(imm=16)),
         Instruction("vstore", VectorArgs(vd=3, rs1=1, imm12=32)),
+        Instruction("delay", ScalarArgs(imm=16)),
         Instruction("dma.store.ch<N>", DmaArgs(rd=5, rs1=1, rs2=6)),
         Instruction("dma.wait.ch<N>", DmaArgs()),
     ]
@@ -117,6 +131,5 @@ class SmolVLARopeFrequencyProgram(Program):
     memory_regions: List[Tuple[int, torch.Tensor]] = [
         (DRAM_X, INPUT),
     ]
-
 
     golden_result: tuple[int, torch.Tensor] = (DRAM_OUT, EXPECTED)

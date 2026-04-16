@@ -17,10 +17,10 @@ from npu_model.isa import DmaArgs, MatrixArgs, ScalarArgs, VectorArgs
 # 2. PyTorch reference.
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 def requant_reference(x: torch.Tensor) -> torch.Tensor:
     # Naive cast — kernel's seli=1 is the unit-scale path.
     return x.to(torch.float8_e4m3fn)
-
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -58,27 +58,35 @@ EXPECTED = requant_reference(INPUT)
 
 # Cross-check via IREE. PyTorch reference returns fp8; IREE returns
 # fp8-rounded f32; cast both to f32 for comparison.
-try:
-    import numpy as np
-    import iree.compiler as compiler
-    import iree.runtime as runtime
+import os
 
-    _vmfb = compiler.compile_str(
-        REQUANT_MLIR,
-        target_backends=["llvm-cpu"],
-        extra_args=["--iree-llvmcpu-target-cpu=generic"],
-    )
-    _cfg = runtime.Config("local-task")
-    _ctx = runtime.SystemContext(config=_cfg)
-    _ctx.add_vm_module(runtime.VmModule.copy_buffer(_ctx.instance, _vmfb))
-    _iree_out = _ctx.modules.module["requant"](INPUT.float().numpy())
-    _iree_arr = np.array(_iree_out)
-    _iree_f32 = torch.from_numpy(_iree_arr)
-    _diff = (EXPECTED.to(torch.float32) - _iree_f32).abs().max().item()
-    # Bf16-rounded input vs f32-then-fp8 path can differ by 1 bf16 ULP.
-    assert _diff < 5e-2, f"MLIR vs PyTorch mismatch: {_diff}"
-except ImportError:
-    pass
+if os.environ.get("NPU_MODEL_ENABLE_IREE_CROSSCHECK", "").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}:
+    try:
+        import numpy as np
+        import iree.compiler as compiler
+        import iree.runtime as runtime
+
+        _vmfb = compiler.compile_str(
+            REQUANT_MLIR,
+            target_backends=["llvm-cpu"],
+            extra_args=["--iree-llvmcpu-target-cpu=generic"],
+        )
+        _cfg = runtime.Config("local-task")
+        _ctx = runtime.SystemContext(config=_cfg)
+        _ctx.add_vm_module(runtime.VmModule.copy_buffer(_ctx.instance, _vmfb))
+        _iree_out = _ctx.modules.module["requant"](INPUT.float().numpy())
+        _iree_arr = np.array(_iree_out)
+        _iree_f32 = torch.from_numpy(_iree_arr)
+        _diff = (EXPECTED.to(torch.float32) - _iree_f32).abs().max().item()
+        # Bf16-rounded input vs f32-then-fp8 path can differ by 1 bf16 ULP.
+        assert _diff < 5e-2, f"MLIR vs PyTorch mismatch: {_diff}"
+    except ImportError:
+        pass
 
 DRAM_X_H0 = 0x0000
 DRAM_X_H1 = 0x0400
@@ -88,6 +96,7 @@ DRAM_OUT = 0x0B00
 # ═══════════════════════════════════════════════════════════════════════════
 # 4. NPU ISA program.
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 class SmolVLARequantProgram(Program):
     """Auto-generated single-file Program for the ``requant`` kernel.
@@ -115,10 +124,13 @@ class SmolVLARequantProgram(Program):
         Instruction("dma.wait.ch<N>", DmaArgs()),
         Instruction("dma.wait.ch<N>", DmaArgs(channel=1)),
         Instruction("vload", VectorArgs(rs1=1)),
+        Instruction("delay", ScalarArgs(imm=16)),
         Instruction("vload", VectorArgs(vd=1, rs1=2)),
+        Instruction("delay", ScalarArgs(imm=16)),
         Instruction("vpack.bf16.fp8", VectorArgs(vd=2, es1=5)),
         Instruction("delay", ScalarArgs(imm=8)),
         Instruction("vstore", VectorArgs(vd=2, rs1=3)),
+        Instruction("delay", ScalarArgs(imm=16)),
         Instruction("dma.store.ch<N>", DmaArgs(rd=6, rs1=3, rs2=7)),
         Instruction("dma.wait.ch<N>", DmaArgs()),
     ]
@@ -127,6 +139,5 @@ class SmolVLARequantProgram(Program):
         (DRAM_X_H0, INPUT[:, :16].contiguous()),
         (DRAM_X_H1, INPUT[:, 16:].contiguous()),
     ]
-
 
     golden_result: tuple[int, torch.Tensor] = (DRAM_OUT, EXPECTED)

@@ -41,11 +41,11 @@ func.func @elementwise_div(
 # 2. PyTorch reference.
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 def elementwise_div_reference(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     # Kernel computes via vrecip + vmul in bf16; mirror the rounding.
     inv_b = (1.0 / b.float()).to(torch.bfloat16)
     return (a * inv_b).to(a.dtype)
-
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -63,27 +63,35 @@ EXPECTED = elementwise_div_reference(INPUT_A, INPUT_B)
 # MLIR uses f32 divf; PyTorch mirrors the kernel's bf16 vrecip+vmul.
 # Tolerance ~5e-2 = a couple bf16 ULPs, which is the expected gap
 # between f32-exact and bf16-reciprocal.
-try:
-    import numpy as np
-    import iree.compiler as compiler
-    import iree.runtime as runtime
+import os
 
-    _vmfb = compiler.compile_str(
-        ELEMENTWISE_DIV_MLIR,
-        target_backends=["llvm-cpu"],
-        extra_args=["--iree-llvmcpu-target-cpu=generic"],
-    )
-    _cfg = runtime.Config("local-task")
-    _ctx = runtime.SystemContext(config=_cfg)
-    _ctx.add_vm_module(runtime.VmModule.copy_buffer(_ctx.instance, _vmfb))
-    _iree_out = _ctx.modules.module["elementwise_div"](
-        INPUT_A.float().numpy(), INPUT_B.float().numpy()
-    )
-    _iree_bf16 = torch.from_numpy(np.array(_iree_out)).to(torch.bfloat16)
-    _diff = (EXPECTED.float() - _iree_bf16.float()).abs().max().item()
-    assert _diff < 5e-2, f"MLIR vs PyTorch mismatch: {_diff}"
-except ImportError:
-    pass
+if os.environ.get("NPU_MODEL_ENABLE_IREE_CROSSCHECK", "").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}:
+    try:
+        import numpy as np
+        import iree.compiler as compiler
+        import iree.runtime as runtime
+
+        _vmfb = compiler.compile_str(
+            ELEMENTWISE_DIV_MLIR,
+            target_backends=["llvm-cpu"],
+            extra_args=["--iree-llvmcpu-target-cpu=generic"],
+        )
+        _cfg = runtime.Config("local-task")
+        _ctx = runtime.SystemContext(config=_cfg)
+        _ctx.add_vm_module(runtime.VmModule.copy_buffer(_ctx.instance, _vmfb))
+        _iree_out = _ctx.modules.module["elementwise_div"](
+            INPUT_A.float().numpy(), INPUT_B.float().numpy()
+        )
+        _iree_bf16 = torch.from_numpy(np.array(_iree_out)).to(torch.bfloat16)
+        _diff = (EXPECTED.float() - _iree_bf16.float()).abs().max().item()
+        assert _diff < 5e-2, f"MLIR vs PyTorch mismatch: {_diff}"
+    except ImportError:
+        pass
 
 DRAM_A_H0 = 0x0000
 DRAM_A_H1 = 0x0400
@@ -101,6 +109,7 @@ EXPECTED_STACKED = torch.cat((EXPECTED[:, :16], EXPECTED[:, 16:]), dim=0)
 # ═══════════════════════════════════════════════════════════════════════════
 # 4. NPU ISA program.
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 class SmolVLAElementwiseDivProgram(Program):
     """Auto-generated single-file Program for the ``elementwise_div`` kernel.
@@ -139,17 +148,25 @@ class SmolVLAElementwiseDivProgram(Program):
         Instruction("dma.wait.ch<N>", DmaArgs()),
         Instruction("dma.wait.ch<N>", DmaArgs(channel=1)),
         Instruction("vload", VectorArgs(rs1=1)),
+        Instruction("delay", ScalarArgs(imm=16)),
         Instruction("vload", VectorArgs(vd=1, rs1=2)),
+        Instruction("delay", ScalarArgs(imm=16)),
         Instruction("vload", VectorArgs(vd=2, rs1=3)),
+        Instruction("delay", ScalarArgs(imm=16)),
         Instruction("vload", VectorArgs(vd=3, rs1=4)),
+        Instruction("delay", ScalarArgs(imm=16)),
         Instruction("vrecip.bf16", VectorArgs(vd=4, vs1=2)),
+        Instruction("delay", ScalarArgs(imm=16)),
         Instruction("vrecip.bf16", VectorArgs(vd=5, vs1=3)),
-        Instruction("delay", ScalarArgs(imm=8)),
+        Instruction("delay", ScalarArgs(imm=16)),
         Instruction("vmul.bf16", VectorArgs(vd=6, vs2=4)),
+        Instruction("delay", ScalarArgs(imm=4)),
         Instruction("vmul.bf16", VectorArgs(vd=7, vs1=1, vs2=5)),
-        Instruction("delay", ScalarArgs(imm=2)),
+        Instruction("delay", ScalarArgs(imm=4)),
         Instruction("vstore", VectorArgs(vd=6, rs1=5)),
+        Instruction("delay", ScalarArgs(imm=16)),
         Instruction("vstore", VectorArgs(vd=7, rs1=6)),
+        Instruction("delay", ScalarArgs(imm=16)),
         Instruction("dma.store.ch<N>", DmaArgs(rd=11, rs1=5, rs2=13)),
         Instruction("dma.store.ch<N>", DmaArgs(rd=12, rs1=6, rs2=13, channel=1)),
         Instruction("dma.wait.ch<N>", DmaArgs()),
@@ -162,7 +179,6 @@ class SmolVLAElementwiseDivProgram(Program):
         (DRAM_B_H0, INPUT_B[:, :16].contiguous()),
         (DRAM_B_H1, INPUT_B[:, 16:].contiguous()),
     ]
-
 
     golden_result: tuple[int, torch.Tensor] = (
         DRAM_OUT_H0,

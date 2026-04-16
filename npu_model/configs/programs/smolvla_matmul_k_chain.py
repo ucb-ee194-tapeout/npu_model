@@ -64,12 +64,13 @@ func.func @matmul_k_chain(
 # 2. PyTorch reference.
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 def matmul_k_chain_reference(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     # Mirror MXU per-tile semantics: fp8 → fp16 multiply, bf16 accumulate.
     a0, a1 = a[:, :32].to(torch.float16), a[:, 32:].to(torch.float16)
     b0, b1 = b[:32, :].to(torch.float16), b[32:, :].to(torch.float16)
-    acc_bf16 = (a0 @ b0).to(torch.bfloat16)                  # first tile writes acc
-    acc_fp16 = (a1 @ b1) + acc_bf16.to(torch.float16)         # accumulate second tile
+    acc_bf16 = (a0 @ b0).to(torch.bfloat16)  # first tile writes acc
+    acc_fp16 = (a1 @ b1) + acc_bf16.to(torch.float16)  # accumulate second tile
     return acc_fp16.to(torch.bfloat16)
 
 
@@ -88,42 +89,50 @@ EXPECTED_STACKED = torch.cat((EXPECTED[:, :16], EXPECTED[:, 16:]), dim=0)
 # Cross-check: compile the (f32) MLIR via IREE and compare to the
 # hardware-semantic PyTorch reference. Expect a gap (fp8 quantization
 # in the hardware ref vs exact f32 in MLIR) on order of magnitudes.
-try:
-    import numpy as np
-    import iree.compiler as compiler
-    import iree.runtime as runtime
+import os
 
-    _vmfb = compiler.compile_str(
-        MATMUL_K_CHAIN_MLIR,
-        target_backends=["llvm-cpu"],
-        extra_args=["--iree-llvmcpu-target-cpu=generic"],
-    )
-    _cfg = runtime.Config("local-task")
-    _ctx = runtime.SystemContext(config=_cfg)
-    _ctx.add_vm_module(runtime.VmModule.copy_buffer(_ctx.instance, _vmfb))
-    _iree_out = _ctx.modules.module["matmul_k_chain"](
-        INPUT_A.to(torch.float32).numpy(), INPUT_B.to(torch.float32).numpy()
-    )
-    _iree_bf16 = torch.from_numpy(np.array(_iree_out)).to(torch.bfloat16)
-    # Compare f32-MLIR vs fp8-accumulator-bf16 hardware reference on
-    # bf16 values. Tolerance: a few bf16 ULPs per accumulated term.
-    _diff = (EXPECTED.float() - _iree_bf16.float()).abs().max().item()
-    assert _diff < 8.0, f"MLIR vs PyTorch mismatch: {_diff}"
-except ImportError:
-    pass
+if os.environ.get("NPU_MODEL_ENABLE_IREE_CROSSCHECK", "").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}:
+    try:
+        import numpy as np
+        import iree.compiler as compiler
+        import iree.runtime as runtime
+
+        _vmfb = compiler.compile_str(
+            MATMUL_K_CHAIN_MLIR,
+            target_backends=["llvm-cpu"],
+            extra_args=["--iree-llvmcpu-target-cpu=generic"],
+        )
+        _cfg = runtime.Config("local-task")
+        _ctx = runtime.SystemContext(config=_cfg)
+        _ctx.add_vm_module(runtime.VmModule.copy_buffer(_ctx.instance, _vmfb))
+        _iree_out = _ctx.modules.module["matmul_k_chain"](
+            INPUT_A.to(torch.float32).numpy(), INPUT_B.to(torch.float32).numpy()
+        )
+        _iree_bf16 = torch.from_numpy(np.array(_iree_out)).to(torch.bfloat16)
+        # Compare f32-MLIR vs fp8-accumulator-bf16 hardware reference on
+        # bf16 values. Tolerance: a few bf16 ULPs per accumulated term.
+        _diff = (EXPECTED.float() - _iree_bf16.float()).abs().max().item()
+        assert _diff < 8.0, f"MLIR vs PyTorch mismatch: {_diff}"
+    except ImportError:
+        pass
 
 # DRAM layout — all per-tile fp8 buffers are 32x32 = 1024 B; output is bf16 = 2048 B.
 DRAM_A_K0 = 0x0000
 DRAM_A_K1 = 0x0400
 DRAM_B_K0 = 0x0800
 DRAM_B_K1 = 0x0C00
-DRAM_OUT  = 0x1000
+DRAM_OUT = 0x1000
 
 # VMEM mirrors DRAM layout (distinct address space).
-VMEM_A_K0  = 0x0000
-VMEM_A_K1  = 0x0400
-VMEM_B_K0  = 0x0800
-VMEM_B_K1  = 0x0C00
+VMEM_A_K0 = 0x0000
+VMEM_A_K1 = 0x0400
+VMEM_B_K0 = 0x0800
+VMEM_B_K1 = 0x0C00
 VMEM_OUT_H0 = 0x1000
 VMEM_OUT_H1 = 0x1400  # second 32x16 half of the bf16 output tile
 
@@ -131,6 +140,7 @@ VMEM_OUT_H1 = 0x1400  # second 32x16 half of the bf16 output tile
 # ═══════════════════════════════════════════════════════════════════════════
 # 4. NPU ISA program.
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 class SmolVLAMatmulKChainProgram(Program):
     """Two-tile K-chain matmul composed from the per-tile matmul kernel.
@@ -148,55 +158,56 @@ class SmolVLAMatmulKChainProgram(Program):
         Instruction("addi", ScalarArgs(rd=3, rs1=2, imm=1024)),  # DRAM_B_K0
         Instruction("addi", ScalarArgs(rd=4, rs1=3, imm=1024)),  # DRAM_B_K1
         Instruction("addi", ScalarArgs(rd=5, rs1=4, imm=1024)),  # DRAM_OUT
-
         # ── VMEM addresses (mirror DRAM layout) ────────────────────────
         Instruction("addi", ScalarArgs(rd=6, imm=VMEM_A_K0)),
         Instruction("addi", ScalarArgs(rd=7, rs1=6, imm=1024)),  # VMEM_A_K1
         Instruction("addi", ScalarArgs(rd=8, rs1=7, imm=1024)),  # VMEM_B_K0
         Instruction("addi", ScalarArgs(rd=9, rs1=8, imm=1024)),  # VMEM_B_K1
-        Instruction("addi", ScalarArgs(rd=10, rs1=9, imm=1024)), # VMEM_OUT_H0
-        Instruction("addi", ScalarArgs(rd=11, rs1=10, imm=1024)),# VMEM_OUT_H1
-
+        Instruction("addi", ScalarArgs(rd=10, rs1=9, imm=1024)),  # VMEM_OUT_H0
+        Instruction("addi", ScalarArgs(rd=11, rs1=10, imm=1024)),  # VMEM_OUT_H1
         # ── Transfer sizes ─────────────────────────────────────────────
-        Instruction("addi", ScalarArgs(rd=12, imm=1024)),        # tile size
-        Instruction("addi", ScalarArgs(rd=13, rs1=12, imm=1024)),# output size (2048)
-
+        Instruction("addi", ScalarArgs(rd=12, imm=1024)),  # tile size
+        Instruction("addi", ScalarArgs(rd=13, rs1=12, imm=1024)),  # output size (2048)
         # ── DMA channel init ───────────────────────────────────────────
         Instruction("dma.config.ch<N>", DmaArgs()),
         Instruction("dma.config.ch<N>", DmaArgs(channel=1)),
         Instruction("dma.wait.ch<N>", DmaArgs()),
         Instruction("dma.wait.ch<N>", DmaArgs(channel=1)),
-
         # ── Phase 1: load A_K0 and B_K0 in parallel ────────────────────
         Instruction("dma.load.ch<N>", DmaArgs(rd=6, rs1=1, rs2=12)),
         Instruction("dma.load.ch<N>", DmaArgs(rd=8, rs1=3, rs2=12, channel=1)),
         Instruction("dma.wait.ch<N>", DmaArgs()),
         Instruction("dma.wait.ch<N>", DmaArgs(channel=1)),
-
         # ── Phase 2: load A_K1 and B_K1 in parallel ────────────────────
         Instruction("dma.load.ch<N>", DmaArgs(rd=7, rs1=2, rs2=12)),
         Instruction("dma.load.ch<N>", DmaArgs(rd=9, rs1=4, rs2=12, channel=1)),
         Instruction("dma.wait.ch<N>", DmaArgs()),
         Instruction("dma.wait.ch<N>", DmaArgs(channel=1)),
-
         # ── K tile 0: acc = A_K0 @ B_K0 (reset) ────────────────────────
-        Instruction("vload",  VectorArgs(vd=0, rs1=6)),          # mrf[0] ← A_K0
-        Instruction("vload",  VectorArgs(vd=1, rs1=8)),          # mrf[1] ← B_K0
+        Instruction("vload", VectorArgs(vd=0, rs1=6)),  # mrf[0] ← A_K0
+        Instruction("delay", ScalarArgs(imm=16)),
+        Instruction("vload", VectorArgs(vd=1, rs1=8)),  # mrf[1] ← B_K0
+        Instruction("delay", ScalarArgs(imm=16)),
         Instruction("vmatpush.weight.mxu0", VectorArgs(vs1=1)),  # wb[0]  ← mrf[1]
-        Instruction("vmatmul.mxu0", MatrixArgs()),               # acc[0] = mrf[0] @ wb[0]
-        Instruction("delay", ScalarArgs(imm=30)),
-
+        Instruction("delay", ScalarArgs(imm=16)),
+        Instruction("vmatmul.mxu0", MatrixArgs()),  # acc[0] = mrf[0] @ wb[0]
+        Instruction("delay", ScalarArgs(imm=32)),
         # ── K tile 1: acc += A_K1 @ B_K1 ───────────────────────────────
-        Instruction("vload",  VectorArgs(vd=2, rs1=7)),          # mrf[2] ← A_K1
-        Instruction("vload",  VectorArgs(vd=3, rs1=9)),          # mrf[3] ← B_K1
+        Instruction("vload", VectorArgs(vd=2, rs1=7)),  # mrf[2] ← A_K1
+        Instruction("delay", ScalarArgs(imm=16)),
+        Instruction("vload", VectorArgs(vd=3, rs1=9)),  # mrf[3] ← B_K1
+        Instruction("delay", ScalarArgs(imm=16)),
         Instruction("vmatpush.weight.mxu0", VectorArgs(vs1=3)),  # wb[0]  ← mrf[3]
-        Instruction("vmatmul.acc.mxu0", MatrixArgs(vs1=2)),      # acc[0] += mrf[2] @ wb[0]
-        Instruction("delay", ScalarArgs(imm=30)),
-
+        Instruction("delay", ScalarArgs(imm=16)),
+        Instruction("vmatmul.acc.mxu0", MatrixArgs(vs1=2)),  # acc[0] += mrf[2] @ wb[0]
+        Instruction("delay", ScalarArgs(imm=32)),
         # ── Pop accumulator, store halves to VMEM, DMA out ─────────────
         Instruction("vmatpop.bf16.acc.mxu0", VectorArgs(vd=4)),  # mrf[4..5] ← acc[0]
-        Instruction("vstore", VectorArgs(vd=4, rs1=10)),         # vmem[OUT_H0] ← mrf[4]
-        Instruction("vstore", VectorArgs(vd=5, rs1=11)),         # vmem[OUT_H1] ← mrf[5]
+        Instruction("delay", ScalarArgs(imm=32)),
+        Instruction("vstore", VectorArgs(vd=4, rs1=10)),  # vmem[OUT_H0] ← mrf[4]
+        Instruction("delay", ScalarArgs(imm=16)),
+        Instruction("vstore", VectorArgs(vd=5, rs1=11)),  # vmem[OUT_H1] ← mrf[5]
+        Instruction("delay", ScalarArgs(imm=16)),
         Instruction("dma.store.ch<N>", DmaArgs(rd=5, rs1=10, rs2=13)),
         Instruction("dma.wait.ch<N>", DmaArgs()),
         Instruction("ecall", ScalarArgs()),

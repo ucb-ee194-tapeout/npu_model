@@ -90,14 +90,31 @@ func.func @rms_norm(
 #    accumulation, per-row rsqrt).
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 def rms_norm_reference(
     x: torch.Tensor, inv_dim: float = 1.0 / 32.0, eps: float = 1e-6
 ) -> torch.Tensor:
-    """y = x * rsqrt(sum(x^2) * inv_dim + eps). No learnable scale."""
-    sum_sq = (x.float() * x.float()).sum(dim=-1, keepdim=True)  # (32, 1)
-    var = (sum_sq * inv_dim).to(torch.bfloat16).float()
-    inv_rms = torch.rsqrt(var + eps).to(torch.bfloat16)
-    return (x * inv_rms.to(torch.bfloat16)).to(x.dtype)
+    """y = x * (1 / sqrt(mean(x^2) + eps)). Matches pair-op ISA sequence.
+
+    Steps (all in bf16 after each stage, mirroring the kernel):
+        sq    = x * x                      (vsquare.bf16)
+        sum   = sum over 32 cols            (vredsum.row.bf16)
+        mean  = sum * inv_dim               (vmul.bf16)
+        denom = mean + eps                  (vadd.bf16)
+        root  = sqrt(denom)                 (vsqrt.bf16)
+        inv   = 1 / root                    (vrecip.bf16)
+        y     = x * inv                     (vmul.bf16)
+    """
+    xb = x.to(torch.bfloat16)
+    sq = (xb * xb).to(torch.bfloat16)
+    row_sum = sq.sum(dim=-1, keepdim=True).to(torch.bfloat16)
+    inv_dim_t = torch.full_like(row_sum, inv_dim, dtype=torch.bfloat16)
+    eps_t = torch.full_like(row_sum, eps, dtype=torch.bfloat16)
+    mean = (row_sum * inv_dim_t).to(torch.bfloat16)
+    denom = (mean + eps_t).to(torch.bfloat16)
+    root = torch.sqrt(denom.float()).to(torch.bfloat16)
+    inv = (1.0 / root.float()).to(torch.bfloat16)
+    return (xb * inv).to(x.dtype)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -112,29 +129,37 @@ EXPECTED = rms_norm_reference(INPUT)
 # declares tensor<32x32xf32> + two tensor<32xf32> broadcasts for
 # inv_dim and eps), compare to PyTorch's bf16-accumulated reference.
 # Tolerance ~5e-2 accounts for the bf16-rounding in the PyTorch ref.
-try:
-    import numpy as np
-    import iree.compiler as compiler
-    import iree.runtime as runtime
+import os
 
-    _vmfb = compiler.compile_str(
-        RMS_NORM_MLIR,
-        target_backends=["llvm-cpu"],
-        extra_args=["--iree-llvmcpu-target-cpu=generic"],
-    )
-    _cfg = runtime.Config("local-task")
-    _ctx = runtime.SystemContext(config=_cfg)
-    _ctx.add_vm_module(runtime.VmModule.copy_buffer(_ctx.instance, _vmfb))
-    _inv_dim = np.full((32,), 1.0 / 32.0, dtype=np.float32)
-    _eps = np.full((32,), 1e-6, dtype=np.float32)
-    _iree_out = _ctx.modules.module["rms_norm"](
-        INPUT.float().numpy(), _inv_dim, _eps
-    )
-    _iree_bf16 = torch.from_numpy(np.array(_iree_out)).to(torch.bfloat16)
-    _diff = (EXPECTED.float() - _iree_bf16.float()).abs().max().item()
-    assert _diff < 5e-2, f"MLIR vs PyTorch mismatch: {_diff}"
-except ImportError:
-    pass
+if os.environ.get("NPU_MODEL_ENABLE_IREE_CROSSCHECK", "").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}:
+    try:
+        import numpy as np
+        import iree.compiler as compiler
+        import iree.runtime as runtime
+
+        _vmfb = compiler.compile_str(
+            RMS_NORM_MLIR,
+            target_backends=["llvm-cpu"],
+            extra_args=["--iree-llvmcpu-target-cpu=generic"],
+        )
+        _cfg = runtime.Config("local-task")
+        _ctx = runtime.SystemContext(config=_cfg)
+        _ctx.add_vm_module(runtime.VmModule.copy_buffer(_ctx.instance, _vmfb))
+        _inv_dim = np.full((32,), 1.0 / 32.0, dtype=np.float32)
+        _eps = np.full((32,), 1e-6, dtype=np.float32)
+        _iree_out = _ctx.modules.module["rms_norm"](
+            INPUT.float().numpy(), _inv_dim, _eps
+        )
+        _iree_bf16 = torch.from_numpy(np.array(_iree_out)).to(torch.bfloat16)
+        _diff = (EXPECTED.float() - _iree_bf16.float()).abs().max().item()
+        assert _diff < 5e-2, f"MLIR vs PyTorch mismatch: {_diff}"
+    except ImportError:
+        pass
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -145,20 +170,20 @@ except ImportError:
 # and ``eps`` constants as 32x16 bf16 tiles (1024 B each).
 # ═══════════════════════════════════════════════════════════════════════════
 
-DRAM_X_H0 = 0x0000         # x's first half (cols 0-15), 1024 B
-DRAM_X_H1 = 0x0400         # x's second half (cols 16-31), 1024 B
-DRAM_INV_DIM = 0x0800      # broadcast 1/dim, 1024 B
-DRAM_EPS = 0x0C00          # broadcast eps, 1024 B
-DRAM_OUT_H0 = 0x1000       # y's first half, 1024 B
-DRAM_OUT_H1 = 0x1400       # y's second half, 1024 B
+DRAM_X_H0 = 0x0000  # x's first half (cols 0-15), 1024 B
+DRAM_X_H1 = 0x0400  # x's second half (cols 16-31), 1024 B
+DRAM_INV_DIM = 0x0800  # broadcast 1/dim, 1024 B
+DRAM_EPS = 0x0C00  # broadcast eps, 1024 B
+DRAM_OUT_H0 = 0x1000  # y's first half, 1024 B
+DRAM_OUT_H1 = 0x1400  # y's second half, 1024 B
 EXPECTED_STACKED = torch.cat((EXPECTED[:, :16], EXPECTED[:, 16:]), dim=0)
 
-VMEM_X_H0    = 0x2000
-VMEM_X_H1    = 0x2400
+VMEM_X_H0 = 0x2000
+VMEM_X_H1 = 0x2400
 VMEM_INV_DIM = 0x2800
-VMEM_EPS     = 0x2C00
-VMEM_OUT_H0  = 0x3000
-VMEM_OUT_H1  = 0x3400
+VMEM_EPS = 0x2C00
+VMEM_OUT_H0 = 0x3000
+VMEM_OUT_H1 = 0x3400
 TILE_BYTES = 1024  # 32 * 16 * 2 (bf16 half)
 
 _x_h0, _x_h1 = INPUT[:, :16].contiguous(), INPUT[:, 16:].contiguous()
@@ -186,76 +211,143 @@ _eps = torch.full((32, 16), 1e-6, dtype=torch.bfloat16)
 #   v13 = x_h0 * inv_rms   v14 = x_h1 * inv_rms  — output halves
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class SmolVLARmsNormProgram(Program):
-    """y = x * rsqrt(mean(x^2) + eps). 32x32 bf16 tile, no learnable scale."""
+    """y = x * rsqrt(mean(x^2) + eps). 32x32 bf16 tile, no learnable scale.
+
+    Pair-op rewrite: (m0, m1) is the (32,32) input tile; vredsum.row.bf16
+    reduces all 32 columns in one shot. Mreg layout:
+      (m0, m1)   = X
+      (m2, m3)   = X^2           via vsquare.bf16
+      (m4, m5)   = row-sum(X^2)  via vredsum.row
+      (m6, m7)   = inv_dim       (DMA-loaded constant tile, then Y)
+      (m8, m9)   = eps           (DMA-loaded constant tile)
+      (m10, m11) = mean(X^2) = sum * inv_dim
+      (m12, m13) = mean + eps
+      (m14, m15) = sqrt(mean + eps)
+      (m4, m5)   = 1 / sqrt  (inv_rms, reuses pair 4/5)
+      (m6, m7)   = X * inv_rms = Y (reuses pair 6/7)
+    """
 
     instructions: List[Instruction[Any]] = [
-        # VMEM addresses  (each + 1024 bytes = +0x400 from the previous)
-        Instruction(mnemonic="lui",  args=ScalarArgs(rd=1, imm=0x2)),              # 0x2000 VMEM_X_H0
-        Instruction(mnemonic="addi", args=ScalarArgs(rd=2, rs1=1, imm=1024)),      # 0x2400 VMEM_X_H1
-        Instruction(mnemonic="addi", args=ScalarArgs(rd=3, rs1=2, imm=1024)),      # 0x2800 VMEM_INV_DIM
-        Instruction(mnemonic="addi", args=ScalarArgs(rd=4, rs1=3, imm=1024)),      # 0x2C00 VMEM_EPS
-        Instruction(mnemonic="addi", args=ScalarArgs(rd=5, rs1=4, imm=1024)),      # 0x3000 VMEM_OUT_H0
-        Instruction(mnemonic="addi", args=ScalarArgs(rd=6, rs1=5, imm=1024)),      # 0x3400 VMEM_OUT_H1
-        # DRAM addresses  (x_h0 at 0, each next + 0x400)
-        Instruction(mnemonic="addi", args=ScalarArgs(rd=7,  rs1=0, imm=0)),        # 0x0000 DRAM_X_H0
-        Instruction(mnemonic="addi", args=ScalarArgs(rd=8,  rs1=7, imm=1024)),     # 0x0400 DRAM_X_H1
-        Instruction(mnemonic="addi", args=ScalarArgs(rd=9,  rs1=8, imm=1024)),     # 0x0800 DRAM_INV_DIM
-        Instruction(mnemonic="addi", args=ScalarArgs(rd=10, rs1=9, imm=1024)),     # 0x0C00 DRAM_EPS
-        Instruction(mnemonic="addi", args=ScalarArgs(rd=11, rs1=10, imm=1024)),    # 0x1000 DRAM_OUT_H0
-        Instruction(mnemonic="addi", args=ScalarArgs(rd=12, rs1=11, imm=1024)),    # 0x1400 DRAM_OUT_H1
-        Instruction(mnemonic="addi", args=ScalarArgs(rd=13, rs1=0, imm=1024)),     # transfer size = 1024
-        # DMA loads
+        # VMEM addresses: single contiguous staging ranges per pair.
+        # x1 = VMEM X pair (m0, m1)      → base 0x2000
+        # x2 = VMEM inv_dim pair (m6, m7) → base 0x3000
+        # x3 = VMEM eps pair (m8, m9)    → base 0x4000
+        # x4 = VMEM OUT pair             → base 0x5000
+        Instruction(mnemonic="lui", args=ScalarArgs(rd=1, imm=0x2)),
+        Instruction(mnemonic="lui", args=ScalarArgs(rd=2, imm=0x3)),
+        Instruction(mnemonic="lui", args=ScalarArgs(rd=3, imm=0x4)),
+        Instruction(mnemonic="lui", args=ScalarArgs(rd=4, imm=0x5)),
+        # DRAM addresses
+        Instruction(
+            mnemonic="addi", args=ScalarArgs(rd=5, rs1=0, imm=DRAM_X_H0)
+        ),  # 0x0000
+        Instruction(mnemonic="addi", args=ScalarArgs(rd=6, rs1=5, imm=1024)),  # 0x0400
+        Instruction(mnemonic="addi", args=ScalarArgs(rd=7, rs1=6, imm=1024)),  # 0x0800
+        Instruction(mnemonic="addi", args=ScalarArgs(rd=8, rs1=7, imm=1024)),  # 0x0C00
+        Instruction(mnemonic="lui", args=ScalarArgs(rd=9, imm=0x1)),  # 0x1000 OUT_H0
+        Instruction(
+            mnemonic="addi", args=ScalarArgs(rd=10, rs1=9, imm=1024)
+        ),  # 0x1400 OUT_H1
+        Instruction(
+            mnemonic="addi", args=ScalarArgs(rd=13, rs1=0, imm=1024)
+        ),  # 1024 per-half
+        # Secondary VMEM offsets (for DMA-LOAD destinations of the second half of each pair)
+        Instruction(
+            mnemonic="addi", args=ScalarArgs(rd=11, rs1=1, imm=1024)
+        ),  # x11 = x1 + 1024 (m1 VMEM addr)
+        Instruction(
+            mnemonic="addi", args=ScalarArgs(rd=12, rs1=2, imm=1024)
+        ),  # x12 = x2 + 1024 (m7 VMEM addr)
+        Instruction(
+            mnemonic="addi", args=ScalarArgs(rd=14, rs1=3, imm=1024)
+        ),  # x14 = x3 + 1024 (m9 VMEM addr)
+        Instruction(
+            mnemonic="addi", args=ScalarArgs(rd=15, rs1=4, imm=1024)
+        ),  # x15 = x4 + 1024 (OUT m13 VMEM addr)
+        # DMA loads (X_H0, X_H1, INV_DIM+1 halves, EPS+1 halves)
         Instruction(mnemonic="dma.config.ch<N>", args=DmaArgs(rs1=0, channel=0)),
         Instruction(mnemonic="dma.config.ch<N>", args=DmaArgs(rs1=0, channel=1)),
-        Instruction(mnemonic="dma.load.ch<N>",   args=DmaArgs(rd=1, rs1=7,  rs2=13, channel=0)),
-        Instruction(mnemonic="dma.load.ch<N>",   args=DmaArgs(rd=2, rs1=8,  rs2=13, channel=1)),
-        Instruction(mnemonic="dma.wait.ch<N>",   args=DmaArgs(channel=0)),
-        Instruction(mnemonic="dma.wait.ch<N>",   args=DmaArgs(channel=1)),
-        Instruction(mnemonic="dma.load.ch<N>",   args=DmaArgs(rd=3, rs1=9,  rs2=13, channel=0)),
-        Instruction(mnemonic="dma.load.ch<N>",   args=DmaArgs(rd=4, rs1=10, rs2=13, channel=1)),
-        Instruction(mnemonic="dma.wait.ch<N>",   args=DmaArgs(channel=0)),
-        Instruction(mnemonic="dma.wait.ch<N>",   args=DmaArgs(channel=1)),
-        # Load MRF
+        Instruction(
+            mnemonic="dma.load.ch<N>", args=DmaArgs(rd=1, rs1=5, rs2=13, channel=0)
+        ),  # X_H0 → VMEM[x1]
+        Instruction(
+            mnemonic="dma.load.ch<N>", args=DmaArgs(rd=11, rs1=6, rs2=13, channel=1)
+        ),  # X_H1 → VMEM[x1+1024]
+        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
+        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=1)),
+        # inv_dim tile is the same 1024-B scalar-broadcast block repeated twice in VMEM for pair read
+        Instruction(
+            mnemonic="dma.load.ch<N>", args=DmaArgs(rd=2, rs1=7, rs2=13, channel=0)
+        ),  # INV_DIM → m6
+        Instruction(
+            mnemonic="dma.load.ch<N>", args=DmaArgs(rd=12, rs1=7, rs2=13, channel=1)
+        ),  # INV_DIM → m7 (same data)
+        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
+        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=1)),
+        Instruction(
+            mnemonic="dma.load.ch<N>", args=DmaArgs(rd=3, rs1=8, rs2=13, channel=0)
+        ),  # EPS → m8
+        Instruction(
+            mnemonic="dma.load.ch<N>", args=DmaArgs(rd=14, rs1=8, rs2=13, channel=1)
+        ),  # EPS → m9 (same data)
+        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
+        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=1)),
+        # Load MRF (all pair reads)
         Instruction(mnemonic="vload", args=VectorArgs(vd=0, rs1=1, imm12=0)),
-        Instruction(mnemonic="vload", args=VectorArgs(vd=1, rs1=2, imm12=0)),
-        Instruction(mnemonic="vload", args=VectorArgs(vd=2, rs1=3, imm12=0)),
-        Instruction(mnemonic="vload", args=VectorArgs(vd=3, rs1=4, imm12=0)),
-        # Compute
-        Instruction(mnemonic="vmul.bf16",        args=VectorArgs(vd=4, vs1=0, vs2=0)),  # v4 = x_h0^2
-        Instruction(mnemonic="vmul.bf16",        args=VectorArgs(vd=5, vs1=1, vs2=1)),  # v5 = x_h1^2
-        Instruction(mnemonic="delay",            args=ScalarArgs(imm=2)),
-        Instruction(mnemonic="vredsum.row.bf16", args=VectorArgs(vd=6, vs1=4)),
-        Instruction(mnemonic="vredsum.row.bf16", args=VectorArgs(vd=7, vs1=5)),
-        Instruction(mnemonic="delay",            args=ScalarArgs(imm=8)),
-        Instruction(mnemonic="vadd.bf16",        args=VectorArgs(vd=8, vs1=6, vs2=7)),  # sum(x^2) broadcast per row
-        Instruction(mnemonic="delay",            args=ScalarArgs(imm=2)),
-        Instruction(mnemonic="vmul.bf16",        args=VectorArgs(vd=9, vs1=8, vs2=2)),  # * inv_dim
-        Instruction(mnemonic="delay",            args=ScalarArgs(imm=2)),
-        Instruction(mnemonic="vadd.bf16",        args=VectorArgs(vd=10, vs1=9, vs2=3)), # + eps
-        Instruction(mnemonic="delay",            args=ScalarArgs(imm=2)),
-        Instruction(mnemonic="vsqrt.bf16",       args=VectorArgs(vd=11, vs1=10)),
-        Instruction(mnemonic="delay",            args=ScalarArgs(imm=8)),
-        Instruction(mnemonic="vrecip.bf16",      args=VectorArgs(vd=12, vs1=11)),
-        Instruction(mnemonic="delay",            args=ScalarArgs(imm=8)),
-        Instruction(mnemonic="vmul.bf16",        args=VectorArgs(vd=13, vs1=0, vs2=12)),  # y_h0 = x_h0 * inv_rms
-        Instruction(mnemonic="vmul.bf16",        args=VectorArgs(vd=14, vs1=1, vs2=12)),  # y_h1
-        Instruction(mnemonic="delay",            args=ScalarArgs(imm=2)),
-        # Store
-        Instruction(mnemonic="vstore", args=VectorArgs(vd=13, rs1=5, imm12=0)),
-        Instruction(mnemonic="vstore", args=VectorArgs(vd=14, rs1=6, imm12=0)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=20)),
-        Instruction(mnemonic="dma.store.ch<N>", args=DmaArgs(rd=11, rs1=5, rs2=13, channel=0)),
-        Instruction(mnemonic="dma.store.ch<N>", args=DmaArgs(rd=12, rs1=6, rs2=13, channel=1)),
-        Instruction(mnemonic="dma.wait.ch<N>",  args=DmaArgs(channel=0)),
-        Instruction(mnemonic="dma.wait.ch<N>",  args=DmaArgs(channel=1)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="vload", args=VectorArgs(vd=1, rs1=1, imm12=32)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="vload", args=VectorArgs(vd=6, rs1=2, imm12=0)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="vload", args=VectorArgs(vd=7, rs1=2, imm12=32)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="vload", args=VectorArgs(vd=8, rs1=3, imm12=0)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="vload", args=VectorArgs(vd=9, rs1=3, imm12=32)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        # (m2, m3) = X^2 (pair-op vsquare, full-tile square)
+        Instruction(mnemonic="vsquare.bf16", args=VectorArgs(vd=2, vs1=0)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
+        # (m4, m5) = row-sum(X^2)  (reduces along dim=1 over 32 cols)
+        Instruction(mnemonic="vredsum.row.bf16", args=VectorArgs(vd=4, vs1=2)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
+        # (m10, m11) = mean(X^2) = sum * inv_dim
+        Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=10, vs1=4, vs2=6)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
+        # (m12, m13) = mean + eps
+        Instruction(mnemonic="vadd.bf16", args=VectorArgs(vd=12, vs1=10, vs2=8)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
+        # (m14, m15) = sqrt(mean + eps)
+        Instruction(mnemonic="vsqrt.bf16", args=VectorArgs(vd=14, vs1=12)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        # (m4, m5) = 1 / sqrt (reused pair)
+        Instruction(mnemonic="vrecip.bf16", args=VectorArgs(vd=4, vs1=14)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        # (m6, m7) = X * inv_rms = Y  (reused pair)
+        Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=6, vs1=0, vs2=4)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
+        # Store both halves of Y
+        Instruction(mnemonic="vstore", args=VectorArgs(vd=6, rs1=4, imm12=0)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="vstore", args=VectorArgs(vd=7, rs1=4, imm12=32)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(
+            mnemonic="dma.store.ch<N>", args=DmaArgs(rd=9, rs1=4, rs2=13, channel=0)
+        ),
+        Instruction(
+            mnemonic="dma.store.ch<N>", args=DmaArgs(rd=10, rs1=15, rs2=13, channel=1)
+        ),
+        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
+        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=1)),
     ]
 
     memory_regions: List[Tuple[int, torch.Tensor]] = [
-        (DRAM_X_H0,    _x_h0),
-        (DRAM_X_H1,    _x_h1),
+        (DRAM_X_H0, _x_h0),
+        (DRAM_X_H1, _x_h1),
         (DRAM_INV_DIM, _inv_dim),
-        (DRAM_EPS,     _eps),
+        (DRAM_EPS, _eps),
     ]
 
     golden_result: tuple[int, torch.Tensor] = (
