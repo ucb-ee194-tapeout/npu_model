@@ -70,13 +70,13 @@ def _run(program: Program, max_cycles: int = 500) -> None:
 
 class _MrfConflictProgram(Program):
     """
-    VPU executes ``vadd.bf16 m5, m0, m0`` (reads m0; 2-cycle latency).
+    VPU executes ``vadd.bf16 m5, m0, m0`` (reads m0/m1; 4-cycle latency).
     While VPU is still in-flight, MXU0 is dispatched ``vmatmul.mxu0``
     which also reads m0.  Both units hold m0 concurrently → MRF bank conflict.
     """
 
     instructions: List[Instruction[Any]] = [
-        # VPU: reads m0 (execute_delay = 2 cycles)
+        # VPU: reads m0/m1 (execute_delay = 4 cycles)
         Instruction("vadd.bf16", VectorArgs(vd=5, vs1=0, vs2=0)),
         # MXU: dispatched 1 cycle after VPU accepts vadd → conflict on m0 (vs1=0)
         Instruction("vmatmul.mxu0", MatrixArgs(vd=0, vs1=0, vs2=0)),
@@ -143,17 +143,17 @@ class _AccBufConflictProgram(Program):
 
 class _NoMrfConflictProgram(Program):
     """
-    VPU reads m0/m1 and writes m5; MXU0 reads m2.  No register overlap.
+    VPU reads m0/m1 and m2/m3 and writes m6/m7; MXU0 reads m4. No register overlap.
     A ``delay`` instruction ensures VPU has completed before MXU starts.
     """
 
     instructions: List[Instruction[Any]] = [
-        # VPU: reads m0, m1; writes m5 (2-cycle latency)
-        Instruction("vadd.bf16", VectorArgs(vd=5, vs1=0, vs2=1)),
-        # Wait 3 cycles so VPU completes before MXU is dispatched
-        Instruction("delay", ScalarArgs(imm=3)),
-        # MXU: reads m2 – disjoint from {m0, m1, m5}
-        Instruction("vmatmul.mxu0", MatrixArgs(vd=0, vs1=2, vs2=0)),
+        # VPU: reads m0/m1 and m2/m3; writes m6/m7 (4-cycle latency)
+        Instruction("vadd.bf16", VectorArgs(vd=6, vs1=0, vs2=2)),
+        # Wait 5 cycles so VPU completes before MXU is dispatched
+        Instruction("delay", ScalarArgs(imm=5)),
+        # MXU: reads m4 – disjoint from {m0, m1, m2, m3, m6, m7}
+        Instruction("vmatmul.mxu0", MatrixArgs(vd=0, vs1=4, vs2=0)),
         # Allow MXU to finish
         Instruction("delay", ScalarArgs(imm=32)),
     ]

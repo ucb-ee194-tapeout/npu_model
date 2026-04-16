@@ -10,29 +10,36 @@ from .stage_data import StageData
 from .config import HardwareConfig
 from .bank_conflict import mrf_accesses, vmem_accesses
 
-# these all take 66 cycles for now
-VPU_ARITHMETIC = {
+VPU_SIMPLE_OPS = {
     "vadd.bf16",
     "vsub.bf16",
     "vmul.bf16",
-    "vrecip.bf16",
-    "vexp.bf16",
-    "vexp2.bf16",
-    "vsin.bf16",
-    "vcos.bf16",
     "vrelu.bf16",
-    "vtanh.bf16",
-    "vlog.bf16",
-    "vlog2.bf16",
-    "vmax.bf16",
-    "vmin.bf16",
+    "vminimum.bf16",
+    "vmaximum.bf16",
     "vredsum.bf16",
-    # delay not yet known
     "vredmin.bf16",
     "vredmax.bf16",
     "vredsum.row.bf16",
     "vredmin.row.bf16",
     "vredmax.row.bf16",
+}
+
+VPU_NON_PIPELINEABLE_OPS = {
+    "vrecip.bf16",
+    "vexp.bf16",
+    "vexp2.bf16",
+    "vsin.bf16",
+    "vcos.bf16",
+    "vtanh.bf16",
+    "vlog2.bf16",
+    "vsqrt.bf16",
+    "vlog.bf16",
+    "vmax.bf16",
+    "vmin.bf16",
+}
+
+VPU_LOCAL_TRANSFER_OPS = {
     "vmov",
 }
 
@@ -88,8 +95,12 @@ class VectorExecutionUnit(ExecutionUnit):
             )
         if mnemonic in XLU_OPS:
             return self.config.xlu_transform_latency_cycles
-        if mnemonic in VPU_ARITHMETIC:
-            return self.config.vpu_arithmetic_latency_cycles
+        if mnemonic in VPU_LOCAL_TRANSFER_OPS:
+            return self.config.vpu_simple_op_latency_cycles
+        if mnemonic in VPU_SIMPLE_OPS:
+            return self.config.vpu_simple_op_latency_cycles
+        if mnemonic in VPU_NON_PIPELINEABLE_OPS:
+            return self.config.vpu_non_pipelineable_op_latency_cycles
         else:
             return 1
 

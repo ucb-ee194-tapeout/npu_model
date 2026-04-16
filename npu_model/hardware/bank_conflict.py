@@ -41,6 +41,10 @@ def _vmem_range_to_banks(base: int, length: int) -> frozenset[int]:
     return frozenset(range(first_bank, last_bank + 1))
 
 
+def _pair(reg: int) -> frozenset[int]:
+    return frozenset({reg, reg + 1})
+
+
 # ---------------------------------------------------------------------------
 # Resource-access queries
 # ---------------------------------------------------------------------------
@@ -140,11 +144,13 @@ def mrf_accesses(mnemonic: str, args: Any) -> frozenset[int]:
 
         # Two-source VR instructions -------------------------------------------
         if mnemonic in _VR_TWO_SRC:
-            return frozenset({vs1, vs2, vd})
+            return _pair(vs1) | _pair(vs2) | _pair(vd)
 
         # One-source VR instructions (default) --------------------------------
         if mnemonic in _VR_ONE_SRC:
-            return frozenset({vs1, vd})
+            if mnemonic == "vmov":
+                return frozenset({vs1, vd})
+            return _pair(vs1) | _pair(vd)
 
         # Fall-through: unknown VR – include all three fields conservatively
         return frozenset({vs1, vs2, vd}) if vs2 else frozenset({vs1, vd})
