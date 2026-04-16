@@ -59,8 +59,9 @@ class GemmaMlpProgram(Program):
         Instruction(mnemonic="addi", args=ScalarArgs(rd=8, rs1=8, imm=-1024)),
         # x9: byte length for fp8 tile (32*32*1 = 1024)
         Instruction(mnemonic="addi", args=ScalarArgs(rd=9, rs1=0, imm=1024)),
-        # x10: byte length for bf16 tile (32*16*2 = 1024)
-        Instruction(mnemonic="addi", args=ScalarArgs(rd=10, rs1=0, imm=1024)),
+        # x10: byte length for bf16 tile (32*32*2 = 2048)
+        Instruction(mnemonic="lui", args=ScalarArgs(rd=10, imm=0x1)),
+        Instruction(mnemonic="addi", args=ScalarArgs(rd=10, rs1=10, imm=-2048)),
         # DRAM -> VMEM
         Instruction(mnemonic="dma.config.ch<N>", args=DmaArgs(rs1=0, channel=0)),
         Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
@@ -105,29 +106,17 @@ class GemmaMlpProgram(Program):
         Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
         # --- PHASE 4: Element-wise Multiplication (GeGLU Simplified) ---
         Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=8, vs1=4, vs2=6)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=2)),
-        Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=9, vs1=5, vs2=7)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=2)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
         # --- PHASE 5: Store Results ---
         Instruction(mnemonic="vstore", args=VectorArgs(vd=8, rs1=4, imm12=0)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
         Instruction(mnemonic="vstore", args=VectorArgs(vd=9, rs1=4, imm12=32)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
-        # VMEM -> DRAM (two 1024B tiles)
-        Instruction(
-            mnemonic="addi", args=ScalarArgs(rd=11, rs1=4, imm=1024)
-        ),  # vmem+1024
-        Instruction(
-            mnemonic="addi", args=ScalarArgs(rd=12, rs1=8, imm=1024)
-        ),  # dram+1024
+        # VMEM -> DRAM
         Instruction(
             mnemonic="dma.store.ch<N>", args=DmaArgs(rd=8, rs1=4, rs2=10, channel=0)
         ),
-        Instruction(
-            mnemonic="dma.store.ch<N>", args=DmaArgs(rd=12, rs1=11, rs2=10, channel=1)
-        ),
         Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
-        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=1)),
     ]
 
     memory_regions: List[Tuple[int, torch.Tensor]] = [
@@ -138,25 +127,10 @@ class GemmaMlpProgram(Program):
 
     golden_result: tuple[int, torch.Tensor] = (
         DRAM_OUTPUT_BASE,
-        # Pure torch reference for the math, then expressed in the same memory layout
-        # the program stores: two 32x16 bf16 tiles back-to-back in DRAM.
-        torch.cat(
-            (
-                gemma_mlp_gate_up_forward(
-                    ACTIVATION_DATA,
-                    GATE_PROJ_WEIGHT_DATA,
-                    UP_PROJ_WEIGHT_DATA,
-                    use_gelu=False,  # matches NPU: gate * up
-                )
-                .to(torch.bfloat16)[:, :16],
-                gemma_mlp_gate_up_forward(
-                    ACTIVATION_DATA,
-                    GATE_PROJ_WEIGHT_DATA,
-                    UP_PROJ_WEIGHT_DATA,
-                    use_gelu=False,  # matches NPU: gate * up
-                )
-                .to(torch.bfloat16)[:, 16:],
-            ),
-            dim=0,
-        ).contiguous(),
+        gemma_mlp_gate_up_forward(
+            ACTIVATION_DATA,
+            GATE_PROJ_WEIGHT_DATA,
+            UP_PROJ_WEIGHT_DATA,
+            use_gelu=False,  # matches NPU: gate * up
+        ).to(torch.bfloat16).contiguous(),
     )

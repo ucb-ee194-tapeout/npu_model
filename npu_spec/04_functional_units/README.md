@@ -72,6 +72,12 @@ Decode must enforce the reserved-zero rules defined by the ISA, including:
 - `dma.config.chN` and `dma.wait.chN`: `rd = x0`
 - `dma.wait.chN`: `rs1 = x0`
 
+Decode must also enforce pair-register legality for instructions whose semantics
+consume or produce `{m[r], m[r + 1]}`:
+
+- the encoded tensor register field names the low register of the pair
+- encoding `r = 63` for such a field is illegal
+
 ## Delay-Slot Handling
 
 The microarchitecture preserves the architectural two-delay-slot rule without
@@ -140,25 +146,38 @@ Shared requirements:
 
 ## Vector Processing Unit
 
-The VPU baseline implements the following whole-register operations:
+The VPU baseline implements the following operations:
 
 - `vadd.bf16`
 - `vredsum.bf16`
 - `vsub.bf16`
-- `vmin.bf16`
-- `vmax.bf16`
+- `vminimum.bf16`
+- `vmaximum.bf16`
 - `vmul.bf16`
 - `vmov`
 - `vrecip.bf16`
-- `vexp`
-- `vrelu`
+- `vexp.bf16`
+- `vrelu.bf16`
+- `vsquare.bf16`
+- `vcube.bf16`
+
+Architectural BF16 operand model:
+
+- each BF16 VPU instruction consumes a full `32 x 32 BF16` tile from the named
+  source register pair `{m[vs], m[vs + 1]}`
+- each BF16 VPU destination names the low register of the destination pair
+  `{m[vd], m[vd + 1]}`
+- this makes BF16 VPU register-pair usage match the existing
+  `vmatpop.bf16.acc.*` / `vmatpush.acc.bf16.*` accumulator transfer convention
 
 Timing requirements:
 
-- pipelineable elementwise operations use the `2`-cycle latency class
-- non-pipelineable operations such as `vexp` and `vrecip.bf16` use the `8`-cycle
-  latency class
+- pipelineable BF16 operations use the `4`-cycle latency class
+- non-pipelineable BF16 operations such as `vexp` and `vrecip.bf16` use the
+  `16`-cycle latency class
 - the baseline lane count is `16 BF16` lanes
+- the `16`-lane datapath completes one BF16 VPU instruction as two internal
+  half-tile passes over the architectural `32 x 32 BF16` tile
 
 ## Tensor Transform / Reduction Unit
 

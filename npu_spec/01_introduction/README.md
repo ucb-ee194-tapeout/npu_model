@@ -60,8 +60,10 @@ This affects all major tensor-facing structures:
 - MXU arithmetic operates on `32 x 32` tiles
 - each tensor register stores one `32 x 32 FP8` tile or one `32 x 16 BF16` half-tile
 - each MXU accumulation buffer stores one `32 x 32 BF16` tile
-- the baseline VPU operates on a `32 x 16 BF16` whole-register view using `16 BF16`
-  lanes
+- each BF16 VPU instruction names the low register of a consecutive two-register
+  `32 x 32 BF16` tile
+- the baseline VPU datapath is still `16 BF16` lanes wide, so one BF16 VPU
+  instruction completes as two internal half-tile passes
 
 ## Memory-System Shape
 

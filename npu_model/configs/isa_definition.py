@@ -62,6 +62,20 @@ def _vmatmul(state: ArchState, unit: str, args: MatrixArgs, accumulate: bool) ->
     state.write_acc_bf16(unit, args.vd, result_fp16.to(torch.bfloat16))
 
 
+def _assert_bf16_pair(state: ArchState, reg: int) -> None:
+    assert reg < state.cfg.num_m_registers - 1
+
+
+def _read_mrf_bf16_pair(state: ArchState, reg: int) -> torch.Tensor:
+    _assert_bf16_pair(state, reg)
+    return state.read_mrf_bf16_tile(reg)
+
+
+def _write_mrf_bf16_pair(state: ArchState, reg: int, value: torch.Tensor) -> None:
+    _assert_bf16_pair(state, reg)
+    state.write_mrf_bf16_tile(reg, value.to(torch.bfloat16).contiguous())
+
+
 @instr("lb", instruction_type=InstructionType.SCALAR.I, opcode=0b0000011, funct3=0b000)
 def lb(state: ArchState, args: ScalarArgs) -> None:
     imm = _sign_extend(args.imm & 0xFFF, 12)
@@ -365,9 +379,9 @@ def lui(state: ArchState, args: ScalarArgs) -> None:
     funct7=0b0000000,
 )
 def vadd_bf16(state: ArchState, args: VectorArgs) -> None:
-    a = state.read_mrf_bf16(args.vs1)
-    b = state.read_mrf_bf16(args.vs2)
-    state.write_mrf_bf16(args.vd, (a + b).to(torch.bfloat16))
+    a = _read_mrf_bf16_pair(state, args.vs1)
+    b = _read_mrf_bf16_pair(state, args.vs2)
+    _write_mrf_bf16_pair(state, args.vd, a + b)
 
 
 @instr(
@@ -377,9 +391,9 @@ def vadd_bf16(state: ArchState, args: VectorArgs) -> None:
     funct7=0b0000001,
 )
 def vredsum_bf16(state: ArchState, args: VectorArgs) -> None:
-    x = state.read_mrf_bf16(args.vs1)
+    x = _read_mrf_bf16_pair(state, args.vs1)
     result = x.sum(dim=0, keepdim=True).to(torch.bfloat16).expand_as(x).contiguous()
-    state.write_mrf_bf16(args.vd, result)
+    _write_mrf_bf16_pair(state, args.vd, result)
 
 
 @instr(
@@ -389,9 +403,9 @@ def vredsum_bf16(state: ArchState, args: VectorArgs) -> None:
     funct7=0b0000010,
 )
 def vsub_bf16(state: ArchState, args: VectorArgs) -> None:
-    a = state.read_mrf_bf16(args.vs1)
-    b = state.read_mrf_bf16(args.vs2)
-    state.write_mrf_bf16(args.vd, (a - b).to(torch.bfloat16))
+    a = _read_mrf_bf16_pair(state, args.vs1)
+    b = _read_mrf_bf16_pair(state, args.vs2)
+    _write_mrf_bf16_pair(state, args.vd, a - b)
 
 
 @instr(
@@ -401,10 +415,9 @@ def vsub_bf16(state: ArchState, args: VectorArgs) -> None:
     funct7=0b0000011,
 )
 def vmul_bf16(state: ArchState, args: VectorArgs) -> None:
-    a = state.read_mrf_bf16(args.vs1)
-    b = state.read_mrf_bf16(args.vs2)
-    result = (a * b).to(torch.bfloat16)
-    state.write_mrf_bf16(args.vd, result)
+    a = _read_mrf_bf16_pair(state, args.vs1)
+    b = _read_mrf_bf16_pair(state, args.vs2)
+    _write_mrf_bf16_pair(state, args.vd, a * b)
 
 
 @instr(
@@ -414,9 +427,9 @@ def vmul_bf16(state: ArchState, args: VectorArgs) -> None:
     funct7=0b0000100,
 )
 def vminimum_bf16(state: ArchState, args: VectorArgs) -> None:
-    a = state.read_mrf_bf16(args.vs1)
-    b = state.read_mrf_bf16(args.vs2)
-    state.write_mrf_bf16(args.vd, torch.minimum(a, b).to(torch.bfloat16))
+    a = _read_mrf_bf16_pair(state, args.vs1)
+    b = _read_mrf_bf16_pair(state, args.vs2)
+    _write_mrf_bf16_pair(state, args.vd, torch.minimum(a, b))
 
 
 @instr(
@@ -426,11 +439,11 @@ def vminimum_bf16(state: ArchState, args: VectorArgs) -> None:
     funct7=0b0000101,
 )
 def vredmin_bf16(state: ArchState, args: VectorArgs) -> None:
-    x = state.read_mrf_bf16(args.vs1)
+    x = _read_mrf_bf16_pair(state, args.vs1)
     result = (
         x.min(dim=0, keepdim=True).values.to(torch.bfloat16).expand_as(x).contiguous()
     )
-    state.write_mrf_bf16(args.vd, result)
+    _write_mrf_bf16_pair(state, args.vd, result)
 
 
 @instr(
@@ -440,9 +453,9 @@ def vredmin_bf16(state: ArchState, args: VectorArgs) -> None:
     funct7=0b0000110,
 )
 def vmaximum_bf16(state: ArchState, args: VectorArgs) -> None:
-    a = state.read_mrf_bf16(args.vs1)
-    b = state.read_mrf_bf16(args.vs2)
-    state.write_mrf_bf16(args.vd, torch.maximum(a, b).to(torch.bfloat16))
+    a = _read_mrf_bf16_pair(state, args.vs1)
+    b = _read_mrf_bf16_pair(state, args.vs2)
+    _write_mrf_bf16_pair(state, args.vd, torch.maximum(a, b))
 
 
 @instr(
@@ -452,11 +465,11 @@ def vmaximum_bf16(state: ArchState, args: VectorArgs) -> None:
     funct7=0b0000111,
 )
 def vredmax_bf16(state: ArchState, args: VectorArgs) -> None:
-    x = state.read_mrf_bf16(args.vs1)
+    x = _read_mrf_bf16_pair(state, args.vs1)
     result = (
         x.max(dim=0, keepdim=True).values.to(torch.bfloat16).expand_as(x).contiguous()
     )
-    state.write_mrf_bf16(args.vd, result)
+    _write_mrf_bf16_pair(state, args.vd, result)
 
 
 @instr(
@@ -466,9 +479,9 @@ def vredmax_bf16(state: ArchState, args: VectorArgs) -> None:
     funct7=0b0100001,
 )
 def vredsum_row_bf16(state: ArchState, args: VectorArgs) -> None:
-    x = state.read_mrf_bf16(args.vs1)
+    x = _read_mrf_bf16_pair(state, args.vs1)
     result = x.sum(dim=1, keepdim=True).to(torch.bfloat16).expand_as(x).contiguous()
-    state.write_mrf_bf16(args.vd, result)
+    _write_mrf_bf16_pair(state, args.vd, result)
 
 
 @instr(
@@ -478,11 +491,11 @@ def vredsum_row_bf16(state: ArchState, args: VectorArgs) -> None:
     funct7=0b0100100,
 )
 def vredmin_row_bf16(state: ArchState, args: VectorArgs) -> None:
-    x = state.read_mrf_bf16(args.vs1)
+    x = _read_mrf_bf16_pair(state, args.vs1)
     result = (
         x.min(dim=1, keepdim=True).values.to(torch.bfloat16).expand_as(x).contiguous()
     )
-    state.write_mrf_bf16(args.vd, result)
+    _write_mrf_bf16_pair(state, args.vd, result)
 
 
 @instr(
@@ -492,11 +505,11 @@ def vredmin_row_bf16(state: ArchState, args: VectorArgs) -> None:
     funct7=0b0100110,
 )
 def vredmax_row_bf16(state: ArchState, args: VectorArgs) -> None:
-    x = state.read_mrf_bf16(args.vs1)
+    x = _read_mrf_bf16_pair(state, args.vs1)
     result = (
         x.max(dim=1, keepdim=True).values.to(torch.bfloat16).expand_as(x).contiguous()
     )
-    state.write_mrf_bf16(args.vd, result)
+    _write_mrf_bf16_pair(state, args.vd, result)
 
 
 @instr(
@@ -516,7 +529,7 @@ def vmov(state: ArchState, args: VectorArgs) -> None:
     funct7=0b1000001,
 )
 def vrecip_bf16(state: ArchState, args: VectorArgs) -> None:
-    state.write_mrf_bf16(args.vd, 1.0 / state.read_mrf_bf16(args.vs1))
+    _write_mrf_bf16_pair(state, args.vd, 1.0 / _read_mrf_bf16_pair(state, args.vs1))
 
 
 @instr(
@@ -526,8 +539,8 @@ def vrecip_bf16(state: ArchState, args: VectorArgs) -> None:
     funct7=0b1000010,
 )
 def vexp_bf16(state: ArchState, args: VectorArgs) -> None:
-    x = state.read_mrf_bf16(args.vs1)
-    state.write_mrf_bf16(args.vd, torch.exp(x).to(torch.bfloat16))
+    x = _read_mrf_bf16_pair(state, args.vs1)
+    _write_mrf_bf16_pair(state, args.vd, torch.exp(x))
 
 
 @instr(
@@ -537,8 +550,8 @@ def vexp_bf16(state: ArchState, args: VectorArgs) -> None:
     funct7=0b1000011,
 )
 def vexp2_bf16(state: ArchState, args: VectorArgs) -> None:
-    x = state.read_mrf_bf16(args.vs1)
-    state.write_mrf_bf16(args.vd, torch.exp2(x).to(torch.bfloat16))
+    x = _read_mrf_bf16_pair(state, args.vs1)
+    _write_mrf_bf16_pair(state, args.vd, torch.exp2(x))
 
 
 @instr(
@@ -581,7 +594,7 @@ def vunpack_fp8_bf16(state: ArchState, args: VectorArgs) -> None:
     funct7=0b1001000,
 )
 def vrelu_bf16(state: ArchState, args: VectorArgs) -> None:
-    state.write_mrf_bf16(args.vd, torch.relu(state.read_mrf_bf16(args.vs1)))
+    _write_mrf_bf16_pair(state, args.vd, torch.relu(_read_mrf_bf16_pair(state, args.vs1)))
 
 
 @instr(
@@ -591,8 +604,8 @@ def vrelu_bf16(state: ArchState, args: VectorArgs) -> None:
     funct7=0b1001001,
 )
 def vsin_bf16(state: ArchState, args: VectorArgs) -> None:
-    x = state.read_mrf_bf16(args.vs1)
-    state.write_mrf_bf16(args.vd, torch.sin(x).to(torch.bfloat16))
+    x = _read_mrf_bf16_pair(state, args.vs1)
+    _write_mrf_bf16_pair(state, args.vd, torch.sin(x))
 
 
 @instr(
@@ -602,8 +615,8 @@ def vsin_bf16(state: ArchState, args: VectorArgs) -> None:
     funct7=0b1001010,
 )
 def vcos_bf16(state: ArchState, args: VectorArgs) -> None:
-    x = state.read_mrf_bf16(args.vs1)
-    state.write_mrf_bf16(args.vd, torch.cos(x).to(torch.bfloat16))
+    x = _read_mrf_bf16_pair(state, args.vs1)
+    _write_mrf_bf16_pair(state, args.vd, torch.cos(x))
 
 
 @instr(
@@ -613,8 +626,8 @@ def vcos_bf16(state: ArchState, args: VectorArgs) -> None:
     funct7=0b1001011,
 )
 def vtanh_bf16(state: ArchState, args: VectorArgs) -> None:
-    x = state.read_mrf_bf16(args.vs1)
-    state.write_mrf_bf16(args.vd, torch.tanh(x).to(torch.bfloat16))
+    x = _read_mrf_bf16_pair(state, args.vs1)
+    _write_mrf_bf16_pair(state, args.vd, torch.tanh(x))
 
 
 @instr(
@@ -624,8 +637,8 @@ def vtanh_bf16(state: ArchState, args: VectorArgs) -> None:
     funct7=0b1001100,
 )
 def vlog2_bf16(state: ArchState, args: VectorArgs) -> None:
-    x = state.read_mrf_bf16(args.vs1)
-    state.write_mrf_bf16(args.vd, torch.log2(x).to(torch.bfloat16))
+    x = _read_mrf_bf16_pair(state, args.vs1)
+    _write_mrf_bf16_pair(state, args.vd, torch.log2(x))
 
 
 @instr(
@@ -635,8 +648,30 @@ def vlog2_bf16(state: ArchState, args: VectorArgs) -> None:
     funct7=0b1001101,
 )
 def vsqrt_bf16(state: ArchState, args: VectorArgs) -> None:
-    x = state.read_mrf_bf16(args.vs1)
-    state.write_mrf_bf16(args.vd, torch.sqrt(x).to(torch.bfloat16))
+    x = _read_mrf_bf16_pair(state, args.vs1)
+    _write_mrf_bf16_pair(state, args.vd, torch.sqrt(x))
+
+
+@instr(
+    "vsquare.bf16",
+    instruction_type=InstructionType.VECTOR.VR,
+    opcode=0b1010111,
+    funct7=0b1001110,
+)
+def vsquare_bf16(state: ArchState, args: VectorArgs) -> None:
+    x = _read_mrf_bf16_pair(state, args.vs1)
+    _write_mrf_bf16_pair(state, args.vd, x * x)
+
+
+@instr(
+    "vcube.bf16",
+    instruction_type=InstructionType.VECTOR.VR,
+    opcode=0b1010111,
+    funct7=0b1001111,
+)
+def vcube_bf16(state: ArchState, args: VectorArgs) -> None:
+    x = _read_mrf_bf16_pair(state, args.vs1)
+    _write_mrf_bf16_pair(state, args.vd, x * x * x)
 
 
 @instr(

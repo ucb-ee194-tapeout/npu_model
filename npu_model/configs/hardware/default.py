@@ -21,8 +21,8 @@ class DefaultHardwareConfig(HardwareConfig):
     )
     mxu0_matmul_latency_cycles: int = 32
     mxu1_matmul_latency_cycles: int = 32
-    vpu_simple_op_latency_cycles: int = 2
-    vpu_non_pipelineable_op_latency_cycles: int = 8
+    vpu_simple_op_latency_cycles: int = 4
+    vpu_non_pipelineable_op_latency_cycles: int = 16
     xlu_transform_latency_cycles: int = 4
     vmem_bytes_per_cycle: int = 64
     execution_units: dict[str, str] = {
