@@ -158,6 +158,8 @@ The VPU baseline implements the following operations:
 - `vrecip.bf16`
 - `vexp.bf16`
 - `vrelu.bf16`
+- `vsquare.bf16`
+- `vcube.bf16`
 
 Architectural BF16 operand model:
 

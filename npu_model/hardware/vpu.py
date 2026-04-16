@@ -15,6 +15,8 @@ VPU_SIMPLE_OPS = {
     "vsub.bf16",
     "vmul.bf16",
     "vrelu.bf16",
+    "vsquare.bf16",
+    "vcube.bf16",
     "vminimum.bf16",
     "vmaximum.bf16",
     "vredsum.bf16",

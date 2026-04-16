@@ -13,8 +13,16 @@ DRAM_OUTPUT_BASE = 0x0800
 VMEM_INPUT_BASE = 0x2000
 VMEM_OUTPUT_BASE = 0x2800
 
-# One full BF16 tile consumed by the VPU: 32x32 elements across two MRF registers.
-INPUT = torch.arange(32 * 32, dtype=torch.bfloat16).reshape(32, 32)
+# Keep the cube input range modest so BF16 stays numerically well-behaved.
+INPUT = torch.linspace(-4.0, 4.0, steps=32 * 32, dtype=torch.bfloat16).reshape(32, 32)
+
+
+def _bf16_arithmetic_reference(x: torch.Tensor) -> torch.Tensor:
+    x = x.to(torch.bfloat16)
+    identity = ((x + x).to(torch.bfloat16) - x).to(torch.bfloat16)
+    square = (identity * identity).to(torch.bfloat16)
+    cube = (x * x * x).to(torch.bfloat16)
+    return (square * cube).to(torch.bfloat16)
 
 
 class VectorArithmeticProgram(Program):
@@ -49,11 +57,15 @@ class VectorArithmeticProgram(Program):
         Instruction("delay", args=ScalarArgs(imm=4)),
         Instruction(mnemonic="vsub.bf16", args=VectorArgs(vd=4, vs1=2, vs2=0)),
         Instruction("delay", args=ScalarArgs(imm=4)),
-        Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=6, vs1=4, vs2=0)),
+        Instruction(mnemonic="vsquare.bf16", args=VectorArgs(vd=6, vs1=4)),
         Instruction("delay", args=ScalarArgs(imm=4)),
-        Instruction(mnemonic="vstore", args=VectorArgs(vd=6, rs1=2, imm12=0)),
+        Instruction(mnemonic="vcube.bf16", args=VectorArgs(vd=8, vs1=0)),
+        Instruction("delay", args=ScalarArgs(imm=4)),
+        Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=10, vs1=6, vs2=8)),
+        Instruction("delay", args=ScalarArgs(imm=4)),
+        Instruction(mnemonic="vstore", args=VectorArgs(vd=10, rs1=2, imm12=0)),
         Instruction("delay", args=ScalarArgs(imm=16)),
-        Instruction(mnemonic="vstore", args=VectorArgs(vd=7, rs1=2, imm12=32)),
+        Instruction(mnemonic="vstore", args=VectorArgs(vd=11, rs1=2, imm12=32)),
         # Ensure the VPU has time to commit the VMEM write before DMA reads it.
         Instruction("delay", args=ScalarArgs(imm=16)),
         # VMEM -> DRAM
@@ -70,5 +82,5 @@ class VectorArithmeticProgram(Program):
 
     golden_result: tuple[int, torch.Tensor] = (
         DRAM_OUTPUT_BASE,
-        (INPUT**2),
+        _bf16_arithmetic_reference(INPUT),
     )

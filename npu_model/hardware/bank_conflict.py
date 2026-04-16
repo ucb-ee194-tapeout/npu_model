@@ -74,6 +74,8 @@ _VR_ONE_SRC = frozenset(
         "vexp.bf16",
         "vexp2.bf16",
         "vrelu.bf16",
+        "vsquare.bf16",
+        "vcube.bf16",
         "vsin.bf16",
         "vcos.bf16",
         "vtanh.bf16",

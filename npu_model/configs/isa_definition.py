@@ -653,6 +653,28 @@ def vsqrt_bf16(state: ArchState, args: VectorArgs) -> None:
 
 
 @instr(
+    "vsquare.bf16",
+    instruction_type=InstructionType.VECTOR.VR,
+    opcode=0b1010111,
+    funct7=0b1001110,
+)
+def vsquare_bf16(state: ArchState, args: VectorArgs) -> None:
+    x = _read_mrf_bf16_pair(state, args.vs1)
+    _write_mrf_bf16_pair(state, args.vd, x * x)
+
+
+@instr(
+    "vcube.bf16",
+    instruction_type=InstructionType.VECTOR.VR,
+    opcode=0b1010111,
+    funct7=0b1001111,
+)
+def vcube_bf16(state: ArchState, args: VectorArgs) -> None:
+    x = _read_mrf_bf16_pair(state, args.vs1)
+    _write_mrf_bf16_pair(state, args.vd, x * x * x)
+
+
+@instr(
     "vli.all",
     instruction_type=InstructionType.VECTOR.VI,
     opcode=0b1011111,
