@@ -111,8 +111,8 @@ class _VmemConflictProgram(Program):
 class _WeightBufConflictProgram(Program):
     """
     Issues a weight push and immediately issues a matmul without a delay.
-    If the push runs on a decoupled unit (e.g., VPU), the MXU attempts to
-    acquire the weight buffer before the push has completed → conflict.
+    Under the strict software-scheduled model, this should now be rejected as
+    a decode/backpressure scheduling violation before the second op can run.
     """
 
     instructions: List[Instruction[Any]] = [
@@ -125,8 +125,8 @@ class _WeightBufConflictProgram(Program):
 class _AccBufConflictProgram(Program):
     """
     Issues a matmul and immediately attempts to pop the accumulation buffer.
-    If the pop runs on a decoupled unit, it attempts to acquire the
-    accumulation buffer while the matmul is still using it → conflict.
+    Under the strict software-scheduled model, this should now be rejected as
+    a decode/backpressure scheduling violation before the pop can run.
     """
 
     instructions: List[Instruction[Any]] = [
@@ -261,18 +261,26 @@ def main() -> int:
         (_MrfConflictProgram(), "MrfBankConflict"),
         (_VmemConflictProgram(), "VmemBankConflict"),
     ]
+    cases_scheduling = [
+        (_WeightBufConflictProgram(), "WeightBufSchedulingViolation"),
+        (_AccBufConflictProgram(), "AccBufSchedulingViolation"),
+    ]
     cases_ok = [
         (_NoMrfConflictProgram(), "NoMrfConflict"),
         (_NoVmemConflictProgram(), "NoVmemConflict"),
         (_NoWeightBufConflictProgram(), "NoWeightBufConflict"),
         (_NoAccBufConflictProgram(), "NoAccBufConflict"),
-        (_WeightBufConflictProgram(), "WeightBufStalledSafely"),
-        (_AccBufConflictProgram(), "AccBufStalledSafely"),
     ]
 
     for program, label in cases_conflict:
         try:
             _assert_raises(BankConflictError, program, label)
+        except Exception as e:
+            failed.append((label, e))
+
+    for program, label in cases_scheduling:
+        try:
+            _assert_raises(RuntimeError, program, label)
         except Exception as e:
             failed.append((label, e))
 
@@ -288,7 +296,10 @@ def main() -> int:
             print(f"  {name}: {err}", file=sys.stderr)
         return 1
 
-    print(f"\nAll {len(cases_conflict) + len(cases_ok)} bank-conflict tests passed.")
+    print(
+        f"\nAll {len(cases_conflict) + len(cases_scheduling) + len(cases_ok)} "
+        "bank-conflict tests passed."
+    )
     return 0
 
 
