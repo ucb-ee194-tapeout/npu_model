@@ -74,6 +74,8 @@ def _tokenize(raw: str) -> list[PosToken]:
 _VALID_LABEL_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*:$")
 _COLON_AT_END_RE = re.compile(r":\s*$")
 
+# Keep track of labels we ran into last time we linted.
+SEEN_LABELS: dict[str, int] = {}  # name -> first definition line (0-indexed)
 
 def _lint_label_def(stripped: str, lineno: int) -> list[Diagnostic]:
     if not _VALID_LABEL_RE.match(stripped):
@@ -169,7 +171,8 @@ def lint_text(source: str) -> list[Diagnostic]:
     # ------------------------------------------------------------------
     # Pass 1 — collect label definitions; flag duplicates and bad names.
     # ------------------------------------------------------------------
-    seen_labels: dict[str, int] = {}  # name -> first definition line (0-indexed)
+    global SEEN_LABELS
+    SEEN_LABELS.clear()
 
     for lineno, raw in enumerate(lines):
         stripped = _strip_comment(raw).strip()
@@ -179,21 +182,21 @@ def lint_text(source: str) -> list[Diagnostic]:
         diags.extend(_lint_label_def(stripped, lineno))
 
         label_name = stripped.rstrip(":").strip()
-        if label_name in seen_labels:
+        if label_name in SEEN_LABELS:
             diags.append(
                 Diagnostic(
                     lineno,
                     0,
                     len(raw.rstrip()),
                     f"Duplicate label '{label_name}' (first defined on line "
-                    f"{seen_labels[label_name] + 1})",
+                    f"{SEEN_LABELS[label_name] + 1})",
                     Severity.WARNING,
                 )
             )
         else:
-            seen_labels[label_name] = lineno
+            SEEN_LABELS[label_name] = lineno
 
-    labels = list(seen_labels.keys())
+    labels = list(SEEN_LABELS.keys())
 
     # ------------------------------------------------------------------
     # Pass 2 — validate every instruction line.

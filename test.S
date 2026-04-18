@@ -1,2 +1,0 @@
-VMATPUSH.ACC.BF16.MXU0 acc0 m1 
-addi zero s0 100

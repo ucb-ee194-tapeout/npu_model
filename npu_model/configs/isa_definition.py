@@ -198,7 +198,7 @@ class SRAI(ScalarComputeShamt, IType, exu=EXU.SCALAR, opcode=0b0010011, funct3=0
         state.write_xrf(self.rd, state.xrf[self.rs1] >> (self.imm & 0x3F))
 
 class ORI(ScalarComputeImm, IType, exu=EXU.SCALAR, opcode=0b0010011, funct3=0b110):
-    def ori(self, state: ArchState) -> None:
+    def exec(self, state: ArchState) -> None:
         state.write_xrf(self.rd, state.xrf[self.rs1] | _sign_extend(self.imm & 0xFFF, 12))
 
 
@@ -261,7 +261,7 @@ class SLTU(ScalarComputeReg, RType, exu=EXU.SCALAR, opcode=0b0110011, funct3=0b0
         state.write_xrf(self.rd, 1 if a < b else 0)
 
 class XOR(ScalarComputeReg, RType, exu=EXU.SCALAR, opcode=0b0110011, funct3=0b100, funct7=0b0000000):
-    def xor(self, state: ArchState) -> None:
+    def exec(self, state: ArchState) -> None:
         state.write_xrf(self.rd, state.xrf[self.rs1] ^ state.xrf[self.rs2])
 
 class SRL(ScalarComputeReg, RType, exu=EXU.SCALAR, opcode=0b0110011, funct3=0b101, funct7=0b0000000):
@@ -494,7 +494,7 @@ class BGEU(ScalarBranchImm, SBType, exu=EXU.SCALAR, opcode=0b1100011, funct3=0b1
             state.set_npc(state.pc + imm - PIPELINE_LATENCY)
 
 class JALR(ScalarOffsetLoad, IType, exu=EXU.SCALAR, opcode=0b1100111, funct3=0b000):
-    def jalr(self, state: ArchState) -> None:
+    def exec(self, state: ArchState) -> None:
         imm = _sign_extend(self.imm & 0xFFF, 12)
         state.write_xrf(self.rd, state.pc + 4)
         state.set_npc(state.read_xrf(self.rs1) + imm - PIPELINE_LATENCY)
@@ -504,7 +504,7 @@ class DELAY(UnaryImm, IType, exu=EXU.SCALAR, opcode=0b1100111, funct3=0b001):
         pass
 
 class VTRPOSE_XLU(TensorComputeUnary, VRType, exu=EXU.VECTOR, opcode=0b1101011,funct7=0b0000000):
-    def vtrpose_xlu(self, state: ArchState) -> None:
+    def exec(self, state: ArchState) -> None:
         reg_in = state.read_mrf_fp8(self.vs1)
         transposed = reg_in.view(32, 32).t().contiguous().reshape(-1)
         state.write_mrf_fp8(self.vd, transposed)
@@ -546,7 +546,7 @@ class CSRRSI(ScalarComputeImm, CSRType, exu=EXU.SCALAR, opcode=0b1110011, funct3
         state.write_xrf(self.rd, old)
 
 class CSRRCI(ScalarComputeImm, CSRType, exu=EXU.SCALAR, opcode=0b1110011, funct3=0b100):
-    def csrrci(self, state: ArchState) -> None:
+    def exec(self, state: ArchState) -> None:
         old = state.read_csrf(self.imm)
         state.write_csrf(self.imm, old & ~(self.rs1 & 0b11111))
         state.write_xrf(self.rd, old)
@@ -557,7 +557,7 @@ class ECALL(Nullary, IType, exu=EXU.SCALAR, opcode=0b1110011, funct3=0b000):
 
 class EBREAK(Nullary, IType, exu=EXU.SCALAR, opcode=0b1110011, funct3=0b000):
     imm: Imm12 = Imm12(1)
-    def ebreak(self, state: ArchState) -> None:
+    def exec(self, state: ArchState) -> None:
         pass
 
 class VMATPUSH_WEIGHT_MXU0(MXUWeightPush, VRType[WeightBuffer, MatrixReg], exu=EXU.VECTOR, opcode=0b1110111, funct7=0b0000000):

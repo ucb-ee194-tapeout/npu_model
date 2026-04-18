@@ -1,25 +1,49 @@
-from __future__ import annotations
+import inspect
 
-import re
-from abc import ABC, abstractmethod
+from abc import ABC, ABCMeta
 from dataclasses import dataclass
-from typing import Callable, ClassVar, Self
+from typing import Callable, ClassVar, Self, Any, get_type_hints
 
-from .isa import UJType
-from .isa_types import *
+from .isa import UJType, SBType
+from .isa_types import Named, Bundled, AsmError, BoundedInt, ScalarReg, ExponentReg, MatrixReg, WeightBuffer, Accumulator, Shamt, Imm12, SBImm12, Imm16, Imm20
 
-# Util Functions
-scalar_offset_fmt = re.compile(
-    r"^(0[xX][0-9a-fA-F]+|0[bB][01]+|0[oO][0-7]+|\d+)\(x(\d+)\)"
-)
-exponent_offset_fmt = re.compile(
-    r"^(0[xX][0-9a-fA-F]+|0[bB][01]+|0[oO][0-7]+|\d+)\(e(\d+)\)"
-)
-matrix_offset_fmt = re.compile(
-    r"^(0[xX][0-9a-fA-F]+|0[bB][01]+|0[oO][0-7]+|\d+)\(m(\d+)\)"
-)
+# - Named Args ----------------------------------------------
+# Used to significantly clean up linting and assembling code
+# -----------------------------------------------------------
+# Scalar
+x_rs2    = Named(ScalarReg, "rs2")
+x_rs1    = Named(ScalarReg, "rs1")
+x_rd     = Named(ScalarReg, "rd")
 
+# Exponent
+e_rd     = Named(ExponentReg, "rd")
+e_es1    = Named(ExponentReg, "es1")
 
+# Matrix
+m_vd     = Named(MatrixReg, "vd")
+m_vs1    = Named(MatrixReg, "vs1")
+m_vs2    = Named(MatrixReg, "vs2")
+
+# Weight Buffer
+w_vd     = Named(WeightBuffer, "vd")
+w_vs2    = Named(WeightBuffer, "vs2")
+
+# Accumulator
+acc_vd   = Named(Accumulator, "vd")
+acc_vs2  = Named(Accumulator, "vs2")
+
+# Immediates and Labels
+shamt    = Named(Shamt, "shift amount", "imm")
+imm12    = Named(Imm12, "12-bit immediate", "imm")
+sbimm12  = Named(SBImm12, "12-bit SB immediate or label", "imm", True)
+imm16    = Named(Imm16, "16-bit immediate", "imm")
+imm20    = Named(Imm20, "20-bit immediate", "imm")
+imm20_lb = Named(Imm20, "20-bit immediate or label", "imm", True)
+
+# Offset-Immediate formats
+x_rs1_imm12 = Bundled(x_rs1, imm12)
+
+# Util functions
 def _wrong_cnt_error(
     mnemonic: str, expected: int, actual: int, operand_fmt: str
 ) -> AsmError:
@@ -28,49 +52,51 @@ def _wrong_cnt_error(
         token_index=0,
     )
 
+class InstructionPatternMeta(ABCMeta):
+    """
+    Metaclass that checks that from_asm will produce a valid output.
+    Errors if params don't expand out into the args necessary for __init__.
+    """
+    
+    def __new__(mcs,name: str,bases: tuple[type, ...],namespace: dict[str, Any],**kwargs: Any) -> type:
+        params: list[Named] = namespace.get('params', [])
+        
+        # Extract parameter names and types from params
+        param_specs: list[tuple[str, type]] = []
+        for param in params:
+            if isinstance(param, Bundled):
+                param_specs.append((param.reg.repr, param.reg.inner))
+                param_specs.append((param.imm.repr, param.imm.inner))
+            else:
+                param_specs.append((param.repr, param.inner))
+        
+        param_names: list[str] = [name for name, _ in param_specs]
+        
+        # Check if __init__ is manually defined
+        init_method: Any = namespace.get('__init__')
+        
+        if init_method is not None:
+            # Validate that manual __init__ matches params
+            sig: inspect.Signature = inspect.signature(init_method)
+            init_params: list[str] = list(sig.parameters.keys())[1:]  # Skip 'self'
+            
+            if set(init_params) != set(param_names):
+                raise TypeError(
+                    f"Class {name}: __init__ parameters {init_params} "
+                    f"don't match params names {param_names}"
+                )
+                           
+            # Validate that all args subclass int
+            hints: dict[str, type] = get_type_hints(init_method)
+            for param_name in init_params:
+                typ: type = hints[param_name]
+                if not issubclass(typ,int):
+                    raise TypeError(
+                        f"Class {name}: {param_name} type {typ} doesn't subclass int."
+                    )
+        return super().__new__(mcs, name, bases, namespace, **kwargs)
 
-def _is_label_ref(s: str) -> bool:
-    """Return True if s looks like a symbolic label (not a numeric literal)."""
-    return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_.]*$", s))
-
-
-def _handle_offset_reg(
-    token: str,
-    immediate_format: ImmediateT = Imm12,
-    reg_format: RegisterT = ScalarReg,
-    role: str = "rs1",
-    tok_idx: int = 0,
-) -> list[AsmError]:
-    expected = f"<{immediate_format.fmt}>({reg_format.fmt}<{role}>)"
-
-    if reg_format is ScalarReg:
-        match = scalar_offset_fmt.match(token)
-    elif reg_format is ExponentReg:
-        match = exponent_offset_fmt.match(token)
-    elif reg_format is MatrixReg:
-        match = matrix_offset_fmt.match(token)
-    else:
-        raise ValueError(
-            f"Attempted to provide a non-register format to _is_offset_reg: {reg_format.__name__}"
-        )
-
-    if not match:
-        return [
-            AsmError(
-                f"Expected base+offset operand in the form {expected}, got '{token}'",
-                token_index=tok_idx,
-            )
-        ]
-
-    imm = int(match.group(1), 0)
-    reg = int(match.group(2))
-
-    err = immediate_format.lint(imm, role="12-bit immediate", tok_idx=tok_idx)
-    err.extend(reg_format.lint(reg, role=role, tok_idx=tok_idx))
-    return err
-
-
-class InstructionPattern(ABC):
+class InstructionPattern(ABC, metaclass=InstructionPatternMeta):
     """
     Represents the ISA arguments for a specific instruction.
 
@@ -85,10 +111,21 @@ class InstructionPattern(ABC):
     """
 
     mnemonic: ClassVar[str] = NotImplemented
-    params: ClassVar[list[str]] = []
+    params: ClassVar[list[Named]] = []
 
     @classmethod
-    @abstractmethod
+    def format_params(cls):
+        return map(lambda x: x.format_arg(issubclass(cls, (UJType, SBType))), cls.params)
+
+    @classmethod
+    def num_args(cls):
+        return len(cls.params)
+    
+    @classmethod
+    def num_toks(cls):
+        return len(cls.params) + 1
+
+    @classmethod
     def from_asm(
         cls, tokens: list[str], resolve: Callable[[str], int] = lambda x: int(x, 0)
     ) -> Self:
@@ -108,10 +145,15 @@ class InstructionPattern(ABC):
             ValueError: When an invalid set of tokens is provided for a specific instruction.
             NotImplementedError: When called on the InstructionPattern class rather than a valid subclass.
         """
-        raise NotImplementedError()
+        if tokens[0] != cls.mnemonic:
+            raise ValueError(f'Attempted to construct {cls.mnemonic} with tokens for {tokens[0]}.')
+        
+        kwargs: dict[str, BoundedInt] = {}
+        for i, param in enumerate(cls.params):
+            kwargs = kwargs | param.parse_token(tokens[i + 1], resolve)
+        return cls(**kwargs)
 
     @classmethod
-    @abstractmethod
     def lint(cls, tokens: list[str], labels: list[str]) -> list[AsmError]:
         """
         Validate whether a set of tokens can be used to instantiate an Instruction. Should be used
@@ -128,78 +170,24 @@ class InstructionPattern(ABC):
             We do not check whether the jump to the label is too large. We just assume this is fine.
             If it's too large, it should get caught at assemble time.
         """
-        raise NotImplementedError()
-
-
-@dataclass(init=False)
-class _OffsetLoad[Reg: (ScalarReg, ExponentReg)](InstructionPattern):
-    """
-    Instruction pattern for instructions with a destination and base-offset operand.
-
-    Matches assembly patterns of the form `instr x(rd), imm(x(rs1))` or `instr e(rd), imm(x(rs1))`.
-    This pattern is used for the following instructions: `lb`, `lh`, `lw`, `jalr`, and `seld`
-
-    Attributes:
-        rd: The destination scalar register.
-        imm: A 12-bit immediate value representing the offset.
-        rs1: The base scalar register.
-    """
-
-    REG_TYPE: type[Reg]
-    rd: Reg
-    imm: Imm12
-    rs1: ScalarReg
-
-    @classmethod
-    def from_asm(
-        cls, tokens: list[str], resolve: Callable[[str], int] = lambda x: int(x, 0)
-    ) -> Self:
-        if tokens[0] != cls.mnemonic:
-            raise ValueError(
-                f"Attempted to construct {cls.mnemonic} with tokens for {tokens[0]}."
-            )
-
-        rd = cls.REG_TYPE(tokens[1])
-        match = re.match(r"(\d+)\(x(\d+)\)", tokens[2])
-        if not match:
-            raise ValueError(
-                f"Malformed set of tokens provided for {cls.mnemonic}: {','.join(tokens)}. Expected: {cls.mnemonic} {' '.join(cls.params)}"
-            )
-
-        imm = int(match.group(1))
-        rs1 = ScalarReg(int(match.group(2)))
-
-        return cls(rd=rd, imm=imm, rs1=rs1)
-
-    @classmethod
-    def lint(cls, tokens: list[str], labels: list[str]) -> list[AsmError]:
-        if len(tokens) != len(cls.params) + 1:
-            return [
+        exceptions: list[AsmError] = []
+        if len(tokens) != cls.num_toks():
+            exceptions.append(
                 _wrong_cnt_error(
                     cls.mnemonic,
-                    len(cls.params) + 1,
+                    cls.num_toks(),
                     len(tokens),
-                    " ".join(cls.params),
+                    ', '.join(cls.format_params()),
                 )
-            ]
+            )
 
-        exceptions: list[AsmError] = []
-        if cls.REG_TYPE == ScalarReg:
-            exceptions.extend(ScalarReg.lint(tokens[1], role="rd", tok_idx=1))
-        else:
-            exceptions.extend(ExponentReg.lint(tokens[1], role="rd", tok_idx=1))
-
-        exceptions.extend(_handle_offset_reg(tokens[2], role="rs1", tok_idx=2))
+        for i in range(1, min(len(tokens),cls.num_toks())):
+            exceptions.extend(cls.params[i-1].lint(tokens[i], labels, tok_idx=i, allow_label=issubclass(cls, (UJType, SBType))))
 
         return exceptions
 
-    def __init__(self, rd: Reg, imm: int, rs1: ScalarReg):
-        self.rd = rd
-        self.imm = Imm12(imm)
-        self.rs1 = rs1
-
-
-class ScalarOffsetLoad(_OffsetLoad[ScalarReg]):
+@dataclass(init=False)
+class ScalarOffsetLoad(InstructionPattern):
     """
     Instruction pattern for instructions with a scalar destination register and base-offset operand.
 
@@ -211,12 +199,18 @@ class ScalarOffsetLoad(_OffsetLoad[ScalarReg]):
         imm: A 12-bit immediate value representing the offset.
         rs1: The base scalar register.
     """
+    rd: ScalarReg
+    imm: Imm12
+    rs1: ScalarReg
+    params = [x_rd, x_rs1_imm12]
 
-    REG_TYPE = ScalarReg
-    params = [f"{ScalarReg.fmt}<rd>", f"{Imm12.fmt}({ScalarReg.fmt}<rs1>)"]
+    def __init__(self, rd: ScalarReg, imm: int, rs1: ScalarReg):
+        self.rd = rd
+        self.imm = Imm12(imm)
+        self.rs1 = rs1
 
-
-class ExponentOffsetLoad(_OffsetLoad[ExponentReg]):
+@dataclass(init=False)
+class ExponentOffsetLoad(InstructionPattern):
     """
     Instruction pattern for instructions with a exponent destination register and base-offset operand.
 
@@ -228,10 +222,15 @@ class ExponentOffsetLoad(_OffsetLoad[ExponentReg]):
         imm: A 12-bit immediate value representing the offset.
         rs1: The base scalar register.
     """
+    rd: ExponentReg
+    imm: Imm12
+    rs1: ScalarReg
+    params = [e_rd, x_rs1_imm12]
 
-    REG_TYPE = ExponentReg
-    params = [f"{ExponentReg.fmt}<rd>", f"{Imm12.fmt}({ScalarReg.fmt}<rs1>)"]
-
+    def __init__(self, rd: ExponentReg, imm: int, rs1: ScalarReg):
+        self.rd = rd
+        self.imm = Imm12(imm)
+        self.rs1 = rs1
 
 @dataclass(init=False)
 class ScalarBaseOffsetStore(InstructionPattern):
@@ -246,56 +245,15 @@ class ScalarBaseOffsetStore(InstructionPattern):
         imm: A 12-bit immediate value representing the offset.
         rs1: The base scalar register.
     """
-
     rs2: ScalarReg
     imm: Imm12
     rs1: ScalarReg
-    params = [f"{ScalarReg.fmt}<rs2>", f"{Imm12.fmt}({ScalarReg.fmt}<rs1>)"]
-
-    @classmethod
-    def from_asm(
-        cls, tokens: list[str], resolve: Callable[[str], int] = lambda x: int(x, 0)
-    ) -> ScalarBaseOffsetStore:
-        if tokens[0] != cls.mnemonic:
-            raise ValueError(
-                f"Attempted to construct {cls.mnemonic} with tokens for {tokens[0]}."
-            )
-
-        rs2 = ScalarReg(tokens[1])
-        match = re.match(r"(\d+)\(x(\d+)\)", tokens[2])
-        if not match:
-            raise ValueError(
-                f"Malformed set of tokens provided for {cls.mnemonic}: {','.join(tokens)}. Expected: {cls.mnemonic} {' '.join(cls.params)}"
-            )
-
-        imm = int(match.group(1))
-        rs1 = ScalarReg(int(match.group(2)))
-
-        return cls(rs2=rs2, imm=imm, rs1=rs1)
-
-    @classmethod
-    def lint(cls, tokens: list[str], labels: list[str]) -> list[AsmError]:
-        if len(tokens) != len(cls.params) + 1:
-            return [
-                _wrong_cnt_error(
-                    cls.mnemonic,
-                    len(cls.params) + 1,
-                    len(tokens),
-                    " ".join(cls.params),
-                )
-            ]
-
-        exceptions: list[AsmError] = []
-        exceptions.extend(ScalarReg.lint(tokens[1], role="rs2", tok_idx=1))
-        exceptions.extend(_handle_offset_reg(tokens[2], role="rs1", tok_idx=2))
-
-        return exceptions
+    params = [x_rs2, x_rs1_imm12]
 
     def __init__(self, rs2: ScalarReg, imm: int, rs1: ScalarReg):
         self.rs2 = rs2
         self.imm = Imm12(imm)
         self.rs1 = rs1
-
 
 @dataclass(init=False)
 class TensorBaseOffset(InstructionPattern):
@@ -310,56 +268,15 @@ class TensorBaseOffset(InstructionPattern):
         imm: A 12-bit immediate value representing the offset.
         rs1: The base scalar register.
     """
-
     vd: MatrixReg
     imm: Imm12
     rs1: ScalarReg
-    params = [f"{MatrixReg.fmt}<vd>", f"{Imm12.fmt}({ScalarReg.fmt}<rs1>)"]
-
-    @classmethod
-    def from_asm(
-        cls, tokens: list[str], resolve: Callable[[str], int] = lambda x: int(x, 0)
-    ) -> Self:
-        if tokens[0] != cls.mnemonic:
-            raise ValueError(
-                f"Attempted to construct {cls.mnemonic} with tokens for {tokens[0]}."
-            )
-
-        vd = MatrixReg(tokens[1])
-        match = re.match(r"(\d+)\(x(\d+)\)", tokens[2])
-        if not match:
-            raise ValueError(
-                f"Malformed set of tokens provided for {cls.mnemonic}: {','.join(tokens)}. Expected: {cls.mnemonic} {' '.join(cls.params)}"
-            )
-
-        imm = int(match.group(1))
-        rs1 = ScalarReg(int(match.group(2)))
-
-        return cls(vd=vd, imm=imm, rs1=rs1)
-
-    @classmethod
-    def lint(cls, tokens: list[str], labels: list[str]) -> list[AsmError]:
-        if len(tokens) != len(cls.params) + 1:
-            return [
-                _wrong_cnt_error(
-                    cls.mnemonic,
-                    len(cls.params) + 1,
-                    len(tokens),
-                    " ".join(cls.params),
-                )
-            ]
-
-        exceptions: list[AsmError] = []
-        exceptions.extend(MatrixReg.lint(tokens[1], role="vd", tok_idx=1))
-        exceptions.extend(_handle_offset_reg(tokens[2], role="rs1", tok_idx=2))
-
-        return exceptions
+    params = [m_vd, x_rs1_imm12]
 
     def __init__(self, vd: MatrixReg, imm: int, rs1: ScalarReg):
         self.vd = vd
         self.imm = Imm12(imm)
         self.rs1 = rs1
-
 
 @dataclass(init=False)
 class ScalarImm(InstructionPattern):
@@ -373,50 +290,13 @@ class ScalarImm(InstructionPattern):
         rd: The destination scalar register.
         imm: A 20-bit immediate value.
     """
-
     rd: ScalarReg
     imm: Imm20
-    params = [f"{ScalarReg.fmt}<rd>", Imm20.fmt]
-
-    @classmethod
-    def from_asm(
-        cls, tokens: list[str], resolve: Callable[[str], int] = lambda x: int(x, 0)
-    ) -> Self:
-        if tokens[0] != cls.mnemonic:
-            raise ValueError(
-                f"Attempted to construct {cls.mnemonic} with tokens for {tokens[0]}."
-            )
-
-        rd = ScalarReg(tokens[1])
-        imm = resolve(tokens[2])
-
-        return cls(rd=rd, imm=imm)
-
-    @classmethod
-    def lint(cls, tokens: list[str], labels: list[str]) -> list[AsmError]:
-        if len(tokens) != len(cls.params) + 1:
-            return [
-                _wrong_cnt_error(
-                    cls.mnemonic, len(cls.params) + 1, len(tokens), " ".join(cls.params)
-                )
-            ]
-
-        exceptions: list[AsmError] = []
-        exceptions.extend(ScalarReg.lint(tokens[1], role="rd", tok_idx=1))
-        if issubclass(cls, UJType) and _is_label_ref(tokens[2]):
-            if tokens[2] not in labels:
-                exceptions.append(
-                    AsmError(f"Undefined label '{tokens[2]}'", token_index=2)
-                )
-        else:
-            exceptions.extend(Imm20.lint(tokens[2], role="20-bit immediate", tok_idx=2))
-
-        return exceptions
+    params = [x_rd, imm20_lb]
 
     def __init__(self, rd: ScalarReg, imm: int):
         self.rd = rd
         self.imm = Imm20(imm)
-
 
 @dataclass(init=False)
 class ExponentImm(InstructionPattern):
@@ -430,44 +310,13 @@ class ExponentImm(InstructionPattern):
         rd: The destination exponent register.
         imm: A 12-bit immediate value.
     """
-
     rd: ExponentReg
     imm: Imm12
-    params = [f"{ExponentReg.fmt}<rd>", Imm12.fmt]
-
-    @classmethod
-    def from_asm(
-        cls, tokens: list[str], resolve: Callable[[str], int] = lambda x: int(x, 0)
-    ) -> Self:
-        if tokens[0] != cls.mnemonic:
-            raise ValueError(
-                f"Attempted to construct {cls.mnemonic} with tokens for {tokens[0]}."
-            )
-
-        rd = ExponentReg(tokens[1])
-        imm = int(tokens[2], 0)
-
-        return cls(rd=rd, imm=imm)
-
-    @classmethod
-    def lint(cls, tokens: list[str], labels: list[str]) -> list[AsmError]:
-        if len(tokens) != len(cls.params) + 1:
-            return [
-                _wrong_cnt_error(
-                    cls.mnemonic, len(cls.params) + 1, len(tokens), " ".join(cls.params)
-                )
-            ]
-
-        exceptions: list[AsmError] = []
-        exceptions.extend(ExponentReg.lint(tokens[1], role="rd", tok_idx=1))
-        exceptions.extend(Imm12.lint(tokens[2], role="12-bit immediate", tok_idx=2))
-
-        return exceptions
+    params = [e_rd, imm12]
 
     def __init__(self, rd: ExponentReg, imm: int):
         self.rd = rd
         self.imm = Imm12(imm)
-
 
 @dataclass(init=False)
 class ScalarComputeImm(InstructionPattern):
@@ -482,51 +331,15 @@ class ScalarComputeImm(InstructionPattern):
         rs1: The source scalar register.
         imm: A 12-bit immediate value.
     """
-
     rd: ScalarReg
     rs1: ScalarReg
     imm: Imm12
-    params = [f"{ScalarReg.fmt}<rd>", f"{ScalarReg.fmt}<rs1>", Imm12.fmt]
-
-    @classmethod
-    def from_asm(
-        cls, tokens: list[str], resolve: Callable[[str], int] = lambda x: int(x, 0)
-    ) -> Self:
-        if tokens[0] != cls.mnemonic:
-            raise ValueError(
-                f"Attempted to construct {cls.mnemonic} with tokens for {tokens[0]}."
-            )
-
-        rd = ScalarReg(tokens[1])
-        rs1 = ScalarReg(tokens[2])
-        imm = int(tokens[3], 0)
-
-        return cls(rd=rd, rs1=rs1, imm=imm)
-
-    @classmethod
-    def lint(cls, tokens: list[str], labels: list[str]) -> list[AsmError]:
-        if len(tokens) != len(cls.params) + 1:
-            return [
-                _wrong_cnt_error(
-                    cls.mnemonic,
-                    len(cls.params) + 1,
-                    len(tokens),
-                    " ".join(cls.params),
-                )
-            ]
-
-        exceptions: list[AsmError] = []
-        exceptions.extend(ScalarReg.lint(tokens[1], role="rd", tok_idx=1))
-        exceptions.extend(ScalarReg.lint(tokens[2], role="rs1", tok_idx=2))
-        exceptions.extend(Imm12.lint(tokens[3], role="12-bit immediate", tok_idx=3))
-
-        return exceptions
+    params = [x_rd, x_rs1, imm12]
 
     def __init__(self, rd: ScalarReg, rs1: ScalarReg, imm: int):
         self.rd = rd
         self.rs1 = rs1
         self.imm = Imm12(imm)
-
 
 @dataclass(init=False)
 class ScalarComputeShamt(InstructionPattern):
@@ -540,53 +353,17 @@ class ScalarComputeShamt(InstructionPattern):
         rs1: The source scalar register.
         shamt: A 5-bit immediate value.
     """
-
     UPPER_IMM: int = 0b0000000
     rd: ScalarReg
     rs1: ScalarReg
     imm: Imm12
-    params = [f"{ScalarReg.fmt}<rd>", f"{ScalarReg.fmt}<rs1>", Shamt.fmt]
-
-    @classmethod
-    def from_asm(
-        cls, tokens: list[str], resolve: Callable[[str], int] = lambda x: int(x, 0)
-    ) -> Self:
-        if tokens[0] != cls.mnemonic:
-            raise ValueError(
-                f"Attempted to construct {cls.mnemonic} with tokens for {tokens[0]}."
-            )
-
-        rd = ScalarReg(tokens[1])
-        rs1 = ScalarReg(tokens[2])
-        imm = int(tokens[3], 0)
-
-        return cls(rd=rd, rs1=rs1, imm=imm)
-
-    @classmethod
-    def lint(cls, tokens: list[str], labels: list[str]) -> list[AsmError]:
-        if len(tokens) != len(cls.params) + 1:
-            return [
-                _wrong_cnt_error(
-                    cls.mnemonic,
-                    len(cls.params) + 1,
-                    len(tokens),
-                    " ".join(cls.params),
-                )
-            ]
-
-        exceptions: list[AsmError] = []
-        exceptions.extend(ScalarReg.lint(tokens[1], role="rd", tok_idx=1))
-        exceptions.extend(ScalarReg.lint(tokens[2], role="rs1", tok_idx=2))
-        exceptions.extend(Shamt.lint(tokens[3], role="shift amount", tok_idx=3))
-
-        return exceptions
-
+    params = [x_rd, x_rs1, shamt]
+    
     def __init__(self, rd: ScalarReg, rs1: ScalarReg, imm: int):
         self.rd = rd
         self.rs1 = rs1
         # Done like this on purpose so it doesn't need custom isa types.
         self.imm = Imm12((self.UPPER_IMM << 5) | Shamt(imm))
-
 
 @dataclass(init=False)
 class ScalarBranchImm(InstructionPattern):
@@ -604,57 +381,12 @@ class ScalarBranchImm(InstructionPattern):
     rs1: ScalarReg
     rs2: ScalarReg
     imm: SBImm12
-    params = [
-        f"{ScalarReg.fmt}<rs1>",
-        f"{ScalarReg.fmt}<rs2>",
-        f"{SBImm12.fmt} or label",
-    ]
-
-    @classmethod
-    def from_asm(
-        cls, tokens: list[str], resolve: Callable[[str], int] = lambda x: int(x, 0)
-    ) -> Self:
-        if tokens[0] != cls.mnemonic:
-            raise ValueError(
-                f"Attempted to construct {cls.mnemonic} with tokens for {tokens[0]}."
-            )
-
-        rs1 = ScalarReg(tokens[1])
-        rs2 = ScalarReg(tokens[2])
-        imm = resolve(tokens[3])
-
-        return cls(rs1=rs1, rs2=rs2, imm=imm)
-
-    @classmethod
-    def lint(cls, tokens: list[str], labels: list[str]) -> list[AsmError]:
-        if len(tokens) != len(cls.params) + 1:
-            return [
-                _wrong_cnt_error(
-                    cls.mnemonic,
-                    len(cls.params) + 1,
-                    len(tokens),
-                    " ".join(cls.params),
-                )
-            ]
-
-        exceptions: list[AsmError] = []
-        exceptions.extend(ScalarReg.lint(tokens[1], role="rs1", tok_idx=1))
-        exceptions.extend(ScalarReg.lint(tokens[2], role="rs2", tok_idx=2))
-        if _is_label_ref(tokens[3]):
-            if tokens[3] not in labels:
-                exceptions.append(
-                    AsmError(f"Undefined label '{tokens[3]}'", token_index=3)
-                )
-        else:
-            exceptions.extend(SBImm12.lint(tokens[3], role="branch offset", tok_idx=3))
-
-        return exceptions
-
+    params = [x_rs1,x_rs2,sbimm12]
+    
     def __init__(self, rs1: ScalarReg, rs2: ScalarReg, imm: int):
         self.rs1 = rs1
         self.rs2 = rs2
         self.imm = SBImm12(imm)
-
 
 @dataclass(init=False)
 class DirectImm(InstructionPattern):
@@ -668,44 +400,13 @@ class DirectImm(InstructionPattern):
         reg: The register operand.
         imm: An immediate value.
     """
-
     vd: MatrixReg
     imm: Imm16
-    params = [f"{MatrixReg.fmt}<vd>", Imm16.fmt]
-
-    @classmethod
-    def from_asm(
-        cls, tokens: list[str], resolve: Callable[[str], int] = lambda x: int(x, 0)
-    ) -> Self:
-        if tokens[0] != cls.mnemonic:
-            raise ValueError(
-                f"Attempted to construct {cls.mnemonic} with tokens for {tokens[0]}."
-            )
-
-        vd = MatrixReg(tokens[1])
-        imm = int(tokens[2], 0)
-
-        return cls(vd=vd, imm=imm)
-
-    @classmethod
-    def lint(cls, tokens: list[str], labels: list[str]) -> list[AsmError]:
-        if len(tokens) != len(cls.params) + 1:
-            return [
-                _wrong_cnt_error(
-                    cls.mnemonic, len(cls.params) + 1, len(tokens), " ".join(cls.params)
-                )
-            ]
-
-        exceptions: list[AsmError] = []
-        exceptions.extend(MatrixReg.lint(tokens[1], role="vd", tok_idx=1))
-        exceptions.extend(Imm16.lint(tokens[2], role="16-bit immediate", tok_idx=2))
-
-        return exceptions
+    params = [m_vd, imm16]
 
     def __init__(self, vd: MatrixReg, imm: int):
         self.vd = vd
         self.imm = Imm16(imm)
-
 
 @dataclass()
 class ScalarComputeReg(InstructionPattern):
@@ -720,46 +421,10 @@ class ScalarComputeReg(InstructionPattern):
         rs1: The first source scalar register.
         rs2: The second source scalar register.
     """
-
     rd: ScalarReg
     rs1: ScalarReg
     rs2: ScalarReg
-    params = [f"{ScalarReg.fmt}<rd>", f"{ScalarReg.fmt}<rs1>", f"{ScalarReg.fmt}<rs2>"]
-
-    @classmethod
-    def from_asm(
-        cls, tokens: list[str], resolve: Callable[[str], int] = lambda x: int(x, 0)
-    ) -> Self:
-        if tokens[0] != cls.mnemonic:
-            raise ValueError(
-                f"Attempted to construct {cls.mnemonic} with tokens for {tokens[0]}."
-            )
-
-        rd = ScalarReg(tokens[1])
-        rs1 = ScalarReg(tokens[2])
-        rs2 = ScalarReg(tokens[3])
-
-        return cls(rd=rd, rs1=rs1, rs2=rs2)
-
-    @classmethod
-    def lint(cls, tokens: list[str], labels: list[str]) -> list[AsmError]:
-        if len(tokens) != len(cls.params) + 1:
-            return [
-                _wrong_cnt_error(
-                    cls.mnemonic,
-                    len(cls.params) + 1,
-                    len(tokens),
-                    " ".join(cls.params),
-                )
-            ]
-
-        exceptions: list[AsmError] = []
-        exceptions.extend(ScalarReg.lint(tokens[1], role="rd", tok_idx=1))
-        exceptions.extend(ScalarReg.lint(tokens[2], role="rs1", tok_idx=2))
-        exceptions.extend(ScalarReg.lint(tokens[3], role="rs2", tok_idx=3))
-
-        return exceptions
-
+    params = [x_rd, x_rs1, x_rs2]
 
 @dataclass()
 class TensorComputeUnary(InstructionPattern):
@@ -773,43 +438,9 @@ class TensorComputeUnary(InstructionPattern):
         vd: The destination tensor register.
         vs1: The source tensor register.
     """
-
     vd: MatrixReg
     vs1: MatrixReg
-    params = [f"{MatrixReg.fmt}<vd>", f"{MatrixReg.fmt}<vs1>"]
-
-    @classmethod
-    def from_asm(
-        cls, tokens: list[str], resolve: Callable[[str], int] = lambda x: int(x, 0)
-    ) -> Self:
-        if tokens[0] != cls.mnemonic:
-            raise ValueError(
-                f"Attempted to construct {cls.mnemonic} with tokens for {tokens[0]}."
-            )
-
-        vd = MatrixReg(tokens[1])
-        vs1 = MatrixReg(tokens[2])
-
-        return cls(vd=vd, vs1=vs1)
-
-    @classmethod
-    def lint(cls, tokens: list[str], labels: list[str]) -> list[AsmError]:
-        if len(tokens) != len(cls.params) + 1:
-            return [
-                _wrong_cnt_error(
-                    cls.mnemonic,
-                    len(cls.params) + 1,
-                    len(tokens),
-                    " ".join(cls.params),
-                )
-            ]
-
-        exceptions: list[AsmError] = []
-        exceptions.extend(MatrixReg.lint(tokens[1], role="vd", tok_idx=1))
-        exceptions.extend(MatrixReg.lint(tokens[2], role="vs1", tok_idx=2))
-
-        return exceptions
-
+    params = [m_vd, m_vs1]
 
 @dataclass()
 class TensorComputeBinary(InstructionPattern):
@@ -824,46 +455,10 @@ class TensorComputeBinary(InstructionPattern):
         vs1: The first source tensor register.
         vs2: The second source tensor register.
     """
-
     vd: MatrixReg
     vs1: MatrixReg
     vs2: MatrixReg
-    params = [f"{MatrixReg.fmt}<vd>", f"{MatrixReg.fmt}<vs1>", f"{MatrixReg.fmt}<vs2>"]
-
-    @classmethod
-    def from_asm(
-        cls, tokens: list[str], resolve: Callable[[str], int] = lambda x: int(x, 0)
-    ) -> Self:
-        if tokens[0] != cls.mnemonic:
-            raise ValueError(
-                f"Attempted to construct {cls.mnemonic} with tokens for {tokens[0]}."
-            )
-
-        vd = MatrixReg(tokens[1])
-        vs1 = MatrixReg(tokens[2])
-        vs2 = MatrixReg(tokens[3])
-
-        return cls(vd=vd, vs1=vs1, vs2=vs2)
-
-    @classmethod
-    def lint(cls, tokens: list[str], labels: list[str]) -> list[AsmError]:
-        if len(tokens) != len(cls.params) + 1:
-            return [
-                _wrong_cnt_error(
-                    cls.mnemonic,
-                    len(cls.params) + 1,
-                    len(tokens),
-                    " ".join(cls.params),
-                )
-            ]
-
-        exceptions: list[AsmError] = []
-        exceptions.extend(MatrixReg.lint(tokens[1], role="vd", tok_idx=1))
-        exceptions.extend(MatrixReg.lint(tokens[2], role="vs1", tok_idx=2))
-        exceptions.extend(MatrixReg.lint(tokens[3], role="vs2", tok_idx=3))
-
-        return exceptions
-
+    params = [m_vd, m_vs1, m_vs2]
 
 @dataclass()
 class TensorComputeMixed(InstructionPattern):
@@ -879,50 +474,10 @@ class TensorComputeMixed(InstructionPattern):
         vs1: The source tensor register.
         es1: The source exponent register.
     """
-
     vd: MatrixReg
     vs2: MatrixReg
     es1: ExponentReg
-    params = [
-        f"{MatrixReg.fmt}<vd>",
-        f"{MatrixReg.fmt}<vs2>",
-        f"{ExponentReg.fmt}<es1>",
-    ]
-
-    @classmethod
-    def from_asm(
-        cls, tokens: list[str], resolve: Callable[[str], int] = lambda x: int(x, 0)
-    ) -> Self:
-        if tokens[0] != cls.mnemonic:
-            raise ValueError(
-                f"Attempted to construct {cls.mnemonic} with tokens for {tokens[0]}."
-            )
-
-        vd = MatrixReg(tokens[1])
-        vs2 = MatrixReg(tokens[2])
-        es1 = ExponentReg(tokens[3])
-
-        return cls(vd=vd, vs2=vs2, es1=es1)
-
-    @classmethod
-    def lint(cls, tokens: list[str], labels: list[str]) -> list[AsmError]:
-        if len(tokens) != len(cls.params) + 1:
-            return [
-                _wrong_cnt_error(
-                    cls.mnemonic,
-                    len(cls.params) + 1,
-                    len(tokens),
-                    " ".join(cls.params),
-                )
-            ]
-
-        exceptions: list[AsmError] = []
-        exceptions.extend(MatrixReg.lint(tokens[1], role="vd", tok_idx=1))
-        exceptions.extend(MatrixReg.lint(tokens[2], role="vs2", tok_idx=2))
-        exceptions.extend(ExponentReg.lint(tokens[3], role="es1", tok_idx=3))
-
-        return exceptions
-
+    params = [m_vd, m_vs2, e_es1]
 
 @dataclass()
 class MXUWeightPush(InstructionPattern):
@@ -936,43 +491,9 @@ class MXUWeightPush(InstructionPattern):
         vd: The destination tensor register.
         vs1: The source tensor register.
     """
-
     vd: WeightBuffer
     vs1: MatrixReg
-    params = [f"{WeightBuffer.fmt}<vd>", f"{MatrixReg.fmt}<vs1>"]
-
-    @classmethod
-    def from_asm(
-        cls, tokens: list[str], resolve: Callable[[str], int] = lambda x: int(x, 0)
-    ) -> Self:
-        if tokens[0] != cls.mnemonic:
-            raise ValueError(
-                f"Attempted to construct {cls.mnemonic} with tokens for {tokens[0]}."
-            )
-
-        vd = WeightBuffer(tokens[1])
-        vs1 = MatrixReg(tokens[2])
-
-        return cls(vd=vd, vs1=vs1)
-
-    @classmethod
-    def lint(cls, tokens: list[str], labels: list[str]) -> list[AsmError]:
-        if len(tokens) != len(cls.params) + 1:
-            return [
-                _wrong_cnt_error(
-                    cls.mnemonic,
-                    len(cls.params) + 1,
-                    len(tokens),
-                    " ".join(cls.params),
-                )
-            ]
-
-        exceptions: list[AsmError] = []
-        exceptions.extend(WeightBuffer.lint(tokens[1], role="vd", tok_idx=1))
-        exceptions.extend(MatrixReg.lint(tokens[2], role="vs1", tok_idx=2))
-
-        return exceptions
-
+    params = [w_vd, m_vs1]
 
 @dataclass()
 class MXUAccumulatorPush(InstructionPattern):
@@ -986,43 +507,9 @@ class MXUAccumulatorPush(InstructionPattern):
         vd: The destination tensor register.
         vs1: The source tensor register.
     """
-
     vd: Accumulator
     vs1: MatrixReg
-    params = [f"{Accumulator.fmt}<vd>", f"{MatrixReg.fmt}<vs1>"]
-
-    @classmethod
-    def from_asm(
-        cls, tokens: list[str], resolve: Callable[[str], int] = lambda x: int(x, 0)
-    ) -> Self:
-        if tokens[0] != cls.mnemonic:
-            raise ValueError(
-                f"Attempted to construct {cls.mnemonic} with tokens for {tokens[0]}."
-            )
-
-        vd = Accumulator(tokens[1])
-        vs1 = MatrixReg(tokens[2])
-
-        return cls(vd=vd, vs1=vs1)
-
-    @classmethod
-    def lint(cls, tokens: list[str], labels: list[str]) -> list[AsmError]:
-        if len(tokens) != len(cls.params) + 1:
-            return [
-                _wrong_cnt_error(
-                    cls.mnemonic,
-                    len(cls.params) + 1,
-                    len(tokens),
-                    " ".join(cls.params),
-                )
-            ]
-
-        exceptions: list[AsmError] = []
-        exceptions.extend(Accumulator.lint(tokens[1], role="vd", tok_idx=1))
-        exceptions.extend(MatrixReg.lint(tokens[2], role="vs1", tok_idx=2))
-
-        return exceptions
-
+    params = [acc_vd, m_vs1]
 
 @dataclass()
 class MXUAccumulatorPopE1(InstructionPattern):
@@ -1036,50 +523,10 @@ class MXUAccumulatorPopE1(InstructionPattern):
         vd: The destination tensor register.
         vs1: The source tensor register.
     """
-
     vd: MatrixReg
     es1: ExponentReg
     vs2: Accumulator
-    params = [
-        f"{MatrixReg.fmt}<vd>",
-        f"{ExponentReg.fmt}<es1>",
-        f"{Accumulator.fmt}<vs2>",
-    ]
-
-    @classmethod
-    def from_asm(
-        cls, tokens: list[str], resolve: Callable[[str], int] = lambda x: int(x, 0)
-    ) -> Self:
-        if tokens[0] != cls.mnemonic:
-            raise ValueError(
-                f"Attempted to construct {cls.mnemonic} with tokens for {tokens[0]}."
-            )
-
-        vd = MatrixReg(tokens[1])
-        vs2 = Accumulator(tokens[3])
-        es1 = ExponentReg(tokens[2])
-
-        return cls(vd=vd, es1=es1, vs2=vs2)
-
-    @classmethod
-    def lint(cls, tokens: list[str], labels: list[str]) -> list[AsmError]:
-        if len(tokens) != len(cls.params) + 1:
-            return [
-                _wrong_cnt_error(
-                    cls.mnemonic,
-                    len(cls.params) + 1,
-                    len(tokens),
-                    " ".join(cls.params),
-                )
-            ]
-
-        exceptions: list[AsmError] = []
-        exceptions.extend(MatrixReg.lint(tokens[1], role="vd", tok_idx=1))
-        exceptions.extend(ExponentReg.lint(tokens[2], role="es1", tok_idx=2))
-        exceptions.extend(Accumulator.lint(tokens[3], role="vs2", tok_idx=3))
-
-        return exceptions
-
+    params = [m_vd, acc_vs2, e_es1]
 
 @dataclass()
 class MXUAccumulatorPop(InstructionPattern):
@@ -1096,39 +543,7 @@ class MXUAccumulatorPop(InstructionPattern):
 
     vd: MatrixReg
     vs2: Accumulator
-    params = [f"{MatrixReg.fmt}<vd>", f"{Accumulator.fmt}<vs2>"]
-
-    @classmethod
-    def from_asm(
-        cls, tokens: list[str], resolve: Callable[[str], int] = lambda x: int(x, 0)
-    ) -> Self:
-        if tokens[0] != cls.mnemonic:
-            raise ValueError(
-                f"Attempted to construct {cls.mnemonic} with tokens for {tokens[0]}."
-            )
-
-        vd = MatrixReg(tokens[1])
-        vs2 = Accumulator(tokens[2])
-
-        return cls(vd=vd, vs2=vs2)
-
-    @classmethod
-    def lint(cls, tokens: list[str], labels: list[str]) -> list[AsmError]:
-        if len(tokens) != len(cls.params) + 1:
-            return [
-                _wrong_cnt_error(
-                    cls.mnemonic,
-                    len(cls.params) + 1,
-                    len(tokens),
-                    " ".join(cls.params),
-                )
-            ]
-
-        exceptions: list[AsmError] = []
-        exceptions.extend(MatrixReg.lint(tokens[1], role="vd", tok_idx=1))
-        exceptions.extend(Accumulator.lint(tokens[2], role="vs2", tok_idx=2))
-        return exceptions
-
+    params = [m_vd, acc_vs2]
 
 @dataclass()
 class MXUMatMul(InstructionPattern):
@@ -1143,50 +558,10 @@ class MXUMatMul(InstructionPattern):
         vs1: The source matrix.
         vs2: The source weights
     """
-
     vd: Accumulator
     vs1: MatrixReg
     vs2: WeightBuffer
-    params = [
-        f"{Accumulator.fmt}<vd>",
-        f"{MatrixReg.fmt}<vs1>",
-        f"{WeightBuffer.fmt}<vs2>",
-    ]
-
-    @classmethod
-    def from_asm(
-        cls, tokens: list[str], resolve: Callable[[str], int] = lambda x: int(x, 0)
-    ) -> Self:
-        if tokens[0] != cls.mnemonic:
-            raise ValueError(
-                f"Attempted to construct {cls.mnemonic} with tokens for {tokens[0]}."
-            )
-
-        vd = Accumulator(tokens[1])
-        vs1 = MatrixReg(tokens[2])
-        vs2 = WeightBuffer(tokens[3])
-
-        return cls(vd=vd, vs1=vs1, vs2=vs2)
-
-    @classmethod
-    def lint(cls, tokens: list[str], labels: list[str]) -> list[AsmError]:
-        if len(tokens) != len(cls.params) + 1:
-            return [
-                _wrong_cnt_error(
-                    cls.mnemonic,
-                    len(cls.params) + 1,
-                    len(tokens),
-                    " ".join(cls.params),
-                )
-            ]
-
-        exceptions: list[AsmError] = []
-        exceptions.extend(Accumulator.lint(tokens[1], role="vd", tok_idx=1))
-        exceptions.extend(MatrixReg.lint(tokens[2], role="vs1", tok_idx=2))
-        exceptions.extend(WeightBuffer.lint(tokens[3], role="vs2", tok_idx=3))
-
-        return exceptions
-
+    params = [acc_vd, m_vs1, w_vs2]
 
 @dataclass()
 class DMARegUnary(InstructionPattern):
@@ -1201,7 +576,7 @@ class DMARegUnary(InstructionPattern):
     """
 
     rs1: ScalarReg
-    params = [f"{ScalarReg.fmt}<rs1>"]
+    params = [x_rs1]
 
     @classmethod
     def from_asm(
@@ -1216,53 +591,18 @@ class DMARegUnary(InstructionPattern):
 
         return cls(rs1=rs1)
 
-    @classmethod
-    def lint(cls, tokens: list[str], labels: list[str]) -> list[AsmError]:
-        if len(tokens) != len(cls.params) + 1:
-            return [
-                _wrong_cnt_error(cls.mnemonic, len(cls.params) + 1, len(tokens), " ".join(cls.params))
-            ]
-
-        exceptions: list[AsmError] = []
-        exceptions.extend(ScalarReg.lint(tokens[1], role="rs1", tok_idx=1))
-        return exceptions
-
-
 @dataclass()
 class Nullary(InstructionPattern):
-    params = []
     """
     Instruction pattern for nullary instructions with no operands.
 
     Matches assembly patterns of the form `instr`. This pattern is
     used for instructions with no arguments.
     """
-
-    @classmethod
-    def from_asm(
-        cls, tokens: list[str], resolve: Callable[[str], int] = lambda x: int(x, 0)
-    ) -> Self:
-        if tokens[0] != cls.mnemonic:
-            raise ValueError(
-                f"Attempted to construct {cls.mnemonic} with tokens for {tokens[0]}."
-            )
-
-        return cls()
-
-    @classmethod
-    def lint(cls, tokens: list[str], labels: list[str]) -> list[AsmError]:
-        if len(tokens) != len(cls.params) + 1:
-            return [
-                _wrong_cnt_error(
-                    cls.mnemonic, len(cls.params) + 1, len(tokens), " ".join(cls.params)
-                )
-            ]
-        return []
-
+    params = []
 
 @dataclass(init=False)
 class UnaryImm(InstructionPattern):
-    params = [Imm12.fmt]
     """
     Instruction pattern for instructions with one immediate operand.
 
@@ -1272,30 +612,8 @@ class UnaryImm(InstructionPattern):
     Attributes:
         imm: A 12-bit immediate
     """
-
     imm: Imm12
-
-    @classmethod
-    def from_asm(
-        cls, tokens: list[str], resolve: Callable[[str], int] = lambda x: int(x, 0)
-    ) -> Self:
-        if tokens[0] != cls.mnemonic:
-            raise ValueError(
-                f"Attempted to construct {cls.mnemonic} with tokens for {tokens[0]}."
-            )
-
-        imm = int(tokens[1], 0)
-
-        return cls(imm=imm)
-
-    @classmethod
-    def lint(cls, tokens: list[str], labels: list[str]) -> list[AsmError]:
-        if len(tokens) != len(cls.params) + 1:
-            return [_wrong_cnt_error(cls.mnemonic, len(cls.params) + 1, len(tokens), " ".join(cls.params))]
-
-        exceptions: list[AsmError] = []
-        exceptions.extend(Imm12.lint(tokens[1], role="12-bit immediate", tok_idx=1))
-        return exceptions
-
+    params = [imm12]
+    
     def __init__(self, imm: int):
         self.imm = Imm12(imm)

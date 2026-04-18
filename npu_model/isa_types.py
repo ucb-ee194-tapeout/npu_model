@@ -17,7 +17,7 @@ In this namespace:
 """
 
 from enum import StrEnum
-from typing import Literal, TypeVar
+from typing import Literal, TypeVar, Callable
 import re
 
 class AsmError(ValueError):
@@ -55,8 +55,8 @@ class BoundedInt(int):
       either case.
     """
 
-    lower_bound = float("-inf")
-    upper_bound = float("inf")
+    lower_bound = 0
+    upper_bound = 0
 
     unsigned_lower_bound = 0
     signed_upper_bound = 0
@@ -66,8 +66,19 @@ class BoundedInt(int):
     def is_signed(self) -> bool:
         return self.lower_bound <= self < self.signed_upper_bound
 
-    def is_unsigned(self) -> bool:
+    def isreturn_unsigned(self) -> bool:
         return self.unsigned_lower_bound <= self < self.upper_bound
+
+    @classmethod
+    def autocomplete(cls) -> list[str]:
+        return []
+
+    @classmethod
+    def format_arg(cls, role: str):
+        """
+        Returns a human-readable form for display in an instruction pattern.
+        """
+        return f"<{cls.fmt}>"
 
     @classmethod
     def lint(cls, val: str | int, role: str = "", tok_idx: int = 0) -> list[AsmError]:
@@ -173,6 +184,14 @@ class Funct7(BoundedInt):
 
 class RegBase(BoundedInt):
     reg_name: str = "base"
+
+    @classmethod
+    def autocomplete(cls) -> list[str]:
+        return [f"{cls.fmt}{i}" for i in range(cls.lower_bound, cls.upper_bound)]
+
+    @classmethod
+    def format_arg(cls, role: str):
+        return f"{cls.fmt}<{role}>"
 
     @classmethod
     def lint(cls, val: str | int, role: str = "", tok_idx: int = 0) -> list[AsmError]:
@@ -434,5 +453,107 @@ class Imm20(BoundedInt):
     upper_bound = 1048576
     fmt = "imm20"
 
+# Imm32 — not real. Only used in Pseudoinstrs
+class Imm32(BoundedInt):
+    lower_bound = -2147483648
+    unsigned_lower_bound = 0
+    signed_upper_bound = 2147483648  # remember, top of range is exclusive
+    upper_bound = 4294967296
+    fmt = "imm32"
+
+class Named():
+    """
+    Represents a typed value with a specific name, for use in human-readable instruction patterns.
+    """
+    is_label = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*$")
+
+    def __init__(self, inner: type[BoundedInt], name: str, repr: str = "", label_support: bool = False):
+        self.inner = inner
+        self.name = name
+        self.repr = repr if repr != "" else name
+        self.label_support = label_support
+
+    def autocomplete(self, labels: list[str]):
+        return labels if self.label_support else self.inner.autocomplete()
+
+    def lint(self, val: str | int, labels: list[str], tok_idx: int, allow_label: bool) -> list[AsmError]:
+        if self.label_support and allow_label and isinstance(val, str) and self.is_label.match(val) != None:
+            return [] if val in labels else [AsmError(f"Undefined label '{val}'", token_index=2)]
+        return self.inner.lint(val, role=self.name, tok_idx=tok_idx)
+    
+    def format_arg(self, allow_label: bool = False):
+        return f"{self.inner.format_arg(self.name)}{' or label' if self.label_support and allow_label else ''}"
+    
+    def parse_token(self, val: str | int, resolve: Callable[[str], int]) -> dict[str, BoundedInt]:
+        """Parse a single token according to this Named parameter's inner type."""
+        if self.label_support and isinstance(val, str) and self.is_label.match(val):
+            return {self.repr: self.inner(resolve(val))}
+        return {self.repr: self.inner(val)}
+
+
+class Bundled(Named):
+    """
+    Represents a bundled immediate and register.
+    """
+    scalar_offset_fmt = re.compile(
+        r"^(0[xX][0-9a-fA-F]+|0[bB][01]+|0[oO][0-7]+|\d+)\(x(\d+)\)"
+    )
+    exponent_offset_fmt = re.compile(
+        r"^(0[xX][0-9a-fA-F]+|0[bB][01]+|0[oO][0-7]+|\d+)\(e(\d+)\)"
+    )
+    matrix_offset_fmt = re.compile(
+        r"^(0[xX][0-9a-fA-F]+|0[bB][01]+|0[oO][0-7]+|\d+)\(m(\d+)\)"
+    )
+
+
+    def __init__(self, reg: Named, imm: Named):
+        self.reg = reg
+        self.imm = imm
+
+    def lint(self, val: str | int, labels: list[str], tok_idx: int, allow_label: bool) -> list[AsmError]:
+        if isinstance(val, int):
+            raise ValueError("Provided an int for linting to a Bundle.")
+        if self.reg.inner is ScalarReg:
+            match = self.scalar_offset_fmt.match(val)
+        elif self.reg.inner is ExponentReg:
+            match = self.exponent_offset_fmt.match(val)
+        elif self.reg.inner is MatrixReg:
+            match = self.matrix_offset_fmt.match(val)
+        else:
+            raise ValueError(f"Attempted to provide a non-register format to Bundle: {self.reg.inner.__name__}")
+        
+        if not match:
+            return [AsmError(f"Expected base+offset operand in the form {self.format_arg()}, got '{val}'", token_index=tok_idx)]
+        
+        imm = int(match.group(1), 0)
+        reg = int(match.group(2))
+
+        err = self.imm.lint(imm, labels, tok_idx, allow_label)
+        err.extend(self.reg.lint(reg, labels, tok_idx, allow_label))
+        return err
+    
+    def format_arg(self, allow_label: bool = False):
+        return f"{self.imm.format_arg(allow_label)}({self.reg.format_arg(allow_label)})"
+
+    def parse_token(self, val: str | int, resolve: Callable[[str], int]) -> dict[str, BoundedInt]:
+        """Parse a single token according to this Named parameter's inner type."""
+        if isinstance(val, int):
+            raise ValueError("Provided an int for linting to a Bundle.")
+        if self.reg.inner is ScalarReg:
+            match = self.scalar_offset_fmt.match(val)
+        elif self.reg.inner is ExponentReg:
+            match = self.exponent_offset_fmt.match(val)
+        elif self.reg.inner is MatrixReg:
+            match = self.matrix_offset_fmt.match(val)
+        else:
+            raise ValueError(f"Attempted to provide a non-register format to Bundle: {self.reg.inner.__name__}")
+        
+        if not match:
+            raise ValueError(f"Expected base+offset operand in the form {self.format_arg()}, got '{val}'")
+        
+        imm = int(match.group(1), 0)
+        reg = int(match.group(2))
+        
+        return self.imm.parse_token(imm, resolve) | self.reg.parse_token(reg, resolve)
 
 ImmediateT = TypeVar("ImmediateT", type[Imm12], type[SBImm12], type[Imm16], type[Imm20])
