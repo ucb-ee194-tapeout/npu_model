@@ -394,6 +394,10 @@ Rows are ordered by hex value.
 | MXU weight slots per MXU | `2` |
 | MXU accumulator storage | `64 x 64 BF16` |
 | DMA channels | `8` |
-| `IMEM` base | `0x0002_0000` |
-| `VMEM` base | `0x2000_0000` |
-| `DRAM` base | `0x8000_0000` |
+| `IMEM` | `0x0002_0000` ~ `0x0004_0000` |
+| `VMEM` | `0x2000_0000` ~ `0x2004_0000` |
+| `PERIPH` (non-cacheable) | `0x4000_0000` ~ `0x8000_0000` |
+| `DRAM` (cacheable) | `0x8000_0000` ~ `0x8_8000_0000` |
+| `DONT TELL PROF` (non-cacheable) | `0x8_8000_0000` ~ `0x10_0000_0000` |
+
+`PERIPH`, `DRAM`, and `DONT TELL PROF` are the off-chip memory region that is mapped on serial TileLink interface.
