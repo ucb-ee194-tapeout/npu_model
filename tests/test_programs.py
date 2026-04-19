@@ -10,6 +10,12 @@ from tests.helpers import read_dram_tensor, run_simulation
 PROGRAM_NAMES = sorted(getattr(program_configs, "__all__", []))
 
 
+def test_program_registry_is_not_empty() -> None:
+    assert PROGRAM_NAMES, (
+        "No programs were discovered in npu_model.configs.programs.__all__. "
+        "This would cause the parametrized program execution test to collect zero cases, "
+        "which can hide import or registration failures."
+    )
 @pytest.mark.parametrize("program_name", PROGRAM_NAMES)
 def test_registered_program_executes(
     program_name: str,
