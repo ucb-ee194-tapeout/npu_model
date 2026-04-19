@@ -16,7 +16,7 @@ accumulator state machine end-to-end:
 It is the npu_model-side equivalent of merlin's
 ``matmul_acc_first`` + ``matmul_acc_last`` chain: self-contained, no
 cross-file helpers, seeded golden tensor, torch-allclose validation
-via ``test_programs.py``.
+via ``pytest tests/test_programs.py``.
 
 Per-tile arithmetic mirrors the MXU semantics exactly:
     acc_fp16_1   = A_k0 @ B_k0   (fp16 × fp16)

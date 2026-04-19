@@ -20,7 +20,7 @@ MLIR → ISA mapping:
     arith.mulf  x inv_rms    → vmul.bf16                (normalize)
 
 Run:
-    uv run python scripts/test_programs.py --verbose
+    uv run pytest tests/test_programs.py --sim-verbose -vv
     # Expect: OK   SmolVLARmsNormProgram
 """
 

@@ -1,41 +1,18 @@
-#!/usr/bin/env python3
-"""
-Verify delayed commit behavior for multi-cycle memory producers.
-
-The harness intentionally issues an `lw` too early after:
-- `dma.load.ch<N>` writing DRAM data into VMEM
-- `vstore` writing MRF data into VMEM
-
-Those violating reads should observe the stale VMEM contents that were seeded before
-execution. A second `lw` after the modeled latency should observe the fresh value.
-"""
-
 import math
-import io
 import struct
-import sys
-import tempfile
 from dataclasses import dataclass
-from contextlib import redirect_stdout
-from pathlib import Path
 from typing import Callable
 
+import pytest
 import torch
-
-# Add project root for imports when run as script
-if __name__ == "__main__":
-    repo_root = Path(__file__).resolve().parent.parent
-    if str(repo_root) not in sys.path:
-        sys.path.insert(0, str(repo_root))
 
 from npu_model.configs.hardware.default import DefaultHardwareConfig
 from npu_model.configs.isa_definition import *  # noqa: F401, F403
 from npu_model.hardware.arch_state import ArchState
 from npu_model.isa import DmaArgs, ScalarArgs, VectorArgs
-from npu_model.logging import LoggerConfig
-from npu_model.simulation import Simulation
 from npu_model.software.instruction import Instruction
 from npu_model.software.program import InstantiableProgram
+from tests.helpers import run_simulation
 
 
 TRANSFER_BYTES = 1024
@@ -143,78 +120,49 @@ def make_vstore_visibility_scenario(cfg: DefaultHardwareConfig) -> Scenario:
     )
 
 
-def run_scenario(scenario: Scenario, cfg: DefaultHardwareConfig) -> None:
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-        trace_path = f.name
-
-    try:
-        sim = Simulation(
-            hardware_config=cfg,
-            logger_config=LoggerConfig(filename=trace_path),
-            program=scenario.program,
-            verbose=False,
-            # These scenarios intentionally issue violating loads before the
-            # producer's modeled latency has elapsed so we can observe stale
-            # data visibility. Keep the scheduler strict and suppress the
-            # resulting runtime error in the harness.
-            ignore_runtime_errors=True,
-        )
-        scenario.seed_state(sim.core.arch_state)
-        with redirect_stdout(io.StringIO()):
-            sim.run(max_cycles=256)
-
-        stale_seen = sim.core.arch_state.read_xrf(scenario.stale_reg)
-        fresh_seen = sim.core.arch_state.read_xrf(scenario.fresh_reg)
-        final_word = read_word(
-            sim.core.arch_state.read_vmem(scenario.final_word_addr, 0, 4)
-        )
-
-        if scenario.expect_violating_load_blocked:
-            assert sim.runtime_errors, (
-                f"{scenario.name}: expected scheduler/runtime rejection for the "
-                "violating load, but none occurred"
-            )
-            assert stale_seen == scenario.expected_stale, (
-                f"{scenario.name}: violating load should be blocked and leave the "
-                f"destination register unchanged (0x{scenario.expected_stale:08X}), "
-                f"got 0x{stale_seen:08X}"
-            )
-        else:
-            assert stale_seen == scenario.expected_stale, (
-                f"{scenario.name}: violating load should observe stale value "
-                f"0x{scenario.expected_stale:08X}, got 0x{stale_seen:08X}"
-            )
-        assert fresh_seen == scenario.expected_fresh, (
-            f"{scenario.name}: delayed load should observe fresh value "
-            f"0x{scenario.expected_fresh:08X}, got 0x{fresh_seen:08X}"
-        )
-        assert final_word == scenario.expected_fresh, (
-            f"{scenario.name}: final VMEM word should be fresh value "
-            f"0x{scenario.expected_fresh:08X}, got 0x{final_word:08X}"
-        )
-
-        early_label = "blocked" if scenario.expect_violating_load_blocked else "early"
-        print(
-            f"OK  {scenario.name:<20} latency={scenario.latency_cycles:>2} cycles  "
-            f"{early_label}=0x{stale_seen:08X}  late=0x{fresh_seen:08X}"
-        )
-    finally:
-        Path(trace_path).unlink(missing_ok=True)
-
-
-def main() -> int:
+@pytest.mark.parametrize(
+    "scenario_factory",
+    [make_dma_load_visibility_scenario, make_vstore_visibility_scenario],
+    ids=["dma_load_visibility", "vstore_visibility"],
+)
+def test_memory_producers_commit_after_modeled_latency(scenario_factory) -> None:
     cfg = DefaultHardwareConfig()
-    scenarios = [
-        make_dma_load_visibility_scenario(cfg),
-        make_vstore_visibility_scenario(cfg),
-    ]
+    scenario = scenario_factory(cfg)
+    sim = run_simulation(
+        scenario.program,
+        cfg,
+        max_cycles=256,
+        ignore_runtime_errors=True,
+        before_run=lambda simulation: scenario.seed_state(simulation.core.arch_state),
+    )
 
-    for scenario in scenarios:
-        run_scenario(scenario, cfg)
+    stale_seen = sim.core.arch_state.read_xrf(scenario.stale_reg)
+    fresh_seen = sim.core.arch_state.read_xrf(scenario.fresh_reg)
+    final_word = read_word(
+        sim.core.arch_state.read_vmem(scenario.final_word_addr, 0, 4)
+    )
 
-    print(f"Verified {len(scenarios)} delayed-commit scenarios.")
-    return 0
+    if scenario.expect_violating_load_blocked:
+        assert sim.runtime_errors, (
+            f"{scenario.name}: expected scheduler/runtime rejection for the "
+            "violating load, but none occurred"
+        )
+        assert stale_seen == scenario.expected_stale, (
+            f"{scenario.name}: violating load should be blocked and leave the "
+            f"destination register unchanged (0x{scenario.expected_stale:08X}), "
+            f"got 0x{stale_seen:08X}"
+        )
+    else:
+        assert stale_seen == scenario.expected_stale, (
+            f"{scenario.name}: violating load should observe stale value "
+            f"0x{scenario.expected_stale:08X}, got 0x{stale_seen:08X}"
+        )
 
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+    assert fresh_seen == scenario.expected_fresh, (
+        f"{scenario.name}: delayed load should observe fresh value "
+        f"0x{scenario.expected_fresh:08X}, got 0x{fresh_seen:08X}"
+    )
+    assert final_word == scenario.expected_fresh, (
+        f"{scenario.name}: final VMEM word should be fresh value "
+        f"0x{scenario.expected_fresh:08X}, got 0x{final_word:08X}"
+    )

@@ -29,11 +29,5 @@ jobs:
       - name: Install dependencies
         run: uv sync --python $PYTHON_VERSION
 
-      - name: Run program execution tests
-        run: uv run --python $PYTHON_VERSION python scripts/test_programs.py --max-cycles 100000
-
-      - name: Run arch state tests
-        run: uv run python scripts/test_archstate.py
-
-      - name: Run bank conflict detection tests
-        run: uv run python scripts/test_bank_conflict.py
+      - name: Run pytest suite
+        run: uv run --python $PYTHON_VERSION pytest --max-cycles 100000
