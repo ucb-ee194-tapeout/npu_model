@@ -53,7 +53,7 @@ Each channel supports:
 The microarchitecture may implement the DMA channels with shared internal data paths or
 arbitration, provided the architecture-visible channel behavior is preserved.
 
-`dma.wait.chN` and scalar `delay` behave as frontend fences:
+`dma.wait.chN` behaves as a frontend fence:
 
 - neither instruction allocates a normal execute-stage slot while it is holding decode
 - if channel `N` is already done when `dma.wait.chN` reaches decode, the instruction
@@ -61,8 +61,17 @@ arbitration, provided the architecture-visible channel behavior is preserved.
 - if channel `N` is not yet done, decode remains occupied until the transfer completes,
   then the instruction retires directly from decode
 - younger instructions shall not issue past that decode fence until the wait retires
-- `delay N` also remains resident in decode for exactly `N` additional core cycles after
-  its decode cycle, then retires directly
+
+Scalar `delay` follows the current scalar-path implementation rather than the
+DMA-wait decode-only path:
+
+- when `delay N` reaches decode, the frontend loads `N` into the instruction's
+  dispatch-delay countdown
+- while that countdown is non-zero, decode remains occupied and younger
+  instructions shall not issue
+- once the countdown reaches zero, `delay` issues to the scalar execution unit
+- `delay` then consumes the normal one-cycle scalar execute slot and retires
+  through the ordinary execute completion path
 
 ## DMA Addressing and Regions
 

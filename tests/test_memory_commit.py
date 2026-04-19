@@ -9,6 +9,7 @@ import torch
 from npu_model.configs.hardware.default import DefaultHardwareConfig
 from npu_model.configs.isa_definition import *  # noqa: F401, F403
 from npu_model.hardware.arch_state import ArchState
+from npu_model.hardware.dma import dma_transfer_cycles
 from npu_model.isa import DmaArgs, ScalarArgs, VectorArgs
 from npu_model.software.instruction import Instruction
 from npu_model.software.program import InstantiableProgram
@@ -49,7 +50,7 @@ def read_word(data: torch.Tensor) -> int:
 
 
 def make_dma_load_visibility_scenario(cfg: DefaultHardwareConfig) -> Scenario:
-    latency_cycles = max(1, math.ceil(TRANSFER_BYTES / cfg.vmem_bytes_per_cycle))
+    latency_cycles = dma_transfer_cycles(cfg, TRANSFER_BYTES)
     stale_tile = repeated_word_bytes(STALE_WORD, TRANSFER_BYTES)
     fresh_tile = repeated_word_bytes(FRESH_WORD, TRANSFER_BYTES)
 
@@ -93,6 +94,7 @@ def make_vstore_visibility_scenario(cfg: DefaultHardwareConfig) -> Scenario:
         [
             Instruction("addi", ScalarArgs(rd=1, rs1=0, imm=VMEM_SRC_BASE)),
             Instruction("addi", ScalarArgs(rd=2, rs1=0, imm=VMEM_DST_BASE)),
+            Instruction("addi", ScalarArgs(rd=10, rs1=0, imm=0)),
             Instruction("vload", VectorArgs(vd=0, rs1=1, imm12=0)),
             Instruction("delay", ScalarArgs(imm=latency_cycles)),
             Instruction("vstore", VectorArgs(vd=0, rs1=2, imm12=0)),
@@ -131,7 +133,7 @@ def test_memory_producers_commit_after_modeled_latency(scenario_factory) -> None
     sim = run_simulation(
         scenario.program,
         cfg,
-        max_cycles=256,
+        max_cycles=max(256, scenario.latency_cycles + 32),
         ignore_runtime_errors=True,
         before_run=lambda simulation: scenario.seed_state(simulation.core.arch_state),
     )

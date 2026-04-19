@@ -15,6 +15,8 @@ class DMAStallProgram(Program):
         # Set x2 = 1024 (Base Address & Size 1024)
         Instruction(mnemonic="addi", args=ScalarArgs(rd=1, rs1=0, imm=0)),
         Instruction(mnemonic="addi", args=ScalarArgs(rd=2, rs1=0, imm=1024)),
+        Instruction(mnemonic="addi", args=ScalarArgs(rd=3, rs1=0, imm=0)),
+        Instruction(mnemonic="addi", args=ScalarArgs(rd=4, rs1=0, imm=1024)),
         # --- 2. Configure DMA Channels ---
         # Configure Base Address x1 (0)
         Instruction(mnemonic="dma.config.ch<N>", args=DmaArgs(rs1=0, channel=0)),

@@ -1,6 +1,7 @@
 import io
 import tempfile
 from contextlib import nullcontext, redirect_stdout
+from dataclasses import replace
 from pathlib import Path
 from typing import Callable
 
@@ -18,7 +19,19 @@ def run_simulation(
     verbose: bool = False,
     ignore_runtime_errors: bool = False,
     before_run: Callable[[Simulation], None] | None = None,
+    randomize_init: bool = False,
+    init_seed: int = 42,
 ) -> Simulation:
+    simulation_hardware_config = hardware_config
+    if randomize_init:
+        simulation_hardware_config = replace(
+            hardware_config,
+            arch_state_config=replace(
+                hardware_config.arch_state_config,
+                randomize_init=True,
+                init_seed=init_seed,
+            ),
+        )
     with tempfile.NamedTemporaryFile(
         mode="w", suffix=".json", delete=False
     ) as handle:
@@ -26,7 +39,7 @@ def run_simulation(
 
     try:
         sim = Simulation(
-            hardware_config=hardware_config,
+            hardware_config=simulation_hardware_config,
             logger_config=LoggerConfig(filename=trace_path),
             program=program,
             verbose=verbose,

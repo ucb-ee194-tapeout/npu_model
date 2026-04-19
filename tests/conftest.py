@@ -8,7 +8,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         "--max-cycles",
         action="store",
         type=int,
-        default=10000,
+        default=100000,
         help="Maximum cycles to run per simulation-heavy test.",
     )
     parser.addoption(

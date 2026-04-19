@@ -101,6 +101,7 @@ The scalar path is responsible for:
 - branch and jump target generation
 - scalar loads and stores to `VMEM`
 - `seld` and `seli`
+- scalar `delay`
 - `dma.base` programming
 - halt-status generation
 
@@ -184,8 +185,6 @@ Timing requirements:
 The XLU baseline implements:
 
 - `vtrpose.xlu`
-- `vreduce.max.xlu`
-- `vreduce.sum.xlu`
 
 Timing requirement:
 

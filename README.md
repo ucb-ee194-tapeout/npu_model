@@ -98,6 +98,9 @@ Run a simulation with default configuration:
 uv run ./scripts/run.py --program MatmulProgram --hardware_config DefaultHardwareConfig -o matmul.json
 ```
 
+`DefaultHardwareConfig` models a `2 GiB` DRAM aperture for routine simulation.
+Use `FullDramHardwareConfig` to expose the full `16 GiB` DRAM address space.
+
 ### Custom Configuration
 
 Specify hardware configuration and program:

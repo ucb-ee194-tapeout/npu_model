@@ -63,7 +63,8 @@ def _mask(val: int, bits: int):
 
 
 class AsmInstructionType(ABC):
-    mnemonics: list[str] = []
+    def __init__(self) -> None:
+        self.mnemonics: list[str] = []
 
     @abstractmethod
     def assemble(
@@ -130,8 +131,8 @@ class _S(AsmInstructionType):
             raise ValueError("Incorrect argument type specified.")
 
         imm_b = _mask(args.imm, 12)
-        imm1_b = imm_b & 0b000011111111
-        imm2_b = (imm_b & 0b111100000000) >> 8
+        imm_lo_b = imm_b & 0x1F
+        imm_hi_b = (imm_b >> 5) & 0x7F
 
         rs2_b = _mask(args.rs2, 5)
         rs1_b = _mask(args.rs1, 5)
@@ -139,11 +140,11 @@ class _S(AsmInstructionType):
         opcode_b = _mask(opcode, 7)
 
         return (
-            (imm1_b << 24)
-            | (rs2_b << 19)
-            | (rs1_b << 14)
-            | (funct3_b << 11)
-            | (imm2_b << 7)
+            (imm_hi_b << 25)
+            | (rs2_b << 20)
+            | (rs1_b << 15)
+            | (funct3_b << 12)
+            | (imm_lo_b << 7)
             | opcode_b
         )
 
@@ -172,7 +173,7 @@ class _SB(AsmInstructionType):
             | (rs1_b << 15)
             | (funct3_b << 12)
             | (imm04_b << 8)
-            | (imm11_b << 4)
+            | (imm11_b << 7)
             | opcode_b
         )
 
@@ -246,7 +247,11 @@ class _VR(AsmInstructionType):
         opcode_b = _mask(opcode, 7)
 
         return (
-            (funct7_b << 25) | (vs2_b << 19) | (vs1_b << 13) << (vd_b << 7) | opcode_b
+            (funct7_b << 25)
+            | (vs2_b << 19)
+            | (vs1_b << 13)
+            | (vd_b << 7)
+            | opcode_b
         )
 
     pass
