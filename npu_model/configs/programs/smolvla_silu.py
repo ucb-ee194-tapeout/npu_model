@@ -23,7 +23,7 @@ How to add your own SmolVLA kernel:
     1. Copy this file.
     2. Find your MLIR in merlin/benchmarks/SaturnNPU/kernels/<type>/.
     3. Replace SILU_MLIR, silu_reference, and the ISA instructions.
-    4. Run: uv run python scripts/test_programs.py --verbose
+    4. Run: uv run pytest tests/test_programs.py --sim-verbose -vv
 """
 
 import os

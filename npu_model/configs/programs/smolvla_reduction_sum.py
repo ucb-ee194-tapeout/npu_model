@@ -115,7 +115,7 @@ class SmolVLAReductionSumProgram(Program):
     ISA is lifted from the merlin kernel manifest (see
     ``benchmarks/SaturnNPU/kernel_library/manifest.json``). This Program
     mirrors the ``smolvla_silu.py`` template: self-contained, no cross-
-    file helpers, torch-allclose golden check via ``test_programs.py``.
+    file helpers, torch-allclose golden check via ``pytest tests/test_programs.py``.
     """
 
     # Pair-op BF16 layout:
