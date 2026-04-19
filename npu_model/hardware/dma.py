@@ -11,6 +11,29 @@ from .config import HardwareConfig
 from .bank_conflict import vmem_accesses
 
 
+def dma_offchip_cycles(config: HardwareConfig, nbytes: int) -> int:
+    bytes_per_beat = config.offchip_link_width_bits // 8
+    command_bytes = 4 * config.dma_offchip_command_words
+    return (
+        math.ceil((nbytes + command_bytes) / bytes_per_beat)
+        * config.offchip_link_core_cycles_per_beat
+    )
+
+
+def vmem_transfer_cycles(config: HardwareConfig, nbytes: int) -> int:
+    bytes_per_beat = config.vmem_bus_width_bits // 8
+    return (
+        math.ceil(nbytes / bytes_per_beat) * config.vmem_bus_core_cycles_per_beat
+    )
+
+
+def dma_transfer_cycles(config: HardwareConfig, nbytes: int) -> int:
+    return max(
+        dma_offchip_cycles(config, nbytes),
+        vmem_transfer_cycles(config, nbytes),
+    )
+
+
 class DmaExecutionUnit(ExecutionUnit):
     """Execution unit for matrix operations."""
 
@@ -102,7 +125,7 @@ class DmaExecutionUnit(ExecutionUnit):
                     nbytes = self._bytes_for_dma_uop(uop)
                     uop.execute_delay = max(
                         1,
-                        math.ceil(nbytes / self.config.vmem_bytes_per_cycle),
+                        dma_transfer_cycles(self.config, nbytes),
                     )
                 self.in_flight.append(uop)
                 self._total_instructions += 1

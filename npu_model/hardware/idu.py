@@ -53,6 +53,7 @@ class InstructionDecode(Module):
             exu: StageData(None) for exu in self.exus
         }
         self._stalled = False
+        self._control_flow_delay_slots_remaining = 0
 
     def is_finished(self) -> bool:
         """Check if DIU is finished."""
@@ -94,6 +95,12 @@ class InstructionDecode(Module):
                     f"mnemonic '{uop.insn.mnemonic}' not found in ISA "
                     f"(defined mnemonics: {len(self.isa.operations)})"
                 )
+            if self._is_control_flow_delay_slot_violation(instr_definition):
+                raise RuntimeError(
+                    f"Illegal control-flow instruction '{uop.insn.mnemonic}' decoded "
+                    f"in a delay-slot position on cycle {self.cycle}"
+                )
+            self._consume_delay_slot_if_needed()
             uop.execute_fn = instr_definition.effect
 
             self.logger.log_stage_end(
@@ -116,6 +123,8 @@ class InstructionDecode(Module):
                 and isinstance(uop.insn.args, ScalarArgs)
             ):
                 uop.dispatch_delay = uop.insn.args.imm
+            if self._is_control_flow_instruction(instr_definition):
+                self._control_flow_delay_slots_remaining = 2
             self.uop = uop
 
             if uop.dispatch_delay > 0:
@@ -161,6 +170,22 @@ class InstructionDecode(Module):
     def claim_uop(self, ifu_output: StageData[Uop[Any] | None]) -> None:
         """Claim a new uop from IFU"""
         assert self.uop is None
+
+    def _is_control_flow_instruction(self, instr_definition) -> bool:
+        return instr_definition.instruction_type in {
+            InstructionType.SCALAR.SB,
+            InstructionType.SCALAR.UJ,
+        } or instr_definition.mnemonic == "jalr"
+
+    def _is_control_flow_delay_slot_violation(self, instr_definition) -> bool:
+        return (
+            self._control_flow_delay_slots_remaining > 0
+            and self._is_control_flow_instruction(instr_definition)
+        )
+
+    def _consume_delay_slot_if_needed(self) -> None:
+        if self._control_flow_delay_slots_remaining > 0:
+            self._control_flow_delay_slots_remaining -= 1
 
     def check_backpressure(self, uop: Uop[Any]) -> bool:
         instr_definition = self.isa.operations[uop.insn.mnemonic]

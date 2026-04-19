@@ -58,7 +58,7 @@ Examples:
             with open(args.program) as f:
                 program = input_to_program(f)
 
-        except NameError:
+        except (FileNotFoundError, ValueError):
             print(f"Program '{args.program}' not found.")
             print("available options are a .S file or:")
             print(f"  {', '.join(npu_model.configs.programs.__all__)}")
@@ -79,7 +79,7 @@ Examples:
         print(f"Wrote {len(code)} words ({len(code) * 4} bytes) to {args.out_bin}")
 
     if not args.out_hex and not args.out_bin:
-        print(f"Assembled {len(code)} instructions from {args.input}")
+        print(f"Assembled {len(code)} instructions from {args.program}")
         print()
         for i, word in enumerate(code):
             print(f"  [{i:4d}]  0x{word & 0xFFFFFFFF:08x}")
