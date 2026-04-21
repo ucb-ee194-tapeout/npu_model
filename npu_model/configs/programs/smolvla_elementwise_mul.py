@@ -6,7 +6,7 @@ shape variants in the full model; this Program implements the 32x32
 canonical form.
 
 MLIR → ISA mapping:
-    arith.mulf %a %b → vmul.bf16(a_h, b_h)    (per 32x16 half)
+    arith.mulf %a %b → vmul.bf16(a, b)   pair-op: (vd, vd+1) = (vs1, vs1+1) * (vs2, vs2+1)
 """
 
 from typing import Any, List, Tuple

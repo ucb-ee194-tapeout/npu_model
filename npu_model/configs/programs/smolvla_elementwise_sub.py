@@ -5,7 +5,7 @@ SmolVLA (softmax's ``x - rowmax`` step, residual-diff paths). 6 shape
 variants total; this Program is the 32x32 canonical form.
 
 MLIR → ISA mapping:
-    arith.subf %a %b → vsub.bf16(a_h, b_h)    (per 32x16 half)
+    arith.subf %a %b → vsub.bf16(a, b)   pair-op: (vd, vd+1) = (vs1, vs1+1) - (vs2, vs2+1)
 """
 
 from typing import Any, List, Tuple
