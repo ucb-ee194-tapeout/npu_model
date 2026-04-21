@@ -163,7 +163,7 @@ class SmolVLAReductionSumProgram(Program):
         Instruction("delay", ScalarArgs(imm=16)),
         # (m4, m5) = row-sum broadcast over (m0, m1)
         Instruction("vredsum.row.bf16", VectorArgs(vd=4, vs1=0)),
-        Instruction("delay", ScalarArgs(imm=4)),
+        Instruction("delay", ScalarArgs(imm=69)),
         # Store m4 (first half) to VMEM[x2], then DMA to DRAM_OUT.
         Instruction("vstore", VectorArgs(vd=4, rs1=2, imm12=0)),
         Instruction("delay", ScalarArgs(imm=16)),

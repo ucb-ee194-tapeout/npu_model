@@ -168,35 +168,35 @@ class SmolVLAFusedSiluGateProgram(Program):
         Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
         # Broadcast constants (vli.all is per-register, so two each)
         Instruction(mnemonic="vli.all", args=VectorArgs(vd=2, imm=-1)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=65)),
         Instruction(mnemonic="vli.all", args=VectorArgs(vd=3, imm=-1)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=65)),
         Instruction(mnemonic="vli.all", args=VectorArgs(vd=4, imm=1)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=65)),
         Instruction(mnemonic="vli.all", args=VectorArgs(vd=5, imm=1)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=65)),
         # op_a: sigmoid(x) = 1 / (1 + exp(-x))
         Instruction(
             mnemonic="vmul.bf16", args=VectorArgs(vd=6, vs1=0, vs2=2)
         ),  # (m6, m7) = -x
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
         Instruction(
             mnemonic="vexp.bf16", args=VectorArgs(vd=8, vs1=6)
         ),  # (m8, m9) = exp(-x)
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
         Instruction(
             mnemonic="vadd.bf16", args=VectorArgs(vd=10, vs1=8, vs2=4)
         ),  # (m10, m11) = 1 + exp(-x)
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
         Instruction(
             mnemonic="vrecip.bf16", args=VectorArgs(vd=12, vs1=10)
         ),  # (m12, m13) = sigmoid(x)
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
         # op_b: silu(x) = sigmoid(x) * x
         Instruction(
             mnemonic="vmul.bf16", args=VectorArgs(vd=14, vs1=12, vs2=0)
         ),  # (m14, m15) = silu(x)
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
         # Store both halves
         Instruction(mnemonic="vstore", args=VectorArgs(vd=14, rs1=2, imm12=0)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),

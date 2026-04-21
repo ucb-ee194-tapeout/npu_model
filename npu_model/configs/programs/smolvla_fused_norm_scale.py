@@ -193,16 +193,16 @@ class SmolVLAFusedNormScaleProgram(Program):
         Instruction(
             mnemonic="vsqrt.bf16", args=VectorArgs(vd=4, vs1=0)
         ),  # (m4, m5) = sqrt(var)
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
         Instruction(
             mnemonic="vrecip.bf16", args=VectorArgs(vd=6, vs1=4)
         ),  # (m6, m7) = rsqrt(var)
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
         # op_b: matrix * rsqrt
         Instruction(
             mnemonic="vmul.bf16", args=VectorArgs(vd=8, vs1=2, vs2=6)
         ),  # (m8, m9) = out
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
         # Store output pair
         Instruction(mnemonic="vstore", args=VectorArgs(vd=8, rs1=3, imm12=0)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),

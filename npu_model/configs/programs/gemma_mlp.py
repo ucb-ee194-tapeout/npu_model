@@ -106,7 +106,7 @@ class GemmaMlpProgram(Program):
         Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
         # --- PHASE 4: Element-wise Multiplication (GeGLU Simplified) ---
         Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=8, vs1=4, vs2=6)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
         # --- PHASE 5: Store Results ---
         Instruction(mnemonic="vstore", args=VectorArgs(vd=8, rs1=4, imm12=0)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),

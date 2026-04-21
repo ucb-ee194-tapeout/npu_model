@@ -309,25 +309,25 @@ class SmolVLARmsNormProgram(Program):
         Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
         # (m2, m3) = X^2 (pair-op vsquare, full-tile square)
         Instruction(mnemonic="vsquare.bf16", args=VectorArgs(vd=2, vs1=0)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
         # (m4, m5) = row-sum(X^2)  (reduces along dim=1 over 32 cols)
         Instruction(mnemonic="vredsum.row.bf16", args=VectorArgs(vd=4, vs1=2)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=69)),
         # (m10, m11) = mean(X^2) = sum * inv_dim
         Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=10, vs1=4, vs2=6)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
         # (m12, m13) = mean + eps
         Instruction(mnemonic="vadd.bf16", args=VectorArgs(vd=12, vs1=10, vs2=8)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
         # (m14, m15) = sqrt(mean + eps)
         Instruction(mnemonic="vsqrt.bf16", args=VectorArgs(vd=14, vs1=12)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
         # (m4, m5) = 1 / sqrt (reused pair)
         Instruction(mnemonic="vrecip.bf16", args=VectorArgs(vd=4, vs1=14)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
         # (m6, m7) = X * inv_rms = Y  (reused pair)
         Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=6, vs1=0, vs2=4)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
         # Store both halves of Y
         Instruction(mnemonic="vstore", args=VectorArgs(vd=6, rs1=4, imm12=0)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),

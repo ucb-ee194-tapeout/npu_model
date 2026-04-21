@@ -128,7 +128,7 @@ class SmolVLARequantProgram(Program):
         Instruction("vload", VectorArgs(vd=1, rs1=2)),
         Instruction("delay", ScalarArgs(imm=16)),
         Instruction("vpack.bf16.fp8", VectorArgs(vd=2, es1=5)),
-        Instruction("delay", ScalarArgs(imm=8)),
+        Instruction("delay", ScalarArgs(imm=66)),
         Instruction("vstore", VectorArgs(vd=2, rs1=3)),
         Instruction("delay", ScalarArgs(imm=16)),
         Instruction("dma.store.ch<N>", DmaArgs(rd=6, rs1=3, rs2=7)),

@@ -74,7 +74,7 @@ class GemmaAttentionProgram(Program):
         Instruction(
             mnemonic="dma.load.ch<N>", args=DmaArgs(rd=4, rs1=9, rs2=12, channel=2)
         ),  # scale (bf16 tile)
-        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),w
+        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
         Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=1)),
         Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=2)),
         # VMEM -> MRF
@@ -97,21 +97,21 @@ class GemmaAttentionProgram(Program):
 
         # scores_scaled = scores * scale
         Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=6, vs1=4, vs2=2)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
 
         # Softmax (unnormalized variant: no max subtraction)
         # exp_scores = exp(scores_scaled)
         Instruction(mnemonic="vexp.bf16", args=VectorArgs(vd=8, vs1=6)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
         # row_sum = sum(exp_scores) broadcast across columns
         Instruction(mnemonic="vredsum.row.bf16", args=VectorArgs(vd=10, vs1=8)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=69)),
         # inv_row_sum = 1 / row_sum
         Instruction(mnemonic="vrecip.bf16", args=VectorArgs(vd=12, vs1=10)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
         # softmax_scores = exp_scores * inv_row_sum
         Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=14, vs1=8, vs2=12)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
 
         # Store softmax scores (bf16 tile)
         Instruction(mnemonic="vstore", args=VectorArgs(vd=14, rs1=5, imm12=0)),

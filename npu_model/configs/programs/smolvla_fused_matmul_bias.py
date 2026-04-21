@@ -236,7 +236,7 @@ class SmolVLAFusedMatmulBiasProgram(Program):
         Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
         # op_b: pair-op bias add → (m8, m9)
         Instruction(mnemonic="vadd.bf16", args=VectorArgs(vd=8, vs1=6, vs2=4)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
         # Store output pair
         Instruction(mnemonic="vstore", args=VectorArgs(vd=8, rs1=4, imm12=0)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),

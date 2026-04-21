@@ -141,22 +141,22 @@ class SmolVLASoftmaxProgram(Program):
         Instruction("delay", ScalarArgs(imm=16)),
         # (m2, m3) = rowmax(X) broadcast
         Instruction("vredmax.row.bf16", VectorArgs(vd=2, vs1=0)),
-        Instruction("delay", ScalarArgs(imm=4)),
+        Instruction("delay", ScalarArgs(imm=69)),
         # (m4, m5) = X - rowmax
         Instruction("vsub.bf16", VectorArgs(vd=4, vs1=0, vs2=2)),
-        Instruction("delay", ScalarArgs(imm=4)),
+        Instruction("delay", ScalarArgs(imm=66)),
         # (m6, m7) = exp(X - rowmax)
         Instruction("vexp.bf16", VectorArgs(vd=6, vs1=4)),
-        Instruction("delay", ScalarArgs(imm=16)),
+        Instruction("delay", ScalarArgs(imm=66)),
         # (m8, m9) = rowsum(exp)
         Instruction("vredsum.row.bf16", VectorArgs(vd=8, vs1=6)),
-        Instruction("delay", ScalarArgs(imm=4)),
+        Instruction("delay", ScalarArgs(imm=69)),
         # (m10, m11) = 1 / rowsum
         Instruction("vrecip.bf16", VectorArgs(vd=10, vs1=8)),
-        Instruction("delay", ScalarArgs(imm=16)),
+        Instruction("delay", ScalarArgs(imm=66)),
         # (m12, m13) = exp * inv_rowsum
         Instruction("vmul.bf16", VectorArgs(vd=12, vs1=6, vs2=10)),
-        Instruction("delay", ScalarArgs(imm=4)),
+        Instruction("delay", ScalarArgs(imm=66)),
         # Store m12 and m13 back-to-back in VMEM, DMA both 1024-B halves.
         Instruction("vstore", VectorArgs(vd=12, rs1=2, imm12=0)),
         Instruction("delay", ScalarArgs(imm=16)),
