@@ -74,7 +74,7 @@ class GemmaAttentionProgram(Program):
         Instruction(
             mnemonic="dma.load.ch<N>", args=DmaArgs(rd=4, rs1=9, rs2=12, channel=2)
         ),  # scale (bf16 tile)
-        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
+        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),w
         Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=1)),
         Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=2)),
         # VMEM -> MRF

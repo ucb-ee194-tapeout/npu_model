@@ -47,21 +47,7 @@ VPU_OP_LATENCIES = {
     "vsqrt.bf16": 66,
     "vsquare.bf16": 66,
     "vcube.bf16": 66,
-    "vtrpose.xlu": 66,
-    "vmatpush.weight.mxu0": 66,
-    "vmatpush.weight.mxu1": 66,
-    "vmatpush.acc.fp8.mxu0": 66,
-    "vmatpush.acc.fp8.mxu1": 66,
-    "vmatpush.acc.bf16.mxu0": 66,
-    "vmatpush.acc.bf16.mxu1": 66,
-    "vmatpop.fp8.acc.mxu0": 66,
-    "vmatpop.fp8.acc.mxu1": 66,
-    "vmatpop.bf16.acc.mxu0": 66,
-    "vmatpop.bf16.acc.mxu1": 66,
-    "vmatmul.mxu0": 66,
-    "vmatmul.mxu1": 66,
-    "vmatmul.acc.mxu0": 66,
-    "vmatmul.acc.mxu1": 66,
+    "vtrpose.xlu": 66
 }
 
 
