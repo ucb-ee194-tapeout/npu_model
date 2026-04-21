@@ -201,8 +201,6 @@ class SmolVLAElementwiseAddProgram(Program):
         # ── Pair-op add: (v4, v5) = (v0, v1) + (v2, v3) ──
         Instruction(mnemonic="vadd.bf16", args=VectorArgs(vd=4, vs1=0, vs2=2)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
-        Instruction(mnemonic="vadd.bf16", args=VectorArgs(vd=5, vs1=1, vs2=3)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
         # ── Store: MRF → VMEM → DRAM ──
         Instruction(mnemonic="vstore", args=VectorArgs(vd=4, rs1=3, imm12=0)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
