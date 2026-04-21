@@ -19,6 +19,6 @@ class CIHardwareConfig(DefaultHardwareConfig):
         num_e_registers=DefaultHardwareConfig.arch_state_config.num_e_registers,
         num_m_registers=DefaultHardwareConfig.arch_state_config.num_m_registers,
         num_wb_registers=DefaultHardwareConfig.arch_state_config.num_wb_registers,
-        dram_size=64 * 1024,
-        vmem_size=64 * 1024,
+        dram_size=256 * 1024,
+        vmem_size=256 * 1024,
     )
