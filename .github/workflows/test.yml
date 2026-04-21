@@ -30,4 +30,4 @@ jobs:
         run: uv sync --python $PYTHON_VERSION
 
       - name: Run pytest suite
-        run: uv run --python $PYTHON_VERSION pytest --max-cycles 100000
+        run: uv run --python $PYTHON_VERSION pytest --max-cycles 100000 --hardware-config CIHardwareConfig
