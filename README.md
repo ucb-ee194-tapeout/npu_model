@@ -98,6 +98,9 @@ Run a simulation with default configuration:
 uv run ./scripts/run.py --program MatmulProgram --hardware_config DefaultHardwareConfig -o matmul.json
 ```
 
+`DefaultHardwareConfig` models a `2 GiB` DRAM aperture for routine simulation.
+Use `FullDramHardwareConfig` to expose the full `16 GiB` DRAM address space.
+
 ### Custom Configuration
 
 Specify hardware configuration and program:
@@ -124,14 +127,19 @@ uv run scripts/run.py --hardware_config DefaultHardwareConfig -p AddiProgram -o 
 ### Running tests
 
 ```bash
-uv run ./scripts/test_archstate.py
-uv run ./scripts/test_programs.py
+uv run pytest
 ```
 
-or with more logging:
+Run the full program sweep with a higher cycle budget:
 
 ```bash
-uv run ./scripts/test_programs.py --verbose
+uv run pytest tests/test_programs.py --max-cycles 100000
+```
+
+Show simulator stdout while debugging:
+
+```bash
+uv run pytest tests/test_programs.py --sim-verbose -vv
 ```
 
 ## Architecture

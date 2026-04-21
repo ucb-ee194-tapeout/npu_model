@@ -37,6 +37,9 @@ Whole-register views:
 - one `m` register stores one `32 x 32 FP8_E4M3` tile
 - one `m` register stores one `32 x 16 BF16` half-tile
 - one full `32 x 32 BF16` tile occupies two consecutive `m` registers
+- BF16 VPU instructions interpret each named tensor register operand or
+  destination as the low register of that consecutive two-register
+  `32 x 32 BF16` tile
 
 Scale-register rules:
 

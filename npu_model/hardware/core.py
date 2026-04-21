@@ -158,6 +158,10 @@ class Core(Module):
         for exu in self.exus:
             exu.flush_completions()
 
+    def close(self) -> None:
+        self.arch_state.close()
+        self.exus.clear()
+
     def _handle_runtime_error(self, stage: str, exc: Exception) -> bool:
         if not self.ignore_runtime_errors:
             return False

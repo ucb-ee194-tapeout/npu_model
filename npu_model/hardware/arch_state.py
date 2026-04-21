@@ -48,25 +48,105 @@ class ArchState:
             torch.zeros((self.cfg.mrf_depth, acc_cols), dtype=torch.bfloat16)
             for _ in range(self.cfg.num_wb_registers)
         ]
+        if self.cfg.randomize_init:
+            generator = self._make_generator()
+            self._fill_u8_random(self.dram, generator)
+            self._fill_u8_random(self.vmem, generator)
         self.base: int = 0  # dram base
         self.flags: list[bool] = [False] * 8
 
+    def close(self) -> None:
+        """Release large architectural buffers once a simulation is no longer needed."""
+        self.dram = torch.empty(0, dtype=torch.uint8)
+        self.vmem = torch.empty(0, dtype=torch.uint8)
+        self.xrf = []
+        self.csrf = []
+        self.erf = []
+        self.mrf = []
+        self.wb = {}
+        self.acc = {}
+        self.base = 0
+        self.flags = []
+
     def reset(self) -> None:
         self.conflict_checker.reset()
-        for i in range(len(self.xrf)):
-            self.xrf[i] = 0
-        for i in range(len(self.mrf)):
-            self.mrf[i].fill_(0)
-        for i in range(len(self.wb["mxu0"])):
-            self.wb["mxu0"][i].fill_(0)
-        for i in range(len(self.wb["mxu1"])):
-            self.wb["mxu1"][i].fill_(0)
-        for i in range(len(self.acc["mxu0"])):
-            self.acc["mxu0"][i].fill_(0)
-        for i in range(len(self.acc["mxu1"])):
-            self.acc["mxu1"][i].fill_(0)
+        if self.cfg.randomize_init:
+            generator = self._make_generator()
+            random_xrf = self._random_int_list(len(self.xrf), generator)
+            self.xrf[:] = random_xrf
+            self.xrf[0] = 0
+            self.csrf[:] = self._random_int_list(len(self.csrf), generator)
+            self.erf[:] = self._random_byte_list(len(self.erf), generator)
+            for tensor in self.mrf:
+                self._fill_u8_random(tensor, generator)
+            for tensor in self.wb["mxu0"]:
+                self._fill_u8_random(tensor, generator)
+            for tensor in self.wb["mxu1"]:
+                self._fill_u8_random(tensor, generator)
+            for tensor in self.acc["mxu0"]:
+                self._fill_bf16_random(tensor, generator)
+            for tensor in self.acc["mxu1"]:
+                self._fill_bf16_random(tensor, generator)
+        else:
+            for i in range(len(self.xrf)):
+                self.xrf[i] = 0
+            for i in range(len(self.csrf)):
+                self.csrf[i] = 0
+            for i in range(len(self.erf)):
+                self.erf[i] = 0
+            for i in range(len(self.mrf)):
+                self.mrf[i].fill_(0)
+            for i in range(len(self.wb["mxu0"])):
+                self.wb["mxu0"][i].fill_(0)
+            for i in range(len(self.wb["mxu1"])):
+                self.wb["mxu1"][i].fill_(0)
+            for i in range(len(self.acc["mxu0"])):
+                self.acc["mxu0"][i].fill_(0)
+            for i in range(len(self.acc["mxu1"])):
+                self.acc["mxu1"][i].fill_(0)
         self.pc = 0
         self.npc = 0
+        self.base = 0
+        self.flags = [False] * len(self.flags)
+
+    def _make_generator(self) -> torch.Generator:
+        generator = torch.Generator()
+        generator.manual_seed(self.cfg.init_seed)
+        return generator
+
+    def _fill_u8_random(self, tensor: torch.Tensor, generator: torch.Generator) -> None:
+        tensor.random_(0, 256, generator=generator)
+
+    def _fill_bf16_random(
+        self, tensor: torch.Tensor, generator: torch.Generator
+    ) -> None:
+        tensor.view(torch.uint8).reshape(-1).random_(0, 256, generator=generator)
+
+    def _random_int_list(
+        self, count: int, generator: torch.Generator
+    ) -> list[int]:
+        if count == 0:
+            return []
+        return torch.randint(
+            0,
+            1 << 31,
+            (count,),
+            dtype=torch.int64,
+            generator=generator,
+        ).tolist()
+
+    def _random_byte_list(
+        self, count: int, generator: torch.Generator
+    ) -> list[int]:
+        if count == 0:
+            return []
+        return torch.randint(
+            0,
+            256,
+            (count,),
+            dtype=torch.int64,
+            generator=generator,
+        ).tolist()
 
     def set_npc(self, value: int) -> None:
         self.npc = value
@@ -126,7 +206,7 @@ class ArchState:
         )
 
     def write_mrf_fp8(self, vd: int, value: torch.Tensor) -> None:
-        assert value.dtype == torch.uint8
+        assert value.dtype == torch.float8_e4m3fn
         assert (
             value.numel()
             == self.cfg.mrf_depth * self.cfg.mrf_width // torch.float8_e4m3fn.itemsize
@@ -253,17 +333,19 @@ class ArchState:
     def write_dram(self, offset: int, data: torch.Tensor) -> None:
         data = data.flatten()
         address = (self.base << 32) | offset
+        end = address + data.numel()
         assert (
-            address < offset + data.numel() <= self.cfg.dram_size
-        ), f"Memory write out of bounds: {address} + {data.numel()} > {self.cfg.dram_size}"
-        self.dram[address : address + data.numel()] = data
+            0 <= address <= end <= self.cfg.dram_size
+        ), f"Memory write out of bounds: [{address}, {end}) exceeds size {self.cfg.dram_size}"
+        self.dram[address:end] = data
 
     def read_dram(self, offset: int, length: int) -> torch.Tensor:
         address = (self.base << 32) | offset
+        end = address + length
         assert (
-            address + length <= self.cfg.dram_size
-        ), f"Memory read out of bounds: {address} + {length} > {self.cfg.dram_size}"
-        return self.dram[address : address + length]
+            0 <= address <= end <= self.cfg.dram_size
+        ), f"Memory read out of bounds: [{address}, {end}) exceeds size {self.cfg.dram_size}"
+        return self.dram[address:end]
 
     def write_vmem(self, base: int, offset: int, data: torch.Tensor) -> None:
         data = data.flatten()

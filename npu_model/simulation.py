@@ -127,6 +127,16 @@ class Simulation:
             print(f"\nTrace written to: {self.logger_config.filename}")
             print("Open with Perfetto (https://ui.perfetto.dev)")
 
+    def close(self) -> None:
+        if getattr(self, "core", None) is not None:
+            self.core.close()
+            self.core = None
+        if getattr(self, "logger", None) is not None:
+            self.logger.close()
+            self.logger = None
+        self.program = None
+        self.hardware_config = None
+
     def get_stats(self) -> SimulationStatistics:
         """Get execution statistics."""
         stats = SimulationStatistics(

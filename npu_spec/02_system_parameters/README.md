@@ -40,8 +40,8 @@
 |---|---:|---|
 | `MXU0_MATMUL_LATENCY_CYCLES` | `32` | One `mxu0` matmul launch latency class |
 | `MXU1_MATMUL_LATENCY_CYCLES` | `32` | One `mxu1` matmul launch latency class |
-| `VPU_SIMPLE_OP_LATENCY_CYCLES` | `2` | Pipelineable VPU latency class |
-| `VPU_NON_PIPELINEABLE_OP_LATENCY_CYCLES` | `8` | Non-pipelineable VPU latency class |
+| `VPU_SIMPLE_OP_LATENCY_CYCLES` | `4` | Pipelineable BF16 VPU latency class |
+| `VPU_NON_PIPELINEABLE_OP_LATENCY_CYCLES` | `16` | Non-pipelineable BF16 VPU latency class |
 | `XLU_TRANSFORM_LATENCY_CYCLES` | `4` | XLU latency class |
 | `OFFCHIP_LINK_WIDTH_BITS` | `32` | DRAM-link beat width |
 | `OFFCHIP_LINK_CORE_CYCLES_PER_BEAT` | `2` | Off-chip serialized beat time |
@@ -72,6 +72,8 @@ The frozen tensor-register views are:
 - `32 x 32 FP8_E4M3` in one `m` register
 - `32 x 16 BF16` in one `m` register
 - one full `32 x 32 BF16` tile occupies two consecutive `m` registers
+- each BF16 VPU operand or result names the low register of one consecutive
+  two-register `32 x 32 BF16` tile
 
 The frozen MXU-local views are:
 

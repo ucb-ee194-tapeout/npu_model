@@ -2,6 +2,9 @@
 # Tests execution of all NPU programs and arch state.
 name: Tests
 
+env:
+  PYTHON_VERSION: "3.10"
+
 on:
   push:
     branches: [main]
@@ -21,16 +24,10 @@ jobs:
           enable-cache: true
 
       - name: Set up Python
-        run: uv python install
+        run: uv python install $PYTHON_VERSION
 
       - name: Install dependencies
-        run: uv sync
+        run: uv sync --python $PYTHON_VERSION
 
-      - name: Run program execution tests
-        run: uv run python scripts/test_programs.py --max-cycles 100000 
-
-      - name: Run arch state tests
-        run: uv run python scripts/test_archstate.py
-
-      - name: Run bank conflict detection tests
-        run: uv run python scripts/test_bank_conflict.py
+      - name: Run pytest suite
+        run: uv run --python $PYTHON_VERSION pytest --max-cycles 100000

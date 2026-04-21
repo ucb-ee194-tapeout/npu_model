@@ -7,7 +7,8 @@ Tapeout NPU.
 - one tensor register stores one `32 x 32 FP8` tile
 - one tensor register stores one `32 x 16 BF16` half-tile
 - one full `32 x 32 BF16` tile occupies two consecutive tensor registers
-- the baseline VPU width is `16 BF16` lanes
+- the baseline VPU width is `16 BF16` lanes, and each BF16 VPU instruction consumes
+  consecutive tensor-register pairs
 
 These documents are intended to be read together:
 

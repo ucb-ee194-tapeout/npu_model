@@ -43,6 +43,7 @@ class Logger:
     ) -> None:
         self.config = config
         self.file = open(config.filename, "w")
+        self._closed = False
         self.first_event = True
         self.insn_labels: dict[int, str] = {}
         self.active: dict[tuple[int, str, int], int] = {}
@@ -82,8 +83,11 @@ class Logger:
 
     def close(self) -> None:
         """Close the trace file."""
+        if self._closed:
+            return
         self.file.write("]\n")
         self.file.close()
+        self._closed = True
 
     def _write_event(self, event: dict[str, Any]) -> None:
         if not self.first_event:

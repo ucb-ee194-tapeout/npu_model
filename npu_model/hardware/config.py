@@ -25,6 +25,10 @@ class ArchStateConfig:
     """ Size of dram in bytes. """
     vmem_size: int
     """ Size of vmem in bytes. """
+    randomize_init: bool = False
+    """ Initialize architectural storage with deterministic pseudo-random data. """
+    init_seed: int = 42
+    """ Seed used when randomize_init is enabled. """
 
 
 class HardwareConfig:
@@ -35,6 +39,12 @@ class HardwareConfig:
     execution_units: dict[str, str]
     mxu0_matmul_latency_cycles: int = 32
     mxu1_matmul_latency_cycles: int = 32
-    vpu_arithmetic_latency_cycles: int = 2
+    vpu_simple_op_latency_cycles: int = 4
+    vpu_non_pipelineable_op_latency_cycles: int = 16
     xlu_transform_latency_cycles: int = 4
+    offchip_link_width_bits: int = 32
+    offchip_link_core_cycles_per_beat: int = 2
+    dma_offchip_command_words: int = 2
+    vmem_bus_width_bits: int = 512
+    vmem_bus_core_cycles_per_beat: int = 1
     vmem_bytes_per_cycle: int = 64
