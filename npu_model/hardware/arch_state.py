@@ -55,6 +55,19 @@ class ArchState:
         self.base: int = 0  # dram base
         self.flags: list[bool] = [False] * 8
 
+    def close(self) -> None:
+        """Release large architectural buffers once a simulation is no longer needed."""
+        self.dram = torch.empty(0, dtype=torch.uint8)
+        self.vmem = torch.empty(0, dtype=torch.uint8)
+        self.xrf = []
+        self.csrf = []
+        self.erf = []
+        self.mrf = []
+        self.wb = {}
+        self.acc = {}
+        self.base = 0
+        self.flags = []
+
     def reset(self) -> None:
         self.conflict_checker.reset()
         if self.cfg.randomize_init:

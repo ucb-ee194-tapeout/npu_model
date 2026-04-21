@@ -124,3 +124,17 @@ def test_control_flow_instruction_in_delay_slot_is_illegal() -> None:
         match="Illegal control-flow instruction 'jal' decoded in a delay-slot position",
     ):
         run_simulation(program, DefaultHardwareConfig(), max_cycles=64)
+
+
+def test_simulation_close_releases_arch_state_buffers() -> None:
+    program = InstantiableProgram([Instruction("delay", ScalarArgs(imm=1))])
+
+    sim = run_simulation(program, DefaultHardwareConfig(), max_cycles=8)
+    arch_state = sim.core.arch_state
+
+    assert arch_state.dram.numel() == DefaultHardwareConfig().arch_state_config.dram_size
+
+    sim.close()
+
+    assert arch_state.dram.numel() == 0
+    assert arch_state.vmem.numel() == 0

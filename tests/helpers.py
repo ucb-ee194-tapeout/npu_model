@@ -4,11 +4,22 @@ from contextlib import nullcontext, redirect_stdout
 from dataclasses import replace
 from pathlib import Path
 from typing import Callable
+import gc
 
 import torch
 
 from npu_model.logging import LoggerConfig
 from npu_model.simulation import Simulation
+
+
+_ACTIVE_SIMULATIONS: list[Simulation] = []
+
+
+def cleanup_tracked_simulations() -> None:
+    while _ACTIVE_SIMULATIONS:
+        sim = _ACTIVE_SIMULATIONS.pop()
+        sim.close()
+    gc.collect()
 
 
 def run_simulation(
@@ -45,6 +56,7 @@ def run_simulation(
             verbose=verbose,
             ignore_runtime_errors=ignore_runtime_errors,
         )
+        _ACTIVE_SIMULATIONS.append(sim)
         if before_run is not None:
             before_run(sim)
 

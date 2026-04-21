@@ -1,6 +1,7 @@
 import pytest
 
 import npu_model.configs.hardware as hardware_configs
+from tests.helpers import cleanup_tracked_simulations
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -45,3 +46,9 @@ def hardware_config_cls(pytestconfig: pytest.Config):
         raise pytest.UsageError(
             f"Unknown hardware config '{config_name}'. Available: {available}"
         ) from exc
+
+
+@pytest.fixture(autouse=True)
+def cleanup_simulations_after_test():
+    yield
+    cleanup_tracked_simulations()
