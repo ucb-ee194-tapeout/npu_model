@@ -113,17 +113,17 @@ class SmolVLARopeFrequencyProgram(Program):
         Instruction("dma.load.ch<N>", DmaArgs(rd=1, rs1=4, rs2=6)),
         Instruction("dma.wait.ch<N>", DmaArgs()),
         Instruction("vload", VectorArgs(rs1=1)),
-        Instruction("delay", ScalarArgs(imm=16)),
+        Instruction("delay", ScalarArgs(imm=34)),
         Instruction("vload", VectorArgs(vd=1, rs1=1, imm12=32)),
-        Instruction("delay", ScalarArgs(imm=16)),
+        Instruction("delay", ScalarArgs(imm=34)),
         Instruction("vcos.bf16", VectorArgs(vd=2)),  # (v2, v3) = cos(v0, v1)
         Instruction("delay", ScalarArgs(imm=66)),
         Instruction("vstore", VectorArgs(vd=2, rs1=1)),
-        Instruction("delay", ScalarArgs(imm=16)),
+        Instruction("delay", ScalarArgs(imm=34)),
         Instruction("vstore", VectorArgs(vd=3, rs1=1, imm12=32)),
-        Instruction("delay", ScalarArgs(imm=16)),
+        Instruction("delay", ScalarArgs(imm=34)),
         Instruction("dma.store.ch<N>", DmaArgs(rd=5, rs1=1, rs2=6)),
-        Instruction("dma.wait.ch<N>", DmaArgs()),
+        Instruction("dma.wait.ch<N>", DmaArgs(rs2=6)),
     ]
 
     memory_regions: List[Tuple[int, torch.Tensor]] = [

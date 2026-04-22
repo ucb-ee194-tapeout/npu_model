@@ -136,9 +136,9 @@ class SmolVLASoftmaxProgram(Program):
         Instruction("dma.wait.ch<N>", DmaArgs(channel=1)),
         # Load X pair
         Instruction("vload", VectorArgs(vd=0, rs1=1, imm12=0)),
-        Instruction("delay", ScalarArgs(imm=16)),
+        Instruction("delay", ScalarArgs(imm=34)),
         Instruction("vload", VectorArgs(vd=1, rs1=1, imm12=32)),
-        Instruction("delay", ScalarArgs(imm=16)),
+        Instruction("delay", ScalarArgs(imm=34)),
         # (m2, m3) = rowmax(X) broadcast
         Instruction("vredmax.row.bf16", VectorArgs(vd=2, vs1=0)),
         Instruction("delay", ScalarArgs(imm=69)),
@@ -159,9 +159,9 @@ class SmolVLASoftmaxProgram(Program):
         Instruction("delay", ScalarArgs(imm=66)),
         # Store m12 and m13 back-to-back in VMEM, DMA both 1024-B halves.
         Instruction("vstore", VectorArgs(vd=12, rs1=2, imm12=0)),
-        Instruction("delay", ScalarArgs(imm=16)),
+        Instruction("delay", ScalarArgs(imm=34)),
         Instruction("vstore", VectorArgs(vd=13, rs1=2, imm12=32)),
-        Instruction("delay", ScalarArgs(imm=16)),
+        Instruction("delay", ScalarArgs(imm=34)),
         # Two DMA stores of 1024 bytes each (m12 → OUT_H0, m13 → OUT_H1).
         Instruction("addi", ScalarArgs(rd=8, rs1=5, imm=1024)),  # x8 = DRAM_OUT_H1
         Instruction("addi", ScalarArgs(rd=9, rs1=2, imm=1024)),  # x9 = VMEM m13 addr

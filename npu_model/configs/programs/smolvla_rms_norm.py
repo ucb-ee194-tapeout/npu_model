@@ -296,17 +296,17 @@ class SmolVLARmsNormProgram(Program):
         Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=1)),
         # Load MRF (all pair reads)
         Instruction(mnemonic="vload", args=VectorArgs(vd=0, rs1=1, imm12=0)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
         Instruction(mnemonic="vload", args=VectorArgs(vd=1, rs1=1, imm12=32)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
         Instruction(mnemonic="vload", args=VectorArgs(vd=6, rs1=2, imm12=0)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
         Instruction(mnemonic="vload", args=VectorArgs(vd=7, rs1=2, imm12=32)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
         Instruction(mnemonic="vload", args=VectorArgs(vd=8, rs1=3, imm12=0)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
         Instruction(mnemonic="vload", args=VectorArgs(vd=9, rs1=3, imm12=32)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
         # (m2, m3) = X^2 (pair-op vsquare, full-tile square)
         Instruction(mnemonic="vsquare.bf16", args=VectorArgs(vd=2, vs1=0)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
@@ -330,9 +330,9 @@ class SmolVLARmsNormProgram(Program):
         Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
         # Store both halves of Y
         Instruction(mnemonic="vstore", args=VectorArgs(vd=6, rs1=4, imm12=0)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
         Instruction(mnemonic="vstore", args=VectorArgs(vd=7, rs1=4, imm12=32)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
         Instruction(
             mnemonic="dma.store.ch<N>", args=DmaArgs(rd=9, rs1=4, rs2=13, channel=0)
         ),

@@ -158,15 +158,15 @@ class SmolVLAReductionSumProgram(Program):
         Instruction("dma.wait.ch<N>", DmaArgs(channel=1)),
         # Load X pair into (m0, m1)
         Instruction("vload", VectorArgs(vd=0, rs1=1, imm12=0)),
-        Instruction("delay", ScalarArgs(imm=16)),
+        Instruction("delay", ScalarArgs(imm=34)),
         Instruction("vload", VectorArgs(vd=1, rs1=1, imm12=32)),
-        Instruction("delay", ScalarArgs(imm=16)),
+        Instruction("delay", ScalarArgs(imm=34)),
         # (m4, m5) = row-sum broadcast over (m0, m1)
         Instruction("vredsum.row.bf16", VectorArgs(vd=4, vs1=0)),
         Instruction("delay", ScalarArgs(imm=69)),
         # Store m4 (first half) to VMEM[x2], then DMA to DRAM_OUT.
         Instruction("vstore", VectorArgs(vd=4, rs1=2, imm12=0)),
-        Instruction("delay", ScalarArgs(imm=16)),
+        Instruction("delay", ScalarArgs(imm=34)),
         Instruction("dma.store.ch<N>", DmaArgs(rd=5, rs1=2, rs2=6, channel=0)),
         Instruction("dma.wait.ch<N>", DmaArgs(channel=0)),
     ]

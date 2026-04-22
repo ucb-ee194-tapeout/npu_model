@@ -87,11 +87,11 @@ class GemmaRmsNormProgram(Program):
         Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=1)),
         # VMEM -> MRF
         Instruction(mnemonic="vload", args=VectorArgs(vd=0, rs1=1, imm12=0)),  # x low
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
         Instruction(mnemonic="vload", args=VectorArgs(vd=1, rs1=1, imm12=32)),  # x high
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
         Instruction(mnemonic="vload", args=VectorArgs(vd=2, rs1=2, imm12=0)),  # eps low
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
         Instruction(
             mnemonic="vload", args=VectorArgs(vd=3, rs1=2, imm12=32)
         ),  # eps high
@@ -124,9 +124,9 @@ class GemmaRmsNormProgram(Program):
         Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
         # MRF -> VMEM -> DRAM
         Instruction(mnemonic="vstore", args=VectorArgs(vd=20, rs1=3, imm12=0)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
         Instruction(mnemonic="vstore", args=VectorArgs(vd=21, rs1=3, imm12=32)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
         Instruction(
             mnemonic="dma.store.ch<N>", args=DmaArgs(rd=6, rs1=3, rs2=7, channel=0)
         ),

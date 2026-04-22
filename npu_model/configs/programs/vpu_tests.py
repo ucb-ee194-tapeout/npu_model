@@ -50,9 +50,9 @@ class VectorArithmeticProgram(Program):
         Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
         # VMEM -> MRF, compute, MRF -> VMEM
         Instruction(mnemonic="vload", args=VectorArgs(vd=0, rs1=1, imm12=0)),
-        Instruction("delay", args=ScalarArgs(imm=16)),
+        Instruction("delay", args=ScalarArgs(imm=34)),
         Instruction(mnemonic="vload", args=VectorArgs(vd=1, rs1=1, imm12=32)),
-        Instruction("delay", args=ScalarArgs(imm=16)),
+        Instruction("delay", args=ScalarArgs(imm=34)),
         Instruction(mnemonic="vadd.bf16", args=VectorArgs(vd=2, vs1=0, vs2=0)),
         Instruction("delay", args=ScalarArgs(imm=66)),
         Instruction(mnemonic="vsub.bf16", args=VectorArgs(vd=4, vs1=2, vs2=0)),
@@ -64,10 +64,10 @@ class VectorArithmeticProgram(Program):
         Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=10, vs1=6, vs2=8)),
         Instruction("delay", args=ScalarArgs(imm=66)),
         Instruction(mnemonic="vstore", args=VectorArgs(vd=10, rs1=2, imm12=0)),
-        Instruction("delay", args=ScalarArgs(imm=16)),
+        Instruction("delay", args=ScalarArgs(imm=34)),
         Instruction(mnemonic="vstore", args=VectorArgs(vd=11, rs1=2, imm12=32)),
         # Ensure the VPU has time to commit the VMEM write before DMA reads it.
-        Instruction("delay", args=ScalarArgs(imm=16)),
+        Instruction("delay", args=ScalarArgs(34)),
         # VMEM -> DRAM
         Instruction(
             mnemonic="dma.store.ch<N>",

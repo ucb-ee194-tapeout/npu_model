@@ -161,11 +161,11 @@ class SmolVLASiluProgram(Program):
         Instruction(
             mnemonic="vload", args=VectorArgs(vd=0, rs1=1, imm12=0)
         ),  # v0 = x low
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
         Instruction(
             mnemonic="vload", args=VectorArgs(vd=1, rs1=1, imm12=32)
         ),  # v1 = x high
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
         Instruction(mnemonic="vli.all", args=VectorArgs(vd=2, imm=-1)),  # v2 = -1.0 low
         Instruction(mnemonic="delay", args=ScalarArgs(imm=65)),
         Instruction(
@@ -199,9 +199,9 @@ class SmolVLASiluProgram(Program):
         Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
         # ── Store: MRF → VMEM → DRAM ──
         Instruction(mnemonic="vstore", args=VectorArgs(vd=14, rs1=2, imm12=0)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
         Instruction(mnemonic="vstore", args=VectorArgs(vd=15, rs1=2, imm12=32)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
         Instruction(
             mnemonic="dma.store.ch<N>", args=DmaArgs(rd=4, rs1=2, rs2=5, channel=0)
         ),
