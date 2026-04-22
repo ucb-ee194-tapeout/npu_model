@@ -116,9 +116,7 @@ class SmolVLARopeFrequencyProgram(Program):
         Instruction("delay", ScalarArgs(imm=16)),
         Instruction("vload", VectorArgs(vd=1, rs1=1, imm12=32)),
         Instruction("delay", ScalarArgs(imm=16)),
-        Instruction("vcos.bf16", VectorArgs(vd=2)),
-        Instruction("delay", ScalarArgs(imm=66)),
-        Instruction("vcos.bf16", VectorArgs(vd=3, vs1=1)),
+        Instruction("vcos.bf16", VectorArgs(vd=2)),  # (v2, v3) = cos(v0, v1)
         Instruction("delay", ScalarArgs(imm=66)),
         Instruction("vstore", VectorArgs(vd=2, rs1=1)),
         Instruction("delay", ScalarArgs(imm=16)),

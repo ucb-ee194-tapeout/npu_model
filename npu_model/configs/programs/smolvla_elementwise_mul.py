@@ -6,7 +6,7 @@ shape variants in the full model; this Program implements the 32x32
 canonical form.
 
 MLIR → ISA mapping:
-    arith.mulf %a %b → vmul.bf16(a_h, b_h)    (per 32x16 half)
+    arith.mulf %a %b → vmul.bf16(a, b)   pair-op: (vd, vd+1) = (vs1, vs1+1) * (vs2, vs2+1)
 """
 
 from typing import Any, List, Tuple
@@ -121,9 +121,7 @@ class SmolVLAElementwiseMulProgram(Program):
         Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
         Instruction(mnemonic="vload", args=VectorArgs(vd=3, rs1=2, imm12=32)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
-        Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=4, vs1=0, vs2=2)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
-        Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=5, vs1=1, vs2=3)),
+        Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=4, vs1=0, vs2=2)),  # (v4, v5) = (v0, v1) * (v2, v3)
         Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
         Instruction(mnemonic="vstore", args=VectorArgs(vd=4, rs1=3, imm12=0)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
