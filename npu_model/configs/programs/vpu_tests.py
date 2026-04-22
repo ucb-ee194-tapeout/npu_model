@@ -67,7 +67,7 @@ class VectorArithmeticProgram(Program):
         Instruction("delay", args=ScalarArgs(imm=34)),
         Instruction(mnemonic="vstore", args=VectorArgs(vd=11, rs1=2, imm12=32)),
         # Ensure the VPU has time to commit the VMEM write before DMA reads it.
-        Instruction("delay", args=ScalarArgs(34)),
+        Instruction("delay", args=ScalarArgs(imm=34)),
         # VMEM -> DRAM
         Instruction(
             mnemonic="dma.store.ch<N>",

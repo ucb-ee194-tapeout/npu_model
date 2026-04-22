@@ -119,7 +119,7 @@ class SmolVLARequantProgram(Program):
         Instruction("seli", ScalarArgs(rd=5, imm=1)),
         Instruction("dma.config.ch<N>", DmaArgs()),
         Instruction("dma.config.ch<N>", DmaArgs(channel=1)),
-        Instruction("dma.load.ch<N>", DmaArgs(rd=1, rs1=4, rs2=7)),
+        Instruction("dma.load.ch<N>", DmaArgs(rd=1, rs1=4, rs2=7, channel=0)),
         Instruction("dma.load.ch<N>", DmaArgs(rd=2, rs1=5, rs2=7, channel=1)),
         Instruction("dma.wait.ch<N>", DmaArgs()),
         Instruction("dma.wait.ch<N>", DmaArgs(channel=1)),
@@ -131,7 +131,7 @@ class SmolVLARequantProgram(Program):
         Instruction("delay", ScalarArgs(imm=66)),
         Instruction("vstore", VectorArgs(vd=2, rs1=3)),
         Instruction("delay", ScalarArgs(imm=34)),
-        Instruction("dma.store.ch<N>", DmaArgs(rd=6, rs1=3, rs2=7)),
+        Instruction("dma.store.ch<N>", DmaArgs(rd=6, rs1=3, rs2=7, channel=0)),
         Instruction("dma.wait.ch<N>", DmaArgs()),
     ]
 

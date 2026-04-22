@@ -165,70 +165,86 @@ class SmolVLAGeluTanhProgram(Program):
     #   x15 = x2+1024, x16 = x3+1024, x17 = x4+1024 (second halves for constants)
     instructions: List[Instruction[Any]] = [
         # VMEM base addresses
-        Instruction("lui", ScalarArgs(rd=1, imm=0x2)),   # 0x2000 VMEM x
-        Instruction("lui", ScalarArgs(rd=2, imm=0x3)),   # 0x3000 VMEM C044
-        Instruction("lui", ScalarArgs(rd=3, imm=0x4)),   # 0x4000 VMEM Csqrt
-        Instruction("lui", ScalarArgs(rd=4, imm=0x5)),   # 0x5000 VMEM Chalf
-        Instruction("lui", ScalarArgs(rd=5, imm=0x6)),   # 0x6000 VMEM OUT
+        Instruction("lui", ScalarArgs(rd=1, imm=0x2)),  # 0x2000 VMEM x
+        Instruction("lui", ScalarArgs(rd=2, imm=0x3)),  # 0x3000 VMEM C044
+        Instruction("lui", ScalarArgs(rd=3, imm=0x4)),  # 0x4000 VMEM Csqrt
+        Instruction("lui", ScalarArgs(rd=4, imm=0x5)),  # 0x5000 VMEM Chalf
+        Instruction("lui", ScalarArgs(rd=5, imm=0x6)),  # 0x6000 VMEM OUT
         # DRAM addresses
-        Instruction("addi", ScalarArgs(rd=6, rs1=0, imm=DRAM_X_H0)),    # 0x0000
-        Instruction("addi", ScalarArgs(rd=7, rs1=6, imm=1024)),           # 0x0400
+        Instruction("addi", ScalarArgs(rd=6, rs1=0, imm=DRAM_X_H0)),  # 0x0000
+        Instruction("addi", ScalarArgs(rd=7, rs1=6, imm=1024)),  # 0x0400
         Instruction("lui", ScalarArgs(rd=8, imm=0x1)),
-        Instruction("addi", ScalarArgs(rd=8, rs1=8, imm=-2048)),          # 0x0800
-        Instruction("addi", ScalarArgs(rd=9, rs1=8, imm=1024)),           # 0x0C00
-        Instruction("lui", ScalarArgs(rd=10, imm=0x1)),                   # 0x1000
+        Instruction("addi", ScalarArgs(rd=8, rs1=8, imm=-2048)),  # 0x0800
+        Instruction("addi", ScalarArgs(rd=9, rs1=8, imm=1024)),  # 0x0C00
+        Instruction("lui", ScalarArgs(rd=10, imm=0x1)),  # 0x1000
         Instruction("lui", ScalarArgs(rd=11, imm=0x1)),
-        Instruction("addi", ScalarArgs(rd=11, rs1=11, imm=1024)),         # 0x1400
-        Instruction("addi", ScalarArgs(rd=12, rs1=11, imm=1024)),         # 0x1800
-        Instruction("addi", ScalarArgs(rd=13, rs1=0, imm=1024)),          # 1024
+        Instruction("addi", ScalarArgs(rd=11, rs1=11, imm=1024)),  # 0x1400
+        Instruction("addi", ScalarArgs(rd=12, rs1=11, imm=1024)),  # 0x1800
+        Instruction("addi", ScalarArgs(rd=13, rs1=0, imm=1024)),  # 1024
         # Secondary VMEM offsets for second halves of each pair
-        Instruction("addi", ScalarArgs(rd=14, rs1=1, imm=1024)),          # VMEM x +1024
-        Instruction("addi", ScalarArgs(rd=15, rs1=2, imm=1024)),          # VMEM C044 +1024
-        Instruction("addi", ScalarArgs(rd=16, rs1=3, imm=1024)),          # VMEM Csqrt +1024
-        Instruction("addi", ScalarArgs(rd=17, rs1=4, imm=1024)),          # VMEM Chalf +1024
+        Instruction("addi", ScalarArgs(rd=14, rs1=1, imm=1024)),  # VMEM x +1024
+        Instruction("addi", ScalarArgs(rd=15, rs1=2, imm=1024)),  # VMEM C044 +1024
+        Instruction("addi", ScalarArgs(rd=16, rs1=3, imm=1024)),  # VMEM Csqrt +1024
+        Instruction("addi", ScalarArgs(rd=17, rs1=4, imm=1024)),  # VMEM Chalf +1024
         # DMA: load x halves
         Instruction("dma.config.ch<N>", DmaArgs(rs1=0, channel=0)),
-        Instruction("dma.config.ch<N>", DmaArgs(rs1=0, channel=1)),
-        Instruction("dma.load.ch<N>", DmaArgs(rd=1, rs1=6, rs2=13, channel=0)),   # x_h0 → VMEM[x1]
-        Instruction("dma.load.ch<N>", DmaArgs(rd=14, rs1=7, rs2=13, channel=1)),  # x_h1 → VMEM[x1+1024]
+        Instruction("dma.wait.ch<N>", DmaArgs(channel=0)),
+        Instruction(
+            "dma.load.ch<N>", DmaArgs(rd=1, rs1=6, rs2=13, channel=0)
+        ),  # x_h0 → VMEM[x1]
+        Instruction(
+            "dma.load.ch<N>", DmaArgs(rd=14, rs1=7, rs2=13, channel=1)
+        ),  # x_h1 → VMEM[x1+1024]
         Instruction("dma.wait.ch<N>", DmaArgs(channel=0)),
         Instruction("dma.wait.ch<N>", DmaArgs(channel=1)),
         # DMA: load C044 into both halves of the pair
-        Instruction("dma.load.ch<N>", DmaArgs(rd=2, rs1=8, rs2=13, channel=0)),   # C044 → m2
-        Instruction("dma.load.ch<N>", DmaArgs(rd=15, rs1=8, rs2=13, channel=1)),  # C044 → m3
+        Instruction(
+            "dma.load.ch<N>", DmaArgs(rd=2, rs1=8, rs2=13, channel=0)
+        ),  # C044 → m2
+        Instruction(
+            "dma.load.ch<N>", DmaArgs(rd=15, rs1=8, rs2=13, channel=1)
+        ),  # C044 → m3
         Instruction("dma.wait.ch<N>", DmaArgs(channel=0)),
         Instruction("dma.wait.ch<N>", DmaArgs(channel=1)),
         # DMA: load Csqrt into both halves, and Chalf into both halves
-        Instruction("dma.load.ch<N>", DmaArgs(rd=3, rs1=9, rs2=13, channel=0)),   # Csqrt → m4
-        Instruction("dma.load.ch<N>", DmaArgs(rd=16, rs1=9, rs2=13, channel=1)),  # Csqrt → m5
+        Instruction(
+            "dma.load.ch<N>", DmaArgs(rd=3, rs1=9, rs2=13, channel=0)
+        ),  # Csqrt → m4
+        Instruction(
+            "dma.load.ch<N>", DmaArgs(rd=16, rs1=9, rs2=13, channel=1)
+        ),  # Csqrt → m5
         Instruction("dma.wait.ch<N>", DmaArgs(channel=0)),
         Instruction("dma.wait.ch<N>", DmaArgs(channel=1)),
-        Instruction("dma.load.ch<N>", DmaArgs(rd=4, rs1=10, rs2=13, channel=0)),  # Chalf → m6
-        Instruction("dma.load.ch<N>", DmaArgs(rd=17, rs1=10, rs2=13, channel=1)), # Chalf → m7
+        Instruction(
+            "dma.load.ch<N>", DmaArgs(rd=4, rs1=10, rs2=13, channel=0)
+        ),  # Chalf → m6
+        Instruction(
+            "dma.load.ch<N>", DmaArgs(rd=17, rs1=10, rs2=13, channel=1)
+        ),  # Chalf → m7
         Instruction("dma.wait.ch<N>", DmaArgs(channel=0)),
         Instruction("dma.wait.ch<N>", DmaArgs(channel=1)),
         # Load x into (m0, m1): two vloads (vload is per-register)
-        Instruction("vload", VectorArgs(vd=0, rs1=1, imm12=0)),   # m0 = x_h0
-        Instruction("delay", ScalarArgs(imm=16)),
+        Instruction("vload", VectorArgs(vd=0, rs1=1, imm12=0)),  # m0 = x_h0
+        Instruction("delay", ScalarArgs(imm=34)),
         Instruction("vload", VectorArgs(vd=1, rs1=1, imm12=32)),  # m1 = x_h1
-        Instruction("delay", ScalarArgs(imm=16)),
+        Instruction("delay", ScalarArgs(imm=34)),
         # Load constant pairs (vload is per-register)
-        Instruction("vload", VectorArgs(vd=2, rs1=2, imm12=0)),   # m2 = C044
-        Instruction("delay", ScalarArgs(imm=16)),
+        Instruction("vload", VectorArgs(vd=2, rs1=2, imm12=0)),  # m2 = C044
+        Instruction("delay", ScalarArgs(imm=34)),
         Instruction("vload", VectorArgs(vd=3, rs1=2, imm12=32)),  # m3 = C044 (pair)
-        Instruction("delay", ScalarArgs(imm=16)),
-        Instruction("vload", VectorArgs(vd=4, rs1=3, imm12=0)),   # m4 = Csqrt
-        Instruction("delay", ScalarArgs(imm=16)),
+        Instruction("delay", ScalarArgs(imm=34)),
+        Instruction("vload", VectorArgs(vd=4, rs1=3, imm12=0)),  # m4 = Csqrt
+        Instruction("delay", ScalarArgs(imm=34)),
         Instruction("vload", VectorArgs(vd=5, rs1=3, imm12=32)),  # m5 = Csqrt (pair)
-        Instruction("delay", ScalarArgs(imm=16)),
-        Instruction("vload", VectorArgs(vd=6, rs1=4, imm12=0)),   # m6 = Chalf
-        Instruction("delay", ScalarArgs(imm=16)),
+        Instruction("delay", ScalarArgs(imm=34)),
+        Instruction("vload", VectorArgs(vd=6, rs1=4, imm12=0)),  # m6 = Chalf
+        Instruction("delay", ScalarArgs(imm=34)),
         Instruction("vload", VectorArgs(vd=7, rs1=4, imm12=32)),  # m7 = Chalf (pair)
-        Instruction("delay", ScalarArgs(imm=16)),
+        Instruction("delay", ScalarArgs(imm=34)),
         # 1.0 constants via vli.all (vli.all is per-register)
-        Instruction("vli.all", VectorArgs(vd=8, imm=1)),   # m8 = 1.0
+        Instruction("vli.all", VectorArgs(vd=8, imm=1)),  # m8 = 1.0
         Instruction("delay", ScalarArgs(imm=65)),
-        Instruction("vli.all", VectorArgs(vd=9, imm=1)),   # m9 = 1.0 (pair)
+        Instruction("vli.all", VectorArgs(vd=9, imm=1)),  # m9 = 1.0 (pair)
         Instruction("delay", ScalarArgs(imm=65)),
         # ── Pair-op GELU computation ──────────────────────────────────────────
         # (m10, m11) = x^2
@@ -262,11 +278,15 @@ class SmolVLAGeluTanhProgram(Program):
         # x18 = VMEM OUT + 1024 (second half of output pair)
         Instruction("addi", ScalarArgs(rd=18, rs1=5, imm=1024)),
         Instruction("vstore", VectorArgs(vd=26, rs1=5, imm12=0)),
-        Instruction("delay", ScalarArgs(imm=16)),
+        Instruction("delay", ScalarArgs(imm=34)),
         Instruction("vstore", VectorArgs(vd=27, rs1=5, imm12=32)),
-        Instruction("delay", ScalarArgs(imm=16)),
-        Instruction("dma.store.ch<N>", DmaArgs(rd=11, rs1=5, rs2=13, channel=0)),   # m26 → DRAM_OUT_H0
-        Instruction("dma.store.ch<N>", DmaArgs(rd=12, rs1=18, rs2=13, channel=1)),  # m27 → DRAM_OUT_H1
+        Instruction("delay", ScalarArgs(imm=34)),
+        Instruction(
+            "dma.store.ch<N>", DmaArgs(rd=11, rs1=5, rs2=13, channel=0)
+        ),  # m26 → DRAM_OUT_H0
+        Instruction(
+            "dma.store.ch<N>", DmaArgs(rd=12, rs1=18, rs2=13, channel=1)
+        ),  # m27 → DRAM_OUT_H1
         Instruction("dma.wait.ch<N>", DmaArgs(channel=0)),
         Instruction("dma.wait.ch<N>", DmaArgs(channel=1)),
     ]

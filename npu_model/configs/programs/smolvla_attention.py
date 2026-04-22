@@ -185,7 +185,7 @@ class SmolVLAAttentionProgram(Program):
         Instruction("addi", ScalarArgs(rd=14, rs1=0, imm=1024)),  # per-half size
         # DMA loads
         Instruction("dma.config.ch<N>", DmaArgs(rs1=0, channel=0)),
-        Instruction("dma.config.ch<N>", DmaArgs(rs1=0, channel=1)),
+        Instruction("dma.wait.ch<N>", DmaArgs(channel=0)),
         Instruction("dma.load.ch<N>", DmaArgs(rd=1, rs1=8, rs2=14, channel=0)),  # Q
         Instruction("dma.load.ch<N>", DmaArgs(rd=2, rs1=9, rs2=14, channel=1)),  # K
         Instruction("dma.wait.ch<N>", DmaArgs(channel=0)),
@@ -205,20 +205,20 @@ class SmolVLAAttentionProgram(Program):
         Instruction("dma.wait.ch<N>", DmaArgs(channel=0)),
         # Load MRF
         Instruction("vload", VectorArgs(vd=0, rs1=1, imm12=0)),  # Q
-        Instruction("delay", ScalarArgs(imm=16)),
+        Instruction("delay", ScalarArgs(imm=34)),
         Instruction("vload", VectorArgs(vd=2, rs1=2, imm12=0)),  # K
-        Instruction("delay", ScalarArgs(imm=16)),
+        Instruction("delay", ScalarArgs(imm=34)),
         Instruction("vload", VectorArgs(vd=4, rs1=3, imm12=0)),  # V
-        Instruction("delay", ScalarArgs(imm=16)),
+        Instruction("delay", ScalarArgs(imm=34)),
         Instruction("vload", VectorArgs(vd=6, rs1=4, imm12=0)),  # scale half 0
-        Instruction("delay", ScalarArgs(imm=16)),
+        Instruction("delay", ScalarArgs(imm=34)),
         Instruction("vload", VectorArgs(vd=7, rs1=5, imm12=0)),  # scale half 1
-        Instruction("delay", ScalarArgs(imm=16)),
+        Instruction("delay", ScalarArgs(imm=34)),
         # Matmul 1: scores = Q @ K  (push K as weight; activation = Q)
         Instruction("vmatpush.weight.mxu0", VectorArgs(vd=0, vs1=2)),
-        Instruction("delay", ScalarArgs(imm=16)),
-        Instruction("vmatmul.mxu0", MatrixArgs(vd=0, vs1=0, vs2=0)),
         Instruction("delay", ScalarArgs(imm=32)),
+        Instruction("vmatmul.mxu0", MatrixArgs(vd=0, vs1=0, vs2=0)),
+        Instruction("delay", ScalarArgs(imm=96)),
         Instruction("vmatpop.bf16.acc.mxu0", MatrixArgs(vd=10, vs1=0)),  # (m10,m11)
         Instruction("delay", ScalarArgs(imm=32)),
         # Scale: (m12, m13) = scores * scale
@@ -243,16 +243,16 @@ class SmolVLAAttentionProgram(Program):
         Instruction("delay", ScalarArgs(imm=66)),
         # Matmul 2: out = packed_probs @ V
         Instruction("vmatpush.weight.mxu0", VectorArgs(vd=0, vs1=4)),
-        Instruction("delay", ScalarArgs(imm=16)),
-        Instruction("vmatmul.mxu0", MatrixArgs(vd=0, vs1=26, vs2=0)),
         Instruction("delay", ScalarArgs(imm=32)),
+        Instruction("vmatmul.mxu0", MatrixArgs(vd=0, vs1=26, vs2=0)),
+        Instruction("delay", ScalarArgs(imm=96)),
         Instruction("vmatpop.bf16.acc.mxu0", MatrixArgs(vd=28, vs1=0)),  # (m28,m29)
         Instruction("delay", ScalarArgs(imm=32)),
         # Store out: m28 → VMEM[x6], m29 → VMEM[x7]; DMA both to DRAM.
         Instruction("vstore", VectorArgs(vd=28, rs1=6, imm12=0)),
-        Instruction("delay", ScalarArgs(imm=16)),
+        Instruction("delay", ScalarArgs(imm=34)),
         Instruction("vstore", VectorArgs(vd=29, rs1=7, imm12=0)),
-        Instruction("delay", ScalarArgs(imm=16)),
+        Instruction("delay", ScalarArgs(imm=34)),
         Instruction("dma.store.ch<N>", DmaArgs(rd=12, rs1=6, rs2=14, channel=0)),
         Instruction("dma.store.ch<N>", DmaArgs(rd=13, rs1=7, rs2=14, channel=1)),
         Instruction("dma.wait.ch<N>", DmaArgs(channel=0)),

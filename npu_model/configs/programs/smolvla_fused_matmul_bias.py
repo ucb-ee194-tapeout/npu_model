@@ -197,7 +197,7 @@ class SmolVLAFusedMatmulBiasProgram(Program):
         Instruction(mnemonic="addi", args=ScalarArgs(rd=10, rs1=10, imm=-2048)),  # 2048
         # DMA A, B in parallel (fp8, 1024 B each)
         Instruction(mnemonic="dma.config.ch<N>", args=DmaArgs(rs1=0, channel=0)),
-        Instruction(mnemonic="dma.config.ch<N>", args=DmaArgs(rs1=0, channel=1)),
+        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
         Instruction(
             mnemonic="dma.load.ch<N>", args=DmaArgs(rd=1, rs1=5, rs2=9, channel=0)
         ),
@@ -213,23 +213,23 @@ class SmolVLAFusedMatmulBiasProgram(Program):
         Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
         # Load A_fp8 and B_fp8 into single mregs m0, m2 (MXU consumes whole 32x32 fp8 tile).
         Instruction(mnemonic="vload", args=VectorArgs(vd=0, rs1=1, imm12=0)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
         Instruction(mnemonic="vload", args=VectorArgs(vd=2, rs1=2, imm12=0)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
         # Load bias pair into (m4, m5)
         Instruction(mnemonic="vload", args=VectorArgs(vd=4, rs1=3, imm12=0)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
         Instruction(mnemonic="vload", args=VectorArgs(vd=5, rs1=3, imm12=32)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
         # op_a: fp8 matmul via MXU
         Instruction(
             mnemonic="vmatpush.weight.mxu0", args=MatrixArgs(vd=0, vs1=2)
         ),  # B → WB[0]
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
         Instruction(
             mnemonic="vmatmul.mxu0", args=MatrixArgs(vd=0, vs1=0, vs2=0)
         ),  # acc[0] = A @ WB[0]
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=96)),
         Instruction(
             mnemonic="vmatpop.bf16.acc.mxu0", args=MatrixArgs(vd=6, vs1=0)
         ),  # (m6, m7) = C bf16
@@ -239,9 +239,9 @@ class SmolVLAFusedMatmulBiasProgram(Program):
         Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
         # Store output pair
         Instruction(mnemonic="vstore", args=VectorArgs(vd=8, rs1=4, imm12=0)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
         Instruction(mnemonic="vstore", args=VectorArgs(vd=9, rs1=4, imm12=32)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
         Instruction(
             mnemonic="dma.store.ch<N>", args=DmaArgs(rd=8, rs1=4, rs2=10, channel=0)
         ),

@@ -163,9 +163,9 @@ class SmolVLAFusedSiluGateProgram(Program):
         Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
         # Load both halves of x into (m0, m1)
         Instruction(mnemonic="vload", args=VectorArgs(vd=0, rs1=1, imm12=0)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
         Instruction(mnemonic="vload", args=VectorArgs(vd=1, rs1=1, imm12=32)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
         # Broadcast constants (vli.all is per-register, so two each)
         Instruction(mnemonic="vli.all", args=VectorArgs(vd=2, imm=-1)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=65)),
@@ -199,9 +199,9 @@ class SmolVLAFusedSiluGateProgram(Program):
         Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
         # Store both halves
         Instruction(mnemonic="vstore", args=VectorArgs(vd=14, rs1=2, imm12=0)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
         Instruction(mnemonic="vstore", args=VectorArgs(vd=15, rs1=2, imm12=32)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
         Instruction(
             mnemonic="dma.store.ch<N>", args=DmaArgs(rd=4, rs1=2, rs2=5, channel=0)
         ),

@@ -75,7 +75,7 @@ class MatmulProgram(Program):
         # VPU local transfer (1KB) is ~16 cycles at 64B/cycle
         Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
         Instruction(mnemonic="vmatmul.mxu0", args=MatrixArgs(vd=0, vs1=0, vs2=0)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=96)),
         Instruction(mnemonic="vmatpop.bf16.acc.mxu0", args=VectorArgs(vd=2, vs1=0)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
         # store to vmem

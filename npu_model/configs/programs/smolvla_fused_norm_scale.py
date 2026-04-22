@@ -181,14 +181,14 @@ class SmolVLAFusedNormScaleProgram(Program):
         Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=1)),
         # Load variance pair
         Instruction(mnemonic="vload", args=VectorArgs(vd=0, rs1=1, imm12=0)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
         Instruction(mnemonic="vload", args=VectorArgs(vd=1, rs1=1, imm12=32)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
         # Load matrix pair
         Instruction(mnemonic="vload", args=VectorArgs(vd=2, rs1=2, imm12=0)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
         Instruction(mnemonic="vload", args=VectorArgs(vd=3, rs1=2, imm12=32)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
         # op_a: rsqrt = 1 / sqrt
         Instruction(
             mnemonic="vsqrt.bf16", args=VectorArgs(vd=4, vs1=0)
@@ -205,9 +205,9 @@ class SmolVLAFusedNormScaleProgram(Program):
         Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
         # Store output pair
         Instruction(mnemonic="vstore", args=VectorArgs(vd=8, rs1=3, imm12=0)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
         Instruction(mnemonic="vstore", args=VectorArgs(vd=9, rs1=3, imm12=32)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
         Instruction(
             mnemonic="dma.store.ch<N>", args=DmaArgs(rd=6, rs1=3, rs2=7, channel=0)
         ),
