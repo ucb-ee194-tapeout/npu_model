@@ -155,13 +155,9 @@ class SmolVLAElementwiseDivProgram(Program):
         Instruction("delay", ScalarArgs(imm=16)),
         Instruction("vload", VectorArgs(vd=3, rs1=4)),
         Instruction("delay", ScalarArgs(imm=16)),
-        Instruction("vrecip.bf16", VectorArgs(vd=4, vs1=2)),
+        Instruction("vrecip.bf16", VectorArgs(vd=4, vs1=2)),  # (v4, v5) = 1 / (v2, v3)
         Instruction("delay", ScalarArgs(imm=66)),
-        Instruction("vrecip.bf16", VectorArgs(vd=5, vs1=3)),
-        Instruction("delay", ScalarArgs(imm=66)),
-        Instruction("vmul.bf16", VectorArgs(vd=6, vs2=4)),
-        Instruction("delay", ScalarArgs(imm=66)),
-        Instruction("vmul.bf16", VectorArgs(vd=7, vs1=1, vs2=5)),
+        Instruction("vmul.bf16", VectorArgs(vd=6, vs2=4)),  # (v6, v7) = (v0, v1) * (v4, v5)
         Instruction("delay", ScalarArgs(imm=66)),
         Instruction("vstore", VectorArgs(vd=6, rs1=5)),
         Instruction("delay", ScalarArgs(imm=16)),

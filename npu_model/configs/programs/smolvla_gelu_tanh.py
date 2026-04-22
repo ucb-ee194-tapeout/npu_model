@@ -4,11 +4,24 @@ GELU activation with the tanh approximation:
     y = 0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))
 Appears 36 times in SmolVLA (SigLIP MLPs).
 
-The handwritten ISA loads polynomial-table constants at
-``dram_in_1..dram_in_4`` (four pre-computed scalars broadcast to
-32x16 tiles). Inputs are the two split halves of x at
-``dram_in_0`` and a companion address; outputs are the two
-32x16 halves of GELU(x).
+Pair-op BF16 layout (LMUL=2):
+  (m0, m1)   = x                  (m2, m3)   = 0.044715 broadcast pair
+  (m4, m5)   = sqrt(2/pi) pair    (m6, m7)   = 0.5 pair
+  m8 = m9    = 1.0  (via vli.all)
+  (m10, m11) = x^2     (m12, m13) = x^3
+  (m14, m15) = 0.044715*x^3       (m16, m17) = x + 0.044715*x^3
+  (m18, m19) = sqrt(2/pi)*(x+0.044715*x^3)
+  (m20, m21) = tanh(...)          (m22, m23) = 1 + tanh(...)
+  (m24, m25) = 0.5*x              (m26, m27) = GELU(x) = 0.5*x*(1+tanh(...))
+
+DRAM layout (1024 B per 32x16 tile):
+  DRAM_X_H0    = 0x0000  x half 0
+  DRAM_X_H1    = 0x0400  x half 1
+  DRAM_C044    = 0x0800  0.044715 broadcast tile (loaded into m2 AND m3)
+  DRAM_CSQRT   = 0x0C00  sqrt(2/pi) broadcast tile (loaded into m4 AND m5)
+  DRAM_CHALF   = 0x1000  0.5 broadcast tile (loaded into m6 AND m7)
+  DRAM_OUT_H0  = 0x1400  output half 0
+  DRAM_OUT_H1  = 0x1800  output half 1
 """
 
 from typing import Any, List, Tuple
@@ -110,18 +123,18 @@ if os.environ.get("NPU_MODEL_ENABLE_IREE_CROSSCHECK", "").lower() in {
         assert _diff < 5e-2, f"MLIR vs PyTorch mismatch: {_diff}"
     except ImportError:
         pass
-# The handwritten ISA expects 5 inputs (x plus 4 tabulated constants)
-# at DRAM offsets 0x0, 0x400, 0x800, 0xc00, 0x1000. The golden fixture
-# here is a placeholder — to numerically validate this kernel, populate
-# all 5 regions with the actual polynomial-table values from the
-# original AutoComp source. For now we ship a xfail-style smoke.
 DRAM_X_H0 = 0x0000
 DRAM_X_H1 = 0x0400
-DRAM_C1 = 0x0800  # constant tables
-DRAM_C2 = 0x0C00
-DRAM_C3 = 0x1000
+DRAM_C044 = 0x0800  # 0.044715 broadcast tile
+DRAM_CSQRT = 0x0C00  # sqrt(2/pi) broadcast tile
+DRAM_CHALF = 0x1000  # 0.5 broadcast tile
 DRAM_OUT_H0 = 0x1400
 DRAM_OUT_H1 = 0x1800
+
+_c044 = torch.full((32, 16), 0.044715, dtype=torch.bfloat16)
+_csqrt = torch.full((32, 16), math.sqrt(2.0 / math.pi), dtype=torch.bfloat16)
+_chalf = torch.full((32, 16), 0.5, dtype=torch.bfloat16)
+EXPECTED_STACKED = torch.cat((EXPECTED[:, :16], EXPECTED[:, 16:]), dim=0)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -138,108 +151,132 @@ class SmolVLAGeluTanhProgram(Program):
     file helpers, torch-allclose golden check via ``pytest tests/test_programs.py``.
     """
 
+    # Scalar register map:
+    #   x1 = VMEM base for x pair        (0x2000, both halves at +0 and +1024)
+    #   x2 = VMEM base for C044 pair     (0x3000)
+    #   x3 = VMEM base for Csqrt pair    (0x4000)
+    #   x4 = VMEM base for Chalf pair    (0x5000)
+    #   x5 = VMEM OUT base               (0x6000)
+    #   x6 = DRAM_X_H0 = 0              x7 = DRAM_X_H1 = 0x0400
+    #   x8 = DRAM_C044 = 0x0800         x9 = DRAM_CSQRT = 0x0C00
+    #   x10 = DRAM_CHALF = 0x1000       x11 = DRAM_OUT_H0 = 0x1400
+    #   x12 = DRAM_OUT_H1 = 0x1800      x13 = 1024 (per-half size)
+    #   x14 = x1+1024 (second VMEM half for x)
+    #   x15 = x2+1024, x16 = x3+1024, x17 = x4+1024 (second halves for constants)
     instructions: List[Instruction[Any]] = [
-        Instruction("lui", ScalarArgs(rd=1, imm=2)),
-        Instruction("addi", ScalarArgs(rd=2, rs1=1, imm=1024)),
-        Instruction("addi", ScalarArgs(rd=3, rs1=2, imm=1024)),
-        Instruction("addi", ScalarArgs(rd=4, rs1=3, imm=1024)),
-        Instruction("lui", ScalarArgs(rd=5, imm=3)),
-        Instruction("addi", ScalarArgs(rd=6, rs1=5, imm=1024)),
-        Instruction("addi", ScalarArgs(rd=7, rs1=6, imm=1024)),
-        Instruction("addi", ScalarArgs(rd=8)),
-        Instruction("addi", ScalarArgs(rd=9, imm=1024)),
-        Instruction("addi", ScalarArgs(rd=10, rs1=9, imm=1024)),
-        Instruction("addi", ScalarArgs(rd=11, rs1=10, imm=1024)),
-        Instruction("lui", ScalarArgs(rd=12, imm=1)),
-        Instruction("addi", ScalarArgs(rd=12, rs1=12)),
-        Instruction("lui", ScalarArgs(rd=13, imm=1)),
-        Instruction("addi", ScalarArgs(rd=13, rs1=13, imm=1024)),
-        Instruction("lui", ScalarArgs(rd=14, imm=1)),
-        Instruction("addi", ScalarArgs(rd=14, rs1=14, imm=1024)),
-        Instruction("addi", ScalarArgs(rd=15, rs1=14, imm=1024)),
-        Instruction("addi", ScalarArgs(rd=16, imm=1024)),
-        Instruction("dma.config.ch<N>", DmaArgs()),
-        Instruction("dma.config.ch<N>", DmaArgs(channel=1)),
-        Instruction("dma.wait.ch<N>", DmaArgs()),
+        # VMEM base addresses
+        Instruction("lui", ScalarArgs(rd=1, imm=0x2)),   # 0x2000 VMEM x
+        Instruction("lui", ScalarArgs(rd=2, imm=0x3)),   # 0x3000 VMEM C044
+        Instruction("lui", ScalarArgs(rd=3, imm=0x4)),   # 0x4000 VMEM Csqrt
+        Instruction("lui", ScalarArgs(rd=4, imm=0x5)),   # 0x5000 VMEM Chalf
+        Instruction("lui", ScalarArgs(rd=5, imm=0x6)),   # 0x6000 VMEM OUT
+        # DRAM addresses
+        Instruction("addi", ScalarArgs(rd=6, rs1=0, imm=DRAM_X_H0)),    # 0x0000
+        Instruction("addi", ScalarArgs(rd=7, rs1=6, imm=1024)),           # 0x0400
+        Instruction("lui", ScalarArgs(rd=8, imm=0x1)),
+        Instruction("addi", ScalarArgs(rd=8, rs1=8, imm=-2048)),          # 0x0800
+        Instruction("addi", ScalarArgs(rd=9, rs1=8, imm=1024)),           # 0x0C00
+        Instruction("lui", ScalarArgs(rd=10, imm=0x1)),                   # 0x1000
+        Instruction("lui", ScalarArgs(rd=11, imm=0x1)),
+        Instruction("addi", ScalarArgs(rd=11, rs1=11, imm=1024)),         # 0x1400
+        Instruction("addi", ScalarArgs(rd=12, rs1=11, imm=1024)),         # 0x1800
+        Instruction("addi", ScalarArgs(rd=13, rs1=0, imm=1024)),          # 1024
+        # Secondary VMEM offsets for second halves of each pair
+        Instruction("addi", ScalarArgs(rd=14, rs1=1, imm=1024)),          # VMEM x +1024
+        Instruction("addi", ScalarArgs(rd=15, rs1=2, imm=1024)),          # VMEM C044 +1024
+        Instruction("addi", ScalarArgs(rd=16, rs1=3, imm=1024)),          # VMEM Csqrt +1024
+        Instruction("addi", ScalarArgs(rd=17, rs1=4, imm=1024)),          # VMEM Chalf +1024
+        # DMA: load x halves
+        Instruction("dma.config.ch<N>", DmaArgs(rs1=0, channel=0)),
+        Instruction("dma.config.ch<N>", DmaArgs(rs1=0, channel=1)),
+        Instruction("dma.load.ch<N>", DmaArgs(rd=1, rs1=6, rs2=13, channel=0)),   # x_h0 → VMEM[x1]
+        Instruction("dma.load.ch<N>", DmaArgs(rd=14, rs1=7, rs2=13, channel=1)),  # x_h1 → VMEM[x1+1024]
+        Instruction("dma.wait.ch<N>", DmaArgs(channel=0)),
         Instruction("dma.wait.ch<N>", DmaArgs(channel=1)),
-        Instruction("dma.load.ch<N>", DmaArgs(rd=1, rs1=8, rs2=16)),
-        Instruction("dma.load.ch<N>", DmaArgs(rd=2, rs1=9, rs2=16, channel=1)),
-        Instruction("dma.wait.ch<N>", DmaArgs()),
+        # DMA: load C044 into both halves of the pair
+        Instruction("dma.load.ch<N>", DmaArgs(rd=2, rs1=8, rs2=13, channel=0)),   # C044 → m2
+        Instruction("dma.load.ch<N>", DmaArgs(rd=15, rs1=8, rs2=13, channel=1)),  # C044 → m3
+        Instruction("dma.wait.ch<N>", DmaArgs(channel=0)),
         Instruction("dma.wait.ch<N>", DmaArgs(channel=1)),
-        Instruction("dma.load.ch<N>", DmaArgs(rd=3, rs1=10, rs2=16)),
-        Instruction("dma.load.ch<N>", DmaArgs(rd=4, rs1=11, rs2=16, channel=1)),
-        Instruction("dma.wait.ch<N>", DmaArgs()),
+        # DMA: load Csqrt into both halves, and Chalf into both halves
+        Instruction("dma.load.ch<N>", DmaArgs(rd=3, rs1=9, rs2=13, channel=0)),   # Csqrt → m4
+        Instruction("dma.load.ch<N>", DmaArgs(rd=16, rs1=9, rs2=13, channel=1)),  # Csqrt → m5
+        Instruction("dma.wait.ch<N>", DmaArgs(channel=0)),
         Instruction("dma.wait.ch<N>", DmaArgs(channel=1)),
-        Instruction("dma.load.ch<N>", DmaArgs(rd=5, rs1=12, rs2=16)),
-        Instruction("dma.wait.ch<N>", DmaArgs()),
-        Instruction("vload", VectorArgs(rs1=1)),
+        Instruction("dma.load.ch<N>", DmaArgs(rd=4, rs1=10, rs2=13, channel=0)),  # Chalf → m6
+        Instruction("dma.load.ch<N>", DmaArgs(rd=17, rs1=10, rs2=13, channel=1)), # Chalf → m7
+        Instruction("dma.wait.ch<N>", DmaArgs(channel=0)),
+        Instruction("dma.wait.ch<N>", DmaArgs(channel=1)),
+        # Load x into (m0, m1): two vloads (vload is per-register)
+        Instruction("vload", VectorArgs(vd=0, rs1=1, imm12=0)),   # m0 = x_h0
         Instruction("delay", ScalarArgs(imm=16)),
-        Instruction("vload", VectorArgs(vd=1, rs1=2)),
+        Instruction("vload", VectorArgs(vd=1, rs1=1, imm12=32)),  # m1 = x_h1
         Instruction("delay", ScalarArgs(imm=16)),
-        Instruction("vload", VectorArgs(vd=2, rs1=3)),
+        # Load constant pairs (vload is per-register)
+        Instruction("vload", VectorArgs(vd=2, rs1=2, imm12=0)),   # m2 = C044
         Instruction("delay", ScalarArgs(imm=16)),
-        Instruction("vload", VectorArgs(vd=3, rs1=4)),
+        Instruction("vload", VectorArgs(vd=3, rs1=2, imm12=32)),  # m3 = C044 (pair)
         Instruction("delay", ScalarArgs(imm=16)),
-        Instruction("vload", VectorArgs(vd=4, rs1=5)),
+        Instruction("vload", VectorArgs(vd=4, rs1=3, imm12=0)),   # m4 = Csqrt
         Instruction("delay", ScalarArgs(imm=16)),
-        Instruction("vli.all", VectorArgs(vd=5, imm=1)),
-        # Instruction("delay", ScalarArgs(imm=65)),
-        Instruction("vmul.bf16", VectorArgs(vd=6)),
-        Instruction("delay", ScalarArgs(imm=66)),
-        Instruction("vmul.bf16", VectorArgs(vd=7, vs1=6)),
-        Instruction("delay", ScalarArgs(imm=66)),
-        Instruction("vmul.bf16", VectorArgs(vd=8, vs1=7, vs2=3)),
-        Instruction("delay", ScalarArgs(imm=66)),
-        Instruction("vadd.bf16", VectorArgs(vd=9, vs2=8)),
-        Instruction("delay", ScalarArgs(imm=66)),
-        Instruction("vmul.bf16", VectorArgs(vd=10, vs1=9, vs2=4)),
-        Instruction("delay", ScalarArgs(imm=66)),
-        Instruction("vtanh.bf16", VectorArgs(vd=11, vs1=10)),
-        Instruction("delay", ScalarArgs(imm=66)),
-        Instruction("vadd.bf16", VectorArgs(vd=12, vs1=5, vs2=11)),
-        Instruction("delay", ScalarArgs(imm=66)),
-        Instruction("vmul.bf16", VectorArgs(vd=13, vs2=2)),
-        Instruction("delay", ScalarArgs(imm=66)),
-        Instruction("vmul.bf16", VectorArgs(vd=14, vs1=13, vs2=12)),
-        Instruction("delay", ScalarArgs(imm=66)),
-        Instruction("vmul.bf16", VectorArgs(vd=6, vs1=1, vs2=1)),
-        Instruction("delay", ScalarArgs(imm=66)),
-        Instruction("vmul.bf16", VectorArgs(vd=7, vs1=6, vs2=1)),
-        Instruction("delay", ScalarArgs(imm=66)),
-        Instruction("vmul.bf16", VectorArgs(vd=8, vs1=7, vs2=3)),
-        Instruction("delay", ScalarArgs(imm=66)),
-        Instruction("vadd.bf16", VectorArgs(vd=9, vs1=1, vs2=8)),
-        Instruction("delay", ScalarArgs(imm=66)),
-        Instruction("vmul.bf16", VectorArgs(vd=10, vs1=9, vs2=4)),
-        Instruction("delay", ScalarArgs(imm=66)),
-        Instruction("vtanh.bf16", VectorArgs(vd=11, vs1=10)),
-        Instruction("delay", ScalarArgs(imm=66)),
-        Instruction("vadd.bf16", VectorArgs(vd=12, vs1=5, vs2=11)),
-        Instruction("delay", ScalarArgs(imm=66)),
-        Instruction("vmul.bf16", VectorArgs(vd=13, vs1=1, vs2=2)),
-        Instruction("delay", ScalarArgs(imm=66)),
-        Instruction("vmul.bf16", VectorArgs(vd=15, vs1=13, vs2=12)),
-        Instruction("delay", ScalarArgs(imm=66)),
-        Instruction("vstore", VectorArgs(vd=14, rs1=6)),
+        Instruction("vload", VectorArgs(vd=5, rs1=3, imm12=32)),  # m5 = Csqrt (pair)
         Instruction("delay", ScalarArgs(imm=16)),
-        Instruction("vstore", VectorArgs(vd=15, rs1=7)),
+        Instruction("vload", VectorArgs(vd=6, rs1=4, imm12=0)),   # m6 = Chalf
         Instruction("delay", ScalarArgs(imm=16)),
-        Instruction("dma.store.ch<N>", DmaArgs(rd=14, rs1=6, rs2=16)),
-        Instruction("dma.store.ch<N>", DmaArgs(rd=15, rs1=7, rs2=16, channel=1)),
-        Instruction("dma.wait.ch<N>", DmaArgs()),
+        Instruction("vload", VectorArgs(vd=7, rs1=4, imm12=32)),  # m7 = Chalf (pair)
+        Instruction("delay", ScalarArgs(imm=16)),
+        # 1.0 constants via vli.all (vli.all is per-register)
+        Instruction("vli.all", VectorArgs(vd=8, imm=1)),   # m8 = 1.0
+        Instruction("delay", ScalarArgs(imm=65)),
+        Instruction("vli.all", VectorArgs(vd=9, imm=1)),   # m9 = 1.0 (pair)
+        Instruction("delay", ScalarArgs(imm=65)),
+        # ── Pair-op GELU computation ──────────────────────────────────────────
+        # (m10, m11) = x^2
+        Instruction("vmul.bf16", VectorArgs(vd=10, vs1=0, vs2=0)),
+        Instruction("delay", ScalarArgs(imm=66)),
+        # (m12, m13) = x^3 = x^2 * x
+        Instruction("vmul.bf16", VectorArgs(vd=12, vs1=10, vs2=0)),
+        Instruction("delay", ScalarArgs(imm=66)),
+        # (m14, m15) = 0.044715 * x^3
+        Instruction("vmul.bf16", VectorArgs(vd=14, vs1=12, vs2=2)),
+        Instruction("delay", ScalarArgs(imm=66)),
+        # (m16, m17) = x + 0.044715*x^3
+        Instruction("vadd.bf16", VectorArgs(vd=16, vs1=0, vs2=14)),
+        Instruction("delay", ScalarArgs(imm=66)),
+        # (m18, m19) = sqrt(2/pi) * (x + 0.044715*x^3)
+        Instruction("vmul.bf16", VectorArgs(vd=18, vs1=16, vs2=4)),
+        Instruction("delay", ScalarArgs(imm=66)),
+        # (m20, m21) = tanh(sqrt(2/pi) * (...))
+        Instruction("vtanh.bf16", VectorArgs(vd=20, vs1=18)),
+        Instruction("delay", ScalarArgs(imm=66)),
+        # (m22, m23) = 1 + tanh(...)
+        Instruction("vadd.bf16", VectorArgs(vd=22, vs1=8, vs2=20)),
+        Instruction("delay", ScalarArgs(imm=66)),
+        # (m24, m25) = 0.5 * x
+        Instruction("vmul.bf16", VectorArgs(vd=24, vs1=0, vs2=6)),
+        Instruction("delay", ScalarArgs(imm=66)),
+        # (m26, m27) = GELU(x) = 0.5*x * (1 + tanh(...))
+        Instruction("vmul.bf16", VectorArgs(vd=26, vs1=24, vs2=22)),
+        Instruction("delay", ScalarArgs(imm=66)),
+        # ── Store: (m26, m27) → VMEM → DRAM ─────────────────────────────────
+        # x18 = VMEM OUT + 1024 (second half of output pair)
+        Instruction("addi", ScalarArgs(rd=18, rs1=5, imm=1024)),
+        Instruction("vstore", VectorArgs(vd=26, rs1=5, imm12=0)),
+        Instruction("delay", ScalarArgs(imm=16)),
+        Instruction("vstore", VectorArgs(vd=27, rs1=5, imm12=32)),
+        Instruction("delay", ScalarArgs(imm=16)),
+        Instruction("dma.store.ch<N>", DmaArgs(rd=11, rs1=5, rs2=13, channel=0)),   # m26 → DRAM_OUT_H0
+        Instruction("dma.store.ch<N>", DmaArgs(rd=12, rs1=18, rs2=13, channel=1)),  # m27 → DRAM_OUT_H1
+        Instruction("dma.wait.ch<N>", DmaArgs(channel=0)),
         Instruction("dma.wait.ch<N>", DmaArgs(channel=1)),
     ]
 
-    # Leaving gelu_tanh inputs minimal — tabulated constants default
-    # to zero, which means the numerical check below is a smoke
-    # (will fail unless the original polynomial-table values are
-    # supplied). Populate DRAM_C1..C3 with the autocomp constants to
-    # enable torch.allclose.
     memory_regions: List[Tuple[int, torch.Tensor]] = [
         (DRAM_X_H0, INPUT[:, :16].contiguous()),
         (DRAM_X_H1, INPUT[:, 16:].contiguous()),
+        (DRAM_C044, _c044),
+        (DRAM_CSQRT, _csqrt),
+        (DRAM_CHALF, _chalf),
     ]
 
-    # No golden_result set — kernel body depends on constants not yet
-    # provided. Define ``golden_result`` once you have them.
-    # golden_result = (DRAM_OUT_H0, EXPECTED[:, :16])
+    golden_result: tuple[int, torch.Tensor] = (DRAM_OUT_H0, EXPECTED_STACKED)
