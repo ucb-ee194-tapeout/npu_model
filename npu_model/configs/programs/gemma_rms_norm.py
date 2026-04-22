@@ -121,7 +121,7 @@ class GemmaRmsNormProgram(Program):
         Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
         # output = x * rsqrt
         Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=20, vs1=0, vs2=18)),
-        Instruction(mnemonic="delay", args=ScalarArgs(66)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
         # MRF -> VMEM -> DRAM
         Instruction(mnemonic="vstore", args=VectorArgs(vd=20, rs1=3, imm12=0)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),

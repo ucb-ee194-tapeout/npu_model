@@ -183,7 +183,7 @@ class SmolVLAGeluTanhProgram(Program):
         Instruction("vload", VectorArgs(vd=4, rs1=5)),
         Instruction("delay", ScalarArgs(imm=16)),
         Instruction("vli.all", VectorArgs(vd=5, imm=1)),
-        # Instruction("delay", ScalarArgs(imm=65)),
+        Instruction("delay", ScalarArgs(imm=65)),
         Instruction("vmul.bf16", VectorArgs(vd=6)),
         Instruction("delay", ScalarArgs(imm=66)),
         Instruction("vmul.bf16", VectorArgs(vd=7, vs1=6)),
