@@ -573,7 +573,7 @@ class SmolVLAFusedAttentionProgram(Program):
         Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
         # tile_max = rowmax(scaled)
         Instruction(mnemonic="vredmax.row.bf16", args=VectorArgs(vd=36, vs1=34)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=69)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
         # m_new = max(m_prev, tile_max)
         Instruction(mnemonic="vmaximum.bf16", args=VectorArgs(vd=38, vs1=8, vs2=36)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
@@ -620,7 +620,7 @@ class SmolVLAFusedAttentionProgram(Program):
         Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=48, vs1=36, vs2=10)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
         Instruction(mnemonic="vredsum.row.bf16", args=VectorArgs(vd=50, vs1=40)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=69)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=39)),
         Instruction(mnemonic="vadd.bf16", args=VectorArgs(vd=10, vs1=48, vs2=50)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
         # m_prev = m_new (pair copy: two vmov ops for both halves)
@@ -679,7 +679,7 @@ class SmolVLAFusedAttentionProgram(Program):
         Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=34, vs1=32, vs2=6)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
         Instruction(mnemonic="vredmax.row.bf16", args=VectorArgs(vd=36, vs1=34)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=69)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
         Instruction(mnemonic="vmaximum.bf16", args=VectorArgs(vd=38, vs1=8, vs2=36)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
         Instruction(mnemonic="vsub.bf16", args=VectorArgs(vd=36, vs1=8, vs2=38)),
@@ -717,7 +717,7 @@ class SmolVLAFusedAttentionProgram(Program):
         Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=48, vs1=36, vs2=10)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
         Instruction(mnemonic="vredsum.row.bf16", args=VectorArgs(vd=50, vs1=40)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=69)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=39)),
         Instruction(mnemonic="vadd.bf16", args=VectorArgs(vd=10, vs1=48, vs2=50)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
         Instruction(mnemonic="vmov", args=VectorArgs(vd=8, vs1=38)),

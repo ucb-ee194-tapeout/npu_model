@@ -16,16 +16,18 @@ VPU_OP_LATENCIES = {
     "vredsum.bf16": 130,
     "vredmin.bf16": 130,
     "vredmax.bf16": 130,
-    # Redusum (Latency: 69)
-    "vredsum.row.bf16": 69,
-    "vredmin.row.bf16": 69,
-    "vredmax.row.bf16": 69,
+    #row reductions
+    "vredsum.row.bf16": 39,
+    "vredmin.row.bf16": 34,
+    "vredmax.row.bf16": 34,
+    
     # Vli (Latency: 65)
     # Vector Load Immediate instructions
     "vli.all": 65,
     "vli.row": 65,
     "vli.col": 65,
     "vli.one": 65,
+    
     # Everything else (Latency: 66)
     # Element-wise arithmetic, conversions, and Matrix Unit (MXU) interactions
     "vadd.bf16": 66,

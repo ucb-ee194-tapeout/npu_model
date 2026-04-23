@@ -112,7 +112,7 @@ class GemmaAttentionProgram(Program):
         Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
         # row_sum = sum(exp_scores) broadcast across columns
         Instruction(mnemonic="vredsum.row.bf16", args=VectorArgs(vd=10, vs1=8)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=69)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=39)),
         # inv_row_sum = 1 / row_sum
         Instruction(mnemonic="vrecip.bf16", args=VectorArgs(vd=12, vs1=10)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),

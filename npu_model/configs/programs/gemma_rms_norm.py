@@ -101,7 +101,7 @@ class GemmaRmsNormProgram(Program):
         Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
         # sum_sq over columns, broadcast back across each row
         Instruction(mnemonic="vredsum.row.bf16", args=VectorArgs(vd=6, vs1=4)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=130)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=39)),
         # mean_sq = sum_sq * (1/ROW_SIZE)
         Instruction(mnemonic="vli.all", args=VectorArgs(vd=8, imm=ROW_SIZE)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=65)),

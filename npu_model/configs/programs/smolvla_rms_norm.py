@@ -312,7 +312,7 @@ class SmolVLARmsNormProgram(Program):
         Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
         # (m4, m5) = row-sum(X^2)  (reduces along dim=1 over 32 cols)
         Instruction(mnemonic="vredsum.row.bf16", args=VectorArgs(vd=4, vs1=2)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=69)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=39)),
         # (m10, m11) = mean(X^2) = sum * inv_dim
         Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=10, vs1=4, vs2=6)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
