@@ -72,7 +72,7 @@ delay 34
 vsquare.bf16 m2, m0         # (m2, m3) = X^2
 delay 66
 vredsum.row.bf16 m4, m2     # (m4, m5) = rowsum(X^2)
-delay 69
+delay 39
 vmul.bf16 m10, m4, m6       # (m10, m11) = mean(X^2) = rowsum * inv_dim
 delay 66
 vadd.bf16 m12, m10, m8      # (m12, m13) = mean + eps

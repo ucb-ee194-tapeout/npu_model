@@ -68,7 +68,7 @@ vexp.bf16 m8, m6
 delay 66
 # row_sum = sum(exp_scores) broadcast across columns
 vredsum.row.bf16 m10, m8
-delay 69
+delay 39
 # inv_row_sum = 1 / row_sum
 vrecip.bf16 m12, m10
 delay 66

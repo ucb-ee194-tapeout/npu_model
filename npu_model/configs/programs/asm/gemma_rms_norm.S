@@ -43,7 +43,7 @@ vmul.bf16 m4, m0, m0
 delay 66
 # sum_sq over columns, broadcast back across each row
 vredsum.row.bf16 m6, m4
-delay 5
+delay 39
 # mean_sq = sum_sq * (1/ROW_SIZE)
 vli.all m8, 32
 delay 65

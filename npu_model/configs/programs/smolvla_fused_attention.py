@@ -88,10 +88,13 @@ func.func @fused_attention(
 """
 
 import math
+from typing import Any, List, Tuple
+
 import torch
-from npu_model.util.converter import load_asm
-from npu_model.software.instruction import Instruction
-from npu_model.software.program import Program, ASM_FOLDER
+
+from ...software import Instruction, Program
+from npu_model.isa import DmaArgs, MatrixArgs, ScalarArgs, VectorArgs
+
 
 def fused_attention_reference(
     Q: torch.Tensor,  # [q_rows, head_dim] float

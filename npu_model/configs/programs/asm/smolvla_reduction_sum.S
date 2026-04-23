@@ -37,7 +37,7 @@ delay 34
 
 # --- Row-sum broadcast: (m4, m5) = rowsum(m0, m1) ---
 vredsum.row.bf16 m4, m0
-delay 69
+delay 39
 
 # --- MRF -> VMEM -> DRAM (only h0; output is 32x16) ---
 vstore m4, 0(x2)
