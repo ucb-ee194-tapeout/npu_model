@@ -86,7 +86,7 @@ def make_dma_load_visibility_scenario(cfg: DefaultHardwareConfig) -> Scenario:
 
 
 def make_vstore_visibility_scenario(cfg: DefaultHardwareConfig) -> Scenario:
-    latency_cycles = max(1, math.ceil(TRANSFER_BYTES / cfg.vmem_bytes_per_cycle))
+    latency_cycles = 34
     stale_tile = repeated_word_bytes(STALE_WORD, TRANSFER_BYTES)
     fresh_tile = repeated_word_bytes(FRESH_WORD, TRANSFER_BYTES)
 

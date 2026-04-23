@@ -170,9 +170,7 @@ class SmolVLAMatmulKChainProgram(Program):
         Instruction("addi", ScalarArgs(rd=13, rs1=12, imm=1024)),  # output size (2048)
         # ── DMA channel init ───────────────────────────────────────────
         Instruction("dma.config.ch<N>", DmaArgs()),
-        Instruction("dma.config.ch<N>", DmaArgs(channel=1)),
         Instruction("dma.wait.ch<N>", DmaArgs()),
-        Instruction("dma.wait.ch<N>", DmaArgs(channel=1)),
         # ── Phase 1: load A_K0 and B_K0 in parallel ────────────────────
         Instruction("dma.load.ch<N>", DmaArgs(rd=6, rs1=1, rs2=12)),
         Instruction("dma.load.ch<N>", DmaArgs(rd=8, rs1=3, rs2=12, channel=1)),
@@ -185,31 +183,31 @@ class SmolVLAMatmulKChainProgram(Program):
         Instruction("dma.wait.ch<N>", DmaArgs(channel=1)),
         # ── K tile 0: acc = A_K0 @ B_K0 (reset) ────────────────────────
         Instruction("vload", VectorArgs(vd=0, rs1=6)),  # mrf[0] ← A_K0
-        Instruction("delay", ScalarArgs(imm=16)),
+        Instruction("delay", ScalarArgs(imm=34)),
         Instruction("vload", VectorArgs(vd=1, rs1=8)),  # mrf[1] ← B_K0
-        Instruction("delay", ScalarArgs(imm=16)),
+        Instruction("delay", ScalarArgs(imm=34)),
         Instruction("vmatpush.weight.mxu0", VectorArgs(vs1=1)),  # wb[0]  ← mrf[1]
-        Instruction("delay", ScalarArgs(imm=16)),
+        Instruction("delay", ScalarArgs(imm=34)),
         Instruction("vmatmul.mxu0", MatrixArgs()),  # acc[0] = mrf[0] @ wb[0]
-        Instruction("delay", ScalarArgs(imm=32)),
+        Instruction("delay", ScalarArgs(imm=96)),
         # ── K tile 1: acc += A_K1 @ B_K1 ───────────────────────────────
         Instruction("vload", VectorArgs(vd=2, rs1=7)),  # mrf[2] ← A_K1
-        Instruction("delay", ScalarArgs(imm=16)),
+        Instruction("delay", ScalarArgs(imm=34)),
         Instruction("vload", VectorArgs(vd=3, rs1=9)),  # mrf[3] ← B_K1
-        Instruction("delay", ScalarArgs(imm=16)),
+        Instruction("delay", ScalarArgs(imm=34)),
         Instruction("vmatpush.weight.mxu0", VectorArgs(vs1=3)),  # wb[0]  ← mrf[3]
-        Instruction("delay", ScalarArgs(imm=16)),
-        Instruction("vmatmul.acc.mxu0", MatrixArgs(vs1=2)),  # acc[0] += mrf[2] @ wb[0]
         Instruction("delay", ScalarArgs(imm=32)),
+        Instruction("vmatmul.acc.mxu0", MatrixArgs(vs1=2)),  # acc[0] += mrf[2] @ wb[0]
+        Instruction("delay", ScalarArgs(imm=96)),
         # ── Pop accumulator, store halves to VMEM, DMA out ─────────────
         Instruction("vmatpop.bf16.acc.mxu0", VectorArgs(vd=4)),  # mrf[4..5] ← acc[0]
         Instruction("delay", ScalarArgs(imm=32)),
         Instruction("vstore", VectorArgs(vd=4, rs1=10)),  # vmem[OUT_H0] ← mrf[4]
-        Instruction("delay", ScalarArgs(imm=16)),
+        Instruction("delay", ScalarArgs(imm=34)),
         Instruction("vstore", VectorArgs(vd=5, rs1=11)),  # vmem[OUT_H1] ← mrf[5]
-        Instruction("delay", ScalarArgs(imm=16)),
-        Instruction("dma.store.ch<N>", DmaArgs(rd=5, rs1=10, rs2=13)),
-        Instruction("dma.wait.ch<N>", DmaArgs()),
+        Instruction("delay", ScalarArgs(imm=34)),
+        Instruction("dma.store.ch<N>", DmaArgs(rd=5, rs1=10, rs2=13, channel=0)),
+        Instruction("dma.wait.ch<N>", DmaArgs(channel=0)),
         Instruction("ecall", ScalarArgs()),
     ]
 

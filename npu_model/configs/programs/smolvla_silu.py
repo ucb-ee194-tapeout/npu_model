@@ -161,47 +161,47 @@ class SmolVLASiluProgram(Program):
         Instruction(
             mnemonic="vload", args=VectorArgs(vd=0, rs1=1, imm12=0)
         ),  # v0 = x low
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
         Instruction(
             mnemonic="vload", args=VectorArgs(vd=1, rs1=1, imm12=32)
         ),  # v1 = x high
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
         Instruction(mnemonic="vli.all", args=VectorArgs(vd=2, imm=-1)),  # v2 = -1.0 low
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=2)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=65)),
         Instruction(
             mnemonic="vli.all", args=VectorArgs(vd=3, imm=-1)
         ),  # v3 = -1.0 high
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=2)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=65)),
         Instruction(mnemonic="vli.all", args=VectorArgs(vd=4, imm=1)),  # v4 = +1.0 low
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=2)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=65)),
         Instruction(mnemonic="vli.all", args=VectorArgs(vd=5, imm=1)),  # v5 = +1.0 high
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=2)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=65)),
         # ── SiLU: x / (1 + exp(-x)) ──
         Instruction(
             mnemonic="vmul.bf16", args=VectorArgs(vd=6, vs1=0, vs2=2)
         ),  # v6/v7 = -x
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
         Instruction(
             mnemonic="vexp.bf16", args=VectorArgs(vd=8, vs1=6)
         ),  # v8/v9 = exp(-x)
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
         Instruction(
             mnemonic="vadd.bf16", args=VectorArgs(vd=10, vs1=8, vs2=4)
         ),  # v10/v11 = 1+exp(-x)
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
         Instruction(
             mnemonic="vrecip.bf16", args=VectorArgs(vd=12, vs1=10)
         ),  # v12/v13 = sigmoid(x)
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
         Instruction(
             mnemonic="vmul.bf16", args=VectorArgs(vd=14, vs1=0, vs2=12)
         ),  # v14/v15 = silu(x)
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
         # ── Store: MRF → VMEM → DRAM ──
         Instruction(mnemonic="vstore", args=VectorArgs(vd=14, rs1=2, imm12=0)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
         Instruction(mnemonic="vstore", args=VectorArgs(vd=15, rs1=2, imm12=32)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
         Instruction(
             mnemonic="dma.store.ch<N>", args=DmaArgs(rd=4, rs1=2, rs2=5, channel=0)
         ),

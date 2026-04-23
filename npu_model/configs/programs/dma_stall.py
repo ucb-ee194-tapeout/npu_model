@@ -37,15 +37,18 @@ class DMAStallProgram(Program):
         # Move VMEM data to actual computational registers
         # vload VMEM(x1=0) -> MRF 2
         Instruction(mnemonic="vload", args=VectorArgs(vd=1, rs1=0, imm12=0)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
         # vload VMEM(x2=1024) -> Temporary MRF 1
         Instruction(mnemonic="vload", args=VectorArgs(vd=0, rs1=2, imm12=0)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=100)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
         # Push Temporary MRF 1 -> MXU0 Weight Buffer 1
         Instruction(mnemonic="vmatpush.weight.mxu0", args=VectorArgs(vd=0, vs1=0)),
         # --- 4. Do unnecessary loads (Overlapped with Matmul) ---
         # We do not need to reconfigure the DMA channels if the base addresses are unchanged
         # Issue DMA loads again (DRAM -> VMEM)
+        Instruction(
+            mnemonic="delay", args=ScalarArgs(imm=32)
+        ),  # Ensure these loads are issued after the first ones
         Instruction(
             mnemonic="dma.load.ch<N>", args=DmaArgs(rd=3, rs1=0, rs2=1, channel=0)
         ),
@@ -55,13 +58,13 @@ class DMAStallProgram(Program):
         Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
         # --- 5. Do matmul ---
         Instruction(mnemonic="vmatmul.mxu0", args=MatrixArgs(vd=0, vs1=1, vs2=0)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),  # TODO - verify delays
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=96)),  # TODO - verify delays
         # Instruction(mnemonic="vmatmul.mxu0", args=MatrixArgs(vd=0, vs1=0, vs2=0)),
         # Instruction(mnemonic="vmatmul.mxu0", args=MatrixArgs(vd=0, vs1=0, vs2=0)),
         # Instruction(mnemonic="vmatmul.mxu0", args=MatrixArgs(vd=0, vs1=0, vs2=0)),
-        Instruction(mnemonic="vmatpop.fp8.acc.mxu0", args=VectorArgs(vd=0, vs1=0)),
-        # Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
-        # Wait to finish unnecessary loads
+        Instruction(
+            mnemonic="vmatpop.fp8.acc.mxu0", args=VectorArgs(vd=0, vs1=0)
+        ),  # Wait to finish unnecessary loads
         Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
         Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=1)),
         # End delay

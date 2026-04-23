@@ -11,19 +11,37 @@ from .config import HardwareConfig
 from .bank_conflict import mrf_accesses, weight_buffer_accesses, acc_buffer_accesses
 
 
-LOCAL_TRANSFER_TILE_BYTES = {
-    "vmatpush.weight.mxu0": 1024,
-    "vmatpush.weight.mxu1": 1024,
-    "vmatpush.acc.fp8.mxu0": 1024,
-    "vmatpush.acc.fp8.mxu1": 1024,
-    "vmatpush.acc.bf16.mxu0": 2048,
-    "vmatpush.acc.bf16.mxu1": 2048,
-    "vmatpop.fp8.acc.mxu0": 1024,
-    "vmatpop.fp8.acc.mxu1": 1024,
-    "vmatpop.bf16.acc.mxu0": 2048,
-    "vmatpop.bf16.acc.mxu1": 2048,
-    "vmatpop.mxu0": 2048,
-    "vmatpop.mxu1": 2048,
+# LOCAL_TRANSFER_TILE_BYTES = {
+#     "vmatpush.weight.mxu0": 1024,
+#     "vmatpush.weight.mxu1": 1024,
+#     "vmatpush.acc.fp8.mxu0": 1024,
+#     "vmatpush.acc.fp8.mxu1": 1024,
+#     "vmatpush.acc.bf16.mxu0": 2048,
+#     "vmatpush.acc.bf16.mxu1": 2048,
+#     "vmatpop.fp8.acc.mxu0": 1024,
+#     "vmatpop.fp8.acc.mxu1": 1024,
+#     "vmatpop.bf16.acc.mxu0": 2048,
+#     "vmatpop.bf16.acc.mxu1": 2048,
+#     "vmatpop.mxu0": 2048,
+#     "vmatpop.mxu1": 2048,
+# }
+
+MXU_OP_LATENCIES = {
+    "vmatpush.weight.mxu0": 32,
+    "vmatpush.acc.fp8.mxu0": 32,
+    "vmatpush.acc.bf16.mxu0": 32,
+    "vmatmul.acc.mxu0": 96,
+    "vmatmul.mxu0": 96,
+    "vmatpop.fp8.acc.mxu0": 32,
+    "vmatpop.bf16.acc.mxu0": 32,
+
+    "vmatpush.weight.mxu1": 32,
+    "vmatpush.acc.fp8.mxu1": 32,
+    "vmatpush.acc.bf16.mxu1": 32,
+    "vmatmul.acc.mxu1": 35,
+    "vmatmul.mxu1": 35,
+    "vmatpop.fp8.acc.mxu1": 32,
+    "vmatpop.bf16.acc.mxu1": 32,
 }
 
 
@@ -61,16 +79,7 @@ class MatrixExecutionUnitSystolic(ExecutionUnit):
         self._busy_cycles = 0
 
     def _execution_latency(self, uop: Uop[Any]) -> int:
-        mnemonic = uop.insn.mnemonic
-        if mnemonic in LOCAL_TRANSFER_TILE_BYTES:
-            return max(
-                1,
-                math.ceil(
-                    LOCAL_TRANSFER_TILE_BYTES[mnemonic]
-                    / self.config.vmem_bytes_per_cycle
-                ),
-            )
-        return self.config.mxu0_matmul_latency_cycles
+       return MXU_OP_LATENCIES[uop.insn.mnemonic]
 
     def tick(self, idu_output: StageData[Uop[Any] | None]) -> None:
         self.cycle += 1
@@ -233,16 +242,7 @@ class MatrixExecutionUnitInner(ExecutionUnit):
         self._busy_cycles = 0
 
     def _execution_latency(self, uop: Uop[Any]) -> int:
-        mnemonic = uop.insn.mnemonic
-        if mnemonic in LOCAL_TRANSFER_TILE_BYTES:
-            return max(
-                1,
-                math.ceil(
-                    LOCAL_TRANSFER_TILE_BYTES[mnemonic]
-                    / self.config.vmem_bytes_per_cycle
-                ),
-            )
-        return self.config.mxu1_matmul_latency_cycles
+        return MXU_OP_LATENCIES[uop.insn.mnemonic]
 
     def tick(self, idu_output: StageData[Uop[Any] | None]) -> None:
         self.cycle += 1

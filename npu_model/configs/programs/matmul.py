@@ -65,25 +65,25 @@ class MatmulProgram(Program):
         Instruction(
             mnemonic="vload", args=VectorArgs(vd=0, rs1=1, imm12=0)
         ),  # mrf[v0] = activations
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
         Instruction(
             mnemonic="vload", args=VectorArgs(vd=1, rs1=2, imm12=0)
         ),  # mrf[v1] = weights
-        Instruction("delay", args=ScalarArgs(imm=16)),
+        Instruction("delay", args=ScalarArgs(imm=34)),
         # push to weight buffer, matmul, and pop from accumulation buffer
         Instruction(mnemonic="vmatpush.weight.mxu0", args=VectorArgs(vd=0, vs1=1)),
         # VPU local transfer (1KB) is ~16 cycles at 64B/cycle
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
-        Instruction(mnemonic="vmatmul.mxu0", args=MatrixArgs(vd=0, vs1=0, vs2=0)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
+        Instruction(mnemonic="vmatmul.mxu0", args=MatrixArgs(vd=0, vs1=0, vs2=0)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=96)),
         Instruction(mnemonic="vmatpop.bf16.acc.mxu0", args=VectorArgs(vd=2, vs1=0)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
         # store to vmem
         Instruction(mnemonic="vstore", args=VectorArgs(vd=2, rs1=3, imm12=0)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
         Instruction(mnemonic="vstore", args=VectorArgs(vd=3, rs1=3, imm12=32)),
         # Two vstores are ~2x16 cycles; add slack before DMA reads VMEM.
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
         # store to dram
         # DRAM_OUTPUT_BASE = 0x0800 (2048)
         # To get 0x800: LUI 1 (0x1000) + ADDI -2048 = 0x0800
