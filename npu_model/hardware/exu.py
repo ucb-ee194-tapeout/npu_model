@@ -1,12 +1,11 @@
 from abc import abstractmethod
-from typing import List, Any
 
 from .hardware import Module
 from .stage_data import StageData
 from ..logging.logger import Logger, LaneType
 from ..hardware.arch_state import ArchState
-from ..software.instruction import Uop, is_scalar_uop
-from ..isa import InstructionType, AsmInstructionType, ScalarArgs
+from ..software.instruction import Uop
+from ..isa import EXU
 from ..hardware.config import HardwareConfig
 
 
@@ -43,7 +42,7 @@ class ExecutionUnit(Module):
         self.cycle: int = 0
 
     @abstractmethod
-    def can_handle(self, uop: Uop[Any]) -> bool:
+    def can_handle(self, uop: Uop) -> bool:
         """Check if this execution unit can handle the given instruction."""
         pass
 
@@ -53,7 +52,7 @@ class ExecutionUnit(Module):
         pass
 
     @abstractmethod
-    def tick(self, idu_output: StageData[Uop[Any] | None]) -> None:
+    def tick(self, idu_output: StageData[Uop | None]) -> None:
         """Execute one cycle, claiming instruction from DIU output."""
         pass
 
@@ -86,12 +85,6 @@ class ExecutionUnit(Module):
         """Number of cycles the EXU was busy."""
         pass
 
-    @property
-    @abstractmethod
-    def supported_instruction_types(self) -> List[AsmInstructionType]:
-        """List of instruction types supported by the execution unit."""
-        pass
-
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.name})"
 
@@ -120,7 +113,7 @@ class ScalarExecutionUnit(ExecutionUnit):
         )
         self.reset()
 
-    def can_handle(self, uop: Uop[Any]) -> bool:
+    def can_handle(self, uop: Uop) -> bool:
         # List of memory instructions that should go to the LSU instead
         mem_ops = {
             "lb",
@@ -139,12 +132,12 @@ class ScalarExecutionUnit(ExecutionUnit):
 
     def reset(self) -> None:
         # variables
-        self._pending_completion_uop: Uop[ScalarArgs] | None = None
+        self._pending_completion_uop: Uop | None = None
         # logging variables
         self._total_instructions = 0
         self._busy_cycles = 0
 
-    def tick(self, idu_output: StageData[Uop[Any] | None]) -> None:
+    def tick(self, idu_output: StageData[Uop | None]) -> None:
         self.cycle += 1
         # Log deferred completions from last cycle
         if self._pending_completion_uop is not None:
@@ -165,9 +158,7 @@ class ScalarExecutionUnit(ExecutionUnit):
 
         # Accept new instruction
         if uop is not None:
-            assert is_scalar_uop(
-                uop
-            ), "Attempted to pass non-scalar args to Scalar Excution Unit."
+            assert uop.insn.exu == EXU.SCALAR, "Attempted to pass non-scalar args to Scalar Excution Unit."
             # tag instruction with execution delay
             uop.execute_delay = 1
             self._pending_completion_uop = uop
@@ -189,10 +180,7 @@ class ScalarExecutionUnit(ExecutionUnit):
             self._busy_cycles += uop.insn.mnemonic != "delay"
             self._complete_count = 1
             # execute the instruction and modify the arch state
-            if uop.execute_fn != None:
-                uop.execute_fn(self.arch_state, uop.insn.args)
-            else:
-                raise ValueError("No execute function specified for Uop.")
+            uop.insn.exec(self.arch_state)
 
     def flush_completions(self) -> None:
         """Flush any pending completions (call at end of simulation)."""
@@ -224,16 +212,3 @@ class ScalarExecutionUnit(ExecutionUnit):
     @property
     def has_in_flight(self) -> bool:
         return False
-
-    @property
-    def supported_instruction_types(self) -> List[AsmInstructionType]:
-        return [
-            InstructionType.SCALAR.R,
-            InstructionType.SCALAR.I,
-            InstructionType.SCALAR.S,
-            InstructionType.SCALAR.SB,
-            InstructionType.SCALAR.U,
-            InstructionType.SCALAR.UJ,
-            InstructionType.BARRIER.I,
-            InstructionType.DELAY.I,
-        ]

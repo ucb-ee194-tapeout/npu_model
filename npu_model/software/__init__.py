@@ -1,8 +1,13 @@
-from .instruction import Instruction
+from .instruction import acc, e, m, x, w, Uop
 from .program import Program
 
 
 __all__ = [
-    "Instruction",
+    "acc",
+    "e",
+    "m",
+    "x",
+    "w",
+    "Uop",
     "Program",
 ]

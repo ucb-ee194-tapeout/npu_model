@@ -1,5 +1,3 @@
-from typing import Any
-
 from .hardware import Module
 from .stage_data import StageData
 from ..software.program import Program
@@ -34,7 +32,7 @@ class InstructionFetch(Module):
         self.program = program
 
     def reset(self) -> None:
-        self.output: StageData[Uop[Any] | None] = StageData(None)
+        self.output: StageData[Uop | None] = StageData(None)
         self.arch_state.set_pc(0)
         self._stalled = False
 
@@ -73,7 +71,7 @@ class InstructionFetch(Module):
 
         fetched_instruction = self.program.get_instruction(self.arch_state.pc)
 
-        uop = Uop[fetched_instruction.args](fetched_instruction)
+        uop = Uop(fetched_instruction)
 
         # Log instruction and start fetch stage
         self.logger.log_insn(uop.id, str(uop.insn))
@@ -90,3 +88,6 @@ class InstructionFetch(Module):
     def is_stalled(self) -> bool:
         """Check if IFU is currently stalled."""
         return self._stalled
+    
+    def force_unstall(self) -> None:
+        self._stalled = False

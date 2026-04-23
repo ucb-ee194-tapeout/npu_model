@@ -2,8 +2,10 @@ from typing import Callable, List
 import torch
 
 from npu_model.software.program import Program
+from npu_model.software.instruction import Uop
 from npu_model.logging.logger import Logger, LaneType
 from npu_model.hardware.arch_state import ArchState
+from npu_model.hardware.stage_data import StageData
 
 from .hardware import Module
 from .config import HardwareConfig
@@ -11,14 +13,14 @@ from .ifu import InstructionFetch
 from .idu import InstructionDecode
 from .exu import ExecutionUnit
 
-from .exu import ScalarExecutionUnit  # noqa: F401, F403
+from .exu import ScalarExecutionUnit  # type: ignore # noqa: F401, F403
 from .mxu import (
-    MatrixExecutionUnitInner,
-    MatrixExecutionUnitSystolic,
+    MatrixExecutionUnitInner, # type: ignore 
+    MatrixExecutionUnitSystolic, # type: ignore 
 )  # noqa: F401, F403
-from .dma import DmaExecutionUnit  # noqa: F401, F403
-from .vpu import VectorExecutionUnit  # noqa: F401, F403
-from .lsu import LoadStoreUnit
+from .dma import DmaExecutionUnit  # type: ignore # noqa: F401, F403
+from .vpu import VectorExecutionUnit  # type: ignore # noqa: F401, F403
+from .lsu import LoadStoreUnit  # type: ignore # noqa: F401, F403 
 
 
 class Core(Module):
@@ -111,7 +113,7 @@ class Core(Module):
         self.logger.log_cycle(1)
 
         # 1. Advance program counter
-        self.arch_state.npc = self.arch_state.pc + 1
+        self.arch_state.npc = self.arch_state.pc + 4
 
         # 2. Tick EXUs (claim from InstructionDecode outputs)
         for exu in self.exus:
@@ -169,7 +171,7 @@ class Core(Module):
             self.runtime_error_reporter(stage, exc)
         return True
 
-    def _recover_exu_fault(self, exu: ExecutionUnit, idu_out) -> None:
+    def _recover_exu_fault(self, exu: ExecutionUnit, idu_out: StageData[Uop | None]) -> None:
         idu_out.reset()
         if hasattr(exu, "in_flight"):
             current = getattr(exu, "in_flight")
@@ -186,9 +188,9 @@ class Core(Module):
 
     def _recover_idu_fault(self) -> None:
         self.idu.uop = None
-        self.idu._stalled = False
+        self.idu.force_unstall()
         for output in self.idu.outputs.values():
             output.reset()
 
     def _recover_ifu_fault(self) -> None:
-        self.ifu._stalled = False
+        self.ifu.force_unstall()

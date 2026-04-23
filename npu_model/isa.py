@@ -1,96 +1,75 @@
-from __future__ import annotations
-from typing import Callable, TypeAlias, TypeVar, TYPE_CHECKING, Any
-from dataclasses import dataclass
+from typing import TYPE_CHECKING, TypeIs, Any, cast
 from abc import ABC, abstractmethod
-
+from npu_model.isa_types import *
 if TYPE_CHECKING:
     from npu_model.hardware.arch_state import ArchState
 
-
-@dataclass
-class ScalarArgs:
-    rd: int = 0
-    rs1: int = 0
-    rs2: int = 0
-    imm: int = 0
-
-
-@dataclass
-class VectorArgs:
-    vd: int = 0
-    vs1: int = 0
-    vs2: int = 0
-    rs1: int = 0
-    rs2: int = 0
-    es1: int = 0
-    base: int = 0
-    offset: int = 0
-    imm12: int = 0
-    imm: int = 0
-
-
-@dataclass
-class MatrixArgs:
-    vd: int = 0
-    vs1: int = 0
-    vs2: int = 0
-    rd: int = 0
-    rs1: int = 0
-    rs2: int = 0
-
-
-@dataclass
-class DmaArgs:
-    rd: int = 0
-    rs1: int = 0
-    rs2: int = 0
-    size: int = 0
-    channel: int = (
-        0  # FIXME: this is not a real arg. should also be renamed to channel (unless we just want to make 8 different insns)
-    )
-
-
-# This bares some explanation if you're not familiar with Python's types
-# Use "Args" when you mean to represent an input that can handle _all_ of the types.
-# Use "ArgsT" when you mean to represent an input that can handle _any one_ of the types.
-Args: TypeAlias = ScalarArgs | VectorArgs | MatrixArgs | DmaArgs
-ArgsT = TypeVar("ArgsT", ScalarArgs, VectorArgs, MatrixArgs, DmaArgs)
-
-
+# Utility functions for assembly
 def _mask(val: int, bits: int):
     """returns the first `bits` bits of `val`"""
     return val & ((1 << bits) - 1)
 
+class IsaSpec:
+    operations: dict[str,type[Instruction]] = {}
+    R: dict[str,type[RType]] = {}
+    I: dict[str,type[IType[Any, Any]]] = {}
+    S: dict[str,type[SType]] = {}
+    SB: dict[str,type[SBType]] = {}
+    U: dict[str,type[UType]] = {}
+    UJ: dict[str,type[UJType]] = {}
+    VLS: dict[str,type[VLSType]] = {}
+    VR: dict[str,type[VRType[Any,Any]]] = {}
+    VI: dict[str,type[VIType]] = {}
+    CSR: dict[str,type[CSRType]] = {}
 
-class AsmInstructionType(ABC):
-    def __init__(self) -> None:
-        self.mnemonics: list[str] = []
+class Instruction(ABC):
+    mnemonic: str  = NotImplemented
+    opcode: Opcode = NotImplemented
+    exu: EXU       = NotImplemented
+
+    def __str__(self):
+        values = [str(v) for v in self.__dict__.values()]
+        return f"{self.mnemonic}: {', '.join(values)}"
 
     @abstractmethod
-    def assemble(
-        self, opcode: int, funct2: int, funct3: int, funct7: int, args: Args
-    ) -> int:
+    def to_bytecode(self) -> int:
         raise NotImplementedError()
 
-    def add_mnemonic(self, mnemonic: str):
-        self.mnemonics.append(mnemonic)
+    @abstractmethod
+    def exec(
+        self, state: ArchState
+    ) -> None:
+        raise NotImplementedError()
+
+    def __init_subclass__(cls, exu: EXU | None = None, mnemonic: str | None = None, opcode: OpcodeL | None = None, instr: bool = True) -> None:
+        if exu:
+            cls.exu = exu
+        
+        if opcode:
+            cls.opcode = Opcode(opcode)
+
+        if mnemonic:
+            cls.mnemonic = mnemonic
+        
+        if instr:
+            IsaSpec.operations[cls.mnemonic] = cls
+        return super().__init_subclass__()
+
+class RType(Instruction, instr=False):
+    funct3: Funct3 = NotImplemented
+    funct7: Funct7 = NotImplemented
+    rd: ScalarReg  = ScalarReg(0)
+    rs1: ScalarReg = ScalarReg(0)
+    rs2: ScalarReg = ScalarReg(0)
 
 
-class _R(AsmInstructionType):
-    def assemble(self, opcode: int, funct2: int, funct3: int, funct7: int, args: Args):
-        if not (isinstance(args, ScalarArgs) or isinstance(args, DmaArgs)):
-            raise ValueError("Incorrect argument type specified.")
-
-        funct7_b = _mask(funct7, 7)
-        rd_b = _mask(args.rd, 5)
-        rs1_b = _mask(args.rs1, 5)
-        rs2_b = _mask(args.rs2, 5)
-        opcode_b = _mask(opcode, 7)
-        if isinstance(args, DmaArgs):
-            # FIXME: related to the above fixme in DmaArgs — set funct3 to channel for now
-            funct3_b = _mask(args.channel, 3)
-        else:
-            funct3_b = _mask(funct3, 3)
+    def to_bytecode(self):
+        funct7_b = _mask(self.funct7, 7)
+        rd_b = _mask(self.rd, 5)
+        rs1_b = _mask(self.rs1, 5)
+        rs2_b = _mask(self.rs2, 5)
+        opcode_b = _mask(self.opcode, 7)
+        funct3_b = _mask(self.funct3, 3)
 
         return (
             (funct7_b << 25)
@@ -101,111 +80,137 @@ class _R(AsmInstructionType):
             | opcode_b
         )
 
-    pass
+    def __init_subclass__(cls, exu: EXU, opcode: OpcodeL, funct3: Funct3L, funct7: Funct7L, mnemonic: str | None = None) -> None:
+        mnemonic = mnemonic if mnemonic != None else cls.__name__.lower().replace("_",".")
+        cls.funct3 = Funct3(funct3)
+        cls.funct7 = Funct7(funct7)
+        IsaSpec.R[mnemonic] = cls
+        return super().__init_subclass__(exu, mnemonic, opcode, instr=True)
 
+class IType[RD: (ScalarReg, ExponentReg) = ScalarReg, IMM: (Imm12, SBImm12) = Imm12](Instruction, instr=False):
+    funct3: Funct3         = NotImplemented
+    rd: RD
+    rs1: ScalarReg         = ScalarReg(0)
+    imm: IMM
 
-class _I(AsmInstructionType):
-    def assemble(self, opcode: int, funct2: int, funct3: int, funct7: int, args: Args):
-        if not (isinstance(args, ScalarArgs) or isinstance(args, DmaArgs)):
-            raise ValueError("Incorrect argument type specified.")
-
-        rd_b = _mask(args.rd, 5)
-        rs1_b = _mask(args.rs1, 5)
-        opcode_b = _mask(opcode, 7)
-        if isinstance(args, DmaArgs):
-            # FIXME: related to the above fixme in DmaArgs — set funct3 to channel for now
-            funct3_b = _mask(args.channel, 3)
-            imm_b = _mask(args.size, 12)
-        else:
-            funct3_b = _mask(funct3, 3)
-            imm_b = _mask(args.imm, 12)
+    def to_bytecode(self):
+        rd = self.rd if hasattr(self, 'rd') else 0
+        rd = self.imm if hasattr(self, 'imm') else 0
+        rd_b = _mask(rd, 5)
+        rs1_b = _mask(self.rs1, 5)
+        opcode_b = _mask(self.opcode, 7)
+        imm_b = _mask(self.imm, 12)
+        funct3_b = _mask(self.funct3, 3)
 
         return (imm_b << 20) | (rs1_b << 15) | (funct3_b << 12) | (rd_b << 7) | opcode_b
+    
+    def __init_subclass__(cls, exu: EXU, opcode: OpcodeL, funct3: Funct3L, mnemonic: str | None = None) -> None:
+        mnemonic = mnemonic if mnemonic != None else cls.__name__.lower().replace("_",".")
+        cls.funct3 = Funct3(funct3)
+        IsaSpec.I[mnemonic] = cls
+        return super().__init_subclass__(exu, mnemonic, opcode, instr=True)
 
-    pass
+class SType(Instruction, instr=False):
+    funct3: Funct3    = NotImplemented
+    rs1: ScalarReg    = ScalarReg(0)
+    rs2: ScalarReg    = ScalarReg(0)
+    imm: Imm12        = Imm12(0)
 
+    def to_bytecode(self):
+        imm_b = _mask(self.imm, 12)
 
-class _S(AsmInstructionType):
-    def assemble(self, opcode: int, funct2: int, funct3: int, funct7: int, args: Args):
-        if not (isinstance(args, ScalarArgs)):
-            raise ValueError("Incorrect argument type specified.")
+        # RISC-V Standard Split:
+        # imm_high = bits 11 down to 5
+        # imm_low  = bits 4 down to 0
+        imm_high = (imm_b >> 5) & 0x7F
+        imm_low = imm_b & 0x1F
 
-        imm_b = _mask(args.imm, 12)
-        imm_lo_b = imm_b & 0x1F
-        imm_hi_b = (imm_b >> 5) & 0x7F
-
-        rs2_b = _mask(args.rs2, 5)
-        rs1_b = _mask(args.rs1, 5)
-        funct3_b = _mask(funct3, 3)
-        opcode_b = _mask(opcode, 7)
+        rs2_b = _mask(self.rs2, 5)
+        rs1_b = _mask(self.rs1, 5)
+        funct3_b = _mask(self.funct3, 3)
+        opcode_b = _mask(self.opcode, 7)
 
         return (
-            (imm_hi_b << 25)
+            (imm_high << 25)
             | (rs2_b << 20)
             | (rs1_b << 15)
             | (funct3_b << 12)
-            | (imm_lo_b << 7)
+            | (imm_low << 7)
             | opcode_b
         )
 
-    pass
+    def __init_subclass__(cls, exu: EXU, opcode: OpcodeL, funct3: Funct3L, mnemonic: str | None = None) -> None:
+        mnemonic = mnemonic if mnemonic != None else cls.__name__.lower().replace("_",".")
+        cls.funct3 = Funct3(funct3)
+        IsaSpec.S[mnemonic] = cls
+        return super().__init_subclass__(exu, mnemonic, opcode, instr=True)
 
+class SBType(Instruction, instr=False):
+    funct3: Funct3    = NotImplemented
+    rs1: ScalarReg    = ScalarReg(0)
+    rs2: ScalarReg    = ScalarReg(0)
+    imm: SBImm12      = SBImm12(0)
 
-class _SB(AsmInstructionType):
-    def assemble(self, opcode: int, funct2: int, funct3: int, funct7: int, args: Args):
-        if not (isinstance(args, ScalarArgs)):
-            raise ValueError("Incorrect argument type specified.")
+    def to_bytecode(self):
+        # Branch immediates are 13 bits (bit 0 is always 0)
+        imm_b = _mask(self.imm, 13)
+        
+        # Extract bits exactly per the RISC-V ISA spec
+        imm12    = (imm_b >> 12) & 0x1    # bit 12
+        imm11    = (imm_b >> 11) & 0x1    # bit 11
+        imm10_5  = (imm_b >> 5)  & 0x3F   # bits 10:5 (6 bits)
+        imm4_1   = (imm_b >> 1)  & 0xF    # bits 4:1  (4 bits)
 
-        imm_b = _mask(args.imm, 13)
-        imm12_b = (imm_b >> 12) & 1
-        imm49_b = (imm_b >> 5) & 0x3F
-        imm04_b = (imm_b >> 1) & 0xF
-        imm11_b = (imm_b >> 11) & 1
-        rs2_b = _mask(args.rs2, 5)
-        rs1_b = _mask(args.rs1, 5)
-        funct3_b = _mask(funct3, 3)
-        opcode_b = _mask(opcode, 7)
+        rs2_b    = _mask(self.rs2, 5)
+        rs1_b    = _mask(self.rs1, 5)
+        funct3_b = _mask(self.funct3, 3)
+        opcode_b = _mask(self.opcode, 7)
 
         return (
-            (imm12_b << 31)
-            | (imm49_b << 25)
-            | (rs2_b << 20)
-            | (rs1_b << 15)
-            | (funct3_b << 12)
-            | (imm04_b << 8)
-            | (imm11_b << 7)
-            | opcode_b
+            (imm12 << 31)    |
+            (imm10_5 << 25)  |
+            (rs2_b << 20)    |
+            (rs1_b << 15)    |
+            (funct3_b << 12) |
+            (imm4_1 << 8)    | # bits 4:1 go to bits 11:8
+            (imm11 << 7)     | # bit 11 goes to bit 7
+            opcode_b
         )
+    
+    def __init_subclass__(cls, exu: EXU, opcode: OpcodeL, funct3: Funct3L, mnemonic: str | None = None) -> None:
+        mnemonic = mnemonic if mnemonic != None else cls.__name__.lower().replace("_",".")
+        cls.funct3 = Funct3(funct3)
+        IsaSpec.SB[mnemonic] = cls
+        return super().__init_subclass__(exu, mnemonic, opcode, instr=True)
 
-    pass
+class UType(Instruction, instr=False):
+    rd: ScalarReg = ScalarReg(0)
+    imm: Imm20    = Imm20(0)
 
-
-class _U(AsmInstructionType):
-    def assemble(self, opcode: int, funct2: int, funct3: int, funct7: int, args: Args):
-        if not (isinstance(args, ScalarArgs)):
-            raise ValueError("Incorrect argument type specified.")
-
-        imm_b = _mask(args.imm, 20)
-        rd_b = _mask(args.rd, 5)
-        opcode_b = _mask(opcode, 7)
+    def to_bytecode(self):
+        imm_b = _mask(self.imm, 20)
+        rd_b = _mask(self.rd, 5)
+        opcode_b = _mask(self.opcode, 7)
 
         return (imm_b << 12) | (rd_b << 7) | opcode_b
 
-    pass
+    def __init_subclass__(cls, exu: EXU, opcode: OpcodeL, mnemonic: str | None = None) -> None:
+        mnemonic = mnemonic if mnemonic != None else cls.__name__.lower().replace("_",".")
+        IsaSpec.U[mnemonic] = cls
+        return super().__init_subclass__(exu, mnemonic, opcode, instr=True)
 
+class UJType(Instruction, instr=False):
+    rd: ScalarReg = ScalarReg(0)
+    imm: Imm20    = Imm20(0)
 
-class _UJ(AsmInstructionType):
-    def assemble(self, opcode: int, funct2: int, funct3: int, funct7: int, args: Args):
-        if not isinstance(args, ScalarArgs):
-            raise ValueError("Incorrect argument type specified.")
-
-        imm_b = _mask(args.imm, 21)
+    def to_bytecode(self):
+        imm_b = _mask(self.imm, 21)
         imm19_b = (imm_b >> 20) & 1
         imm110_b = (imm_b >> 1) & 0x3FF
         imm11_b = (imm_b >> 11) & 1
         imm1219_b = (imm_b >> 12) & 0xFF
-        rd_b = _mask(args.rd, 5)
-        opcode_b = _mask(opcode, 7)
+        rd_b = _mask(self.rd, 5)
+        opcode_b = _mask(self.opcode, 7)
 
         return (
             (imm19_b << 31)
@@ -215,138 +220,117 @@ class _UJ(AsmInstructionType):
             | (rd_b << 7)
             | opcode_b
         )
+    
+    def __init_subclass__(cls, exu: EXU, opcode: OpcodeL, mnemonic: str | None = None) -> None:
+        mnemonic = mnemonic if mnemonic != None else cls.__name__.lower().replace("_",".")
+        IsaSpec.UJ[mnemonic] = cls
+        return super().__init_subclass__(exu, mnemonic, opcode, instr=True)
 
-    pass
+class VLSType(Instruction, instr=False):
+    funct2: Funct2 = NotImplemented
+    vd: MatrixReg  = MatrixReg(0)
+    rs1: ScalarReg = ScalarReg(0)
+    imm: Imm12     = Imm12(0)
 
-
-class _VLS(AsmInstructionType):
-    def assemble(self, opcode: int, funct2: int, funct3: int, funct7: int, args: Args):
-        if not isinstance(args, VectorArgs):
-            raise ValueError("Incorrect argument type specified.")
-
-        imm_b = _mask(args.imm, 12)
-        rs1_b = _mask(args.rs1, 5)
-        funct2_b = _mask(funct2, 2)
-        vd_b = _mask(args.vd, 6)
-        opcode_b = _mask(opcode, 7)
+    def to_bytecode(self):
+        imm_b = _mask(self.imm, 12)
+        rs1_b = _mask(self.rs1, 5)
+        funct2_b = _mask(self.funct2, 2)
+        vd_b = _mask(self.vd, 6)
+        opcode_b = _mask(self.opcode, 7)
 
         return (imm_b << 20) | (rs1_b << 15) | (funct2_b << 13) | (vd_b << 7) | opcode_b
+    
+    def __init_subclass__(cls, exu: EXU, opcode: OpcodeL, funct2: Funct2L, mnemonic: str | None = None) -> None:
+        mnemonic = mnemonic if mnemonic != None else cls.__name__.lower().replace("_",".")
+        cls.funct2 = Funct2(funct2)
+        IsaSpec.VLS[mnemonic] = cls
+        return super().__init_subclass__(exu, mnemonic, opcode, instr=True)
 
-    pass
+class VRType[VD: (MatrixReg,Accumulator,WeightBuffer) = MatrixReg, VS2: (MatrixReg,Accumulator,WeightBuffer) = MatrixReg](Instruction, instr=False):
+    funct7: Funct7    = NotImplemented
+    vs1: MatrixReg
+    es1: ExponentReg
+    vs2: VS2
+    vd:  VD
 
+    def to_bytecode(self):
+        vs1 = self.vs1 if hasattr(self, 'vs1') else (self.es1 if hasattr(self, 'es1') else 0)
+        vs2 = self.vs2 if hasattr(self, 'vs2') else 0
+        vd  = self.vd  if hasattr(self, 'vd')  else 0
 
-class _VR(AsmInstructionType):
-    def assemble(self, opcode: int, funct2: int, funct3: int, funct7: int, args: Args):
-        if not (isinstance(args, VectorArgs) or isinstance(args, MatrixArgs)):
-            raise ValueError("Incorrect argument type specified.")
-
-        funct7_b = _mask(funct7, 7)
-        vs2_b = _mask(args.vs2, 6)
-        vs1_b = _mask(args.vs1, 6)
-        vd_b = _mask(args.vd, 6)
-        opcode_b = _mask(opcode, 7)
+        funct7_b = _mask(self.funct7, 7) # Bits 31:25
+        vs2_b    = _mask(vs2, 5)          # Bits 24:20 (5 bits)
+        vs1_b    = _mask(vs1, 7)          # Bits 19:13 (7 bits)
+        vd_b     = _mask(vd, 6)           # Bits 12:7  (6 bits)
+        opcode_b = _mask(self.opcode, 7)  # Bits 6:0
 
         return (
-            (funct7_b << 25)
-            | (vs2_b << 19)
-            | (vs1_b << 13)
-            | (vd_b << 7)
-            | opcode_b
+            (funct7_b << 25) | 
+            (vs2_b << 19)    | # Fixed: Shift 20 puts vs2 in 24:20
+            (vs1_b << 13)    | # Fixed: Shift 13 puts vs1 in 19:13
+            (vd_b << 7)      | 
+            opcode_b
         )
+        
+    def __init_subclass__(cls, exu: EXU, opcode: OpcodeL, funct7: Funct7L, mnemonic: str | None = None) -> None:
+        mnemonic = mnemonic if mnemonic != None else cls.__name__.lower().replace("_",".")
+        cls.funct7 = Funct7(funct7)
+        IsaSpec.VR[mnemonic] = cls
+        return super().__init_subclass__(exu, mnemonic, opcode, instr=True)
 
-    pass
+class VIType(Instruction, instr=False):
+    funct3: Funct3 = NotImplemented
+    vd: MatrixReg  = MatrixReg(0)
+    imm: Imm16     = Imm16(0)
 
-
-class _VI(AsmInstructionType):
-    def assemble(self, opcode: int, funct2: int, funct3: int, funct7: int, args: Args):
-        if not isinstance(args, VectorArgs):
-            raise ValueError("Incorrect argument type specified.")
-
-        imm_b = _mask(args.imm, 16)
-        funct3_b = _mask(funct3, 2)
-        vd_b = _mask(args.vd, 6)
-        opcode_b = _mask(opcode, 7)
+    def to_bytecode(self):
+        imm_b = _mask(self.imm, 16)
+        funct3_b = _mask(self.funct3, 2)
+        vd_b = _mask(self.vd, 6)
+        opcode_b = _mask(self.opcode, 7)
 
         return (imm_b << 16) | (funct3_b << 13) | (vd_b << 7) | opcode_b
 
-    pass
+    def __init_subclass__(cls, exu: EXU, opcode: OpcodeL, funct3: Funct3L, mnemonic: str | None = None) -> None:
+        mnemonic = mnemonic if mnemonic != None else cls.__name__.lower().replace("_",".")
+        cls.funct3 = Funct3(funct3)
+        IsaSpec.VI[mnemonic] = cls
+        return super().__init_subclass__(exu, mnemonic, opcode, instr=True)
 
+class CSRType(Instruction, instr=False):
+    funct3: Funct3 = NotImplemented
+    rs1: ScalarReg = ScalarReg(0)
+    rd: ScalarReg  = ScalarReg(0)
+    imm: Imm12     = Imm12(0)
 
-class _CSR(AsmInstructionType):
-    def assemble(self, opcode: int, funct2: int, funct3: int, funct7: int, args: Args):
-        if not isinstance(args, ScalarArgs):
-            raise ValueError("Incorrect argument type specified.")
-
-        imm_b = _mask(args.imm, 12)
-        rs1_b = _mask(args.rs1, 5)
-        funct3_b = _mask(funct3, 3)
-        rd_b = _mask(args.rd, 5)
-        opcode_b = _mask(opcode, 7)
+    def to_bytecode(self):
+        imm_b = _mask(self.imm, 12)
+        rs1_b = _mask(self.rs1, 5)
+        funct3_b = _mask(self.funct3, 3)
+        rd_b = _mask(self.rd, 5)
+        opcode_b = _mask(self.opcode, 7)
 
         return (imm_b << 20) | (rs1_b << 15) | (funct3_b << 12) | (rd_b << 7) | opcode_b
 
-
-# --- Instruction type namespace ---
-
-
-class InstructionType:
-    class SCALAR:
-        R = _R()
-        I = _I()
-        S = _S()
-        SB = _SB()
-        U = _U()
-        UJ = _UJ()
-        CSR = _CSR()
-
-    class VECTOR:
-        VLS = _VLS()
-        VR = _VR()
-        VI = _VI()
-
-    class DMA:
-        R = _R()
-        I = _I()
-
-    class MATRIX_SYSTOLIC:
-        VR = _VR()
-
-    class MATRIX_IPT:
-        VR = _VR()
-
-    class DELAY:
-        I = _I()
-
-    class BARRIER:
-        I = _I()
+    def __init_subclass__(cls, exu: EXU, opcode: OpcodeL, funct3: Funct3L, mnemonic: str | None = None) -> None:
+        mnemonic = mnemonic if mnemonic != None else cls.__name__.lower().replace("_",".")
+        cls.funct3 = Funct3(funct3)
+        IsaSpec.CSR[cls.mnemonic] = cls
+        return super().__init_subclass__(exu, mnemonic, opcode, instr=True)
 
 
-class Operation:
-    def __init__(
-        self,
-        mnemonic: str,
-        instruction_type: AsmInstructionType,
-        opcode: int,
-        funct2: int,
-        funct3: int,
-        funct7: int,
-        effect: Callable[[ArchState, ArgsT], None],
-    ) -> None:
-        self.mnemonic = mnemonic
-        self.instruction_type = instruction_type
-        self.effect = effect
-        self.opcode = opcode
-        self.funct2 = funct2
-        self.funct3 = funct3
-        self.funct7 = funct7
+def is_scalar_reg(obj: Any) -> TypeIs[ScalarReg]:
+    return isinstance(obj, ScalarReg)
 
-    def __str__(self) -> str:
-        return self.mnemonic
+def is_exponent_reg(obj: Any) -> TypeIs[ScalarReg]:
+    return isinstance(obj, ExponentReg)
 
+def is_scalar_itype(insn: Instruction) -> TypeIs[IType[ScalarReg]]:
+    return isinstance(insn, IType) and (not hasattr(cast(IType[Any], insn), 'rd') or is_scalar_reg(cast(IType[Any], insn).rd))
 
-class IsaSpec:
-    operations: dict[str, Operation] = {}
-
+def is_exponent_itype(insn: Instruction) -> TypeIs[IType[ExponentReg]]:
+    return isinstance(insn, IType) and hasattr(cast(IType[Any], insn), 'rd') and is_exponent_reg(cast(IType[Any], insn).rd)
 
 # Global registry accumulating decode table rows
 # FIXME: Not typed but idk the type.
@@ -402,33 +386,3 @@ _DEFAULT = {
     "vpu_op": "VPU_OP_X",
     "xlu_op": "XLU_OP_X",
 }
-
-
-def instr(
-    mnemonic: str | None,
-    instruction_type: AsmInstructionType,
-    opcode: int,
-    funct2: int = 0,
-    funct3: int = 0,
-    funct7: int = 0,
-):
-    if not isinstance(mnemonic, str):
-        raise TypeError("@instr decorator must be @instr(<your instruction>)")
-
-    def effect(
-        func: Callable[[ArchState, ArgsT], None],
-    ) -> Callable[[ArchState, ArgsT], None]:
-        instruction_type.add_mnemonic(mnemonic)
-        IsaSpec.operations[mnemonic] = Operation(
-            mnemonic=mnemonic,
-            instruction_type=instruction_type,
-            effect=func,
-            opcode=opcode,
-            funct2=funct2,
-            funct3=funct3,
-            funct7=funct7,
-        )
-
-        return func
-
-    return effect

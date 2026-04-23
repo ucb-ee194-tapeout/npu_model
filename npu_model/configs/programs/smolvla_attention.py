@@ -5,13 +5,10 @@ Q, K, V are fp8 32x32 tiles; ``scale`` is an elementwise bf16 mask/scale.
 Writes the bf16 output as two 32x16 halves.
 """
 
-from typing import Any, List, Tuple
-
 import torch
-
-from ...software import Instruction, Program
-from npu_model.isa import DmaArgs, MatrixArgs, ScalarArgs, VectorArgs
-
+from npu_model.util.converter import load_asm
+from npu_model.software.instruction import Instruction
+from npu_model.software.program import Program, ASM_FOLDER
 
 # ═══════════════════════════════════════════════════════════════════════════
 # 2. PyTorch reference.
@@ -142,124 +139,9 @@ class SmolVLAAttentionProgram(Program):
     file helpers, torch-allclose golden check via ``pytest tests/test_programs.py``.
     """
 
-    # Pair-op rewrite. npu_model _vmatmul computes activation @ weight
-    # directly (no implicit transpose), so we push K as weight for Q@K and
-    # V as weight for probs@V (no XLU needed).
-    #
-    # MRF layout:
-    #   m0  = Q (fp8 tile)
-    #   m2  = K (fp8 tile)
-    #   m4  = V (fp8 tile)
-    #   m6,m7   = scale (bf16 pair, duplicated halves)
-    #   m10,m11 = scores (bf16 pair) = Q @ K
-    #   m12,m13 = scaled
-    #   m14,m15 = rowmax (broadcast)
-    #   m16,m17 = scaled - rowmax
-    #   m18,m19 = exp(scaled - rowmax)
-    #   m20,m21 = rowsum(exp)
-    #   m22,m23 = 1 / rowsum
-    #   m24,m25 = probs (bf16)
-    #   m26     = probs (fp8, same row ordering as m24,m25 via vpack)
-    #   m28,m29 = out = probs @ V  (bf16 pair)
-    #
-    # VMEM staging (each tile = 1024 B = 32 mreg-words, stored back-to-back):
-    #   x1 = 0x2000 Q             x2 = 0x2400 K            x3 = 0x2800 V
-    #   x4 = 0x2C00 scale half 0  x5 = 0x3000 scale half 1
-    #   x6 = 0x4000 OUT half 0    x7 = 0x4400 OUT half 1
-    instructions: List[Instruction[Any]] = [
-        # VMEM addresses
-        Instruction("lui", ScalarArgs(rd=1, imm=0x2)),  # 0x2000
-        Instruction("addi", ScalarArgs(rd=2, rs1=1, imm=1024)),  # 0x2400
-        Instruction("addi", ScalarArgs(rd=3, rs1=2, imm=1024)),  # 0x2800
-        Instruction("addi", ScalarArgs(rd=4, rs1=3, imm=1024)),  # 0x2C00
-        Instruction("lui", ScalarArgs(rd=5, imm=0x3)),  # 0x3000
-        Instruction("lui", ScalarArgs(rd=6, imm=0x4)),  # 0x4000
-        Instruction("addi", ScalarArgs(rd=7, rs1=6, imm=1024)),  # 0x4400
-        # DRAM addresses
-        Instruction("addi", ScalarArgs(rd=8, rs1=0, imm=DRAM_Q)),  # 0x0000
-        Instruction("addi", ScalarArgs(rd=9, rs1=8, imm=1024)),  # 0x0400 K
-        Instruction("addi", ScalarArgs(rd=10, rs1=9, imm=1024)),  # 0x0800 V
-        Instruction("addi", ScalarArgs(rd=11, rs1=10, imm=1024)),  # 0x0C00 scale
-        Instruction("lui", ScalarArgs(rd=12, imm=0x1)),  # 0x1000 OUT_H0
-        Instruction("addi", ScalarArgs(rd=13, rs1=12, imm=1024)),  # 0x1400 OUT_H1
-        Instruction("addi", ScalarArgs(rd=14, rs1=0, imm=1024)),  # per-half size
-        # DMA loads
-        Instruction("dma.config.ch<N>", DmaArgs(rs1=0, channel=0)),
-        Instruction("dma.config.ch<N>", DmaArgs(rs1=0, channel=1)),
-        Instruction("dma.load.ch<N>", DmaArgs(rd=1, rs1=8, rs2=14, channel=0)),  # Q
-        Instruction("dma.load.ch<N>", DmaArgs(rd=2, rs1=9, rs2=14, channel=1)),  # K
-        Instruction("dma.wait.ch<N>", DmaArgs(channel=0)),
-        Instruction("dma.wait.ch<N>", DmaArgs(channel=1)),
-        Instruction("dma.load.ch<N>", DmaArgs(rd=3, rs1=10, rs2=14, channel=0)),  # V
-        Instruction(
-            "dma.load.ch<N>", DmaArgs(rd=4, rs1=11, rs2=14, channel=1)
-        ),  # scale half0
-        Instruction("dma.wait.ch<N>", DmaArgs(channel=0)),
-        Instruction("dma.wait.ch<N>", DmaArgs(channel=1)),
-        # scale is a full 32x32 broadcast tile (1024 B for each 32x16 half).
-        # Source DRAM_SCALE is 32x32 bf16 = 2048 B. We already loaded first
-        # 1024 B to VMEM[x4]; load the next 1024 B to VMEM[x5] from
-        # DRAM_SCALE+1024.
-        Instruction("addi", ScalarArgs(rd=15, rs1=11, imm=1024)),  # DRAM scale+1024
-        Instruction("dma.load.ch<N>", DmaArgs(rd=5, rs1=15, rs2=14, channel=0)),
-        Instruction("dma.wait.ch<N>", DmaArgs(channel=0)),
-        # Load MRF
-        Instruction("vload", VectorArgs(vd=0, rs1=1, imm12=0)),  # Q
-        Instruction("delay", ScalarArgs(imm=16)),
-        Instruction("vload", VectorArgs(vd=2, rs1=2, imm12=0)),  # K
-        Instruction("delay", ScalarArgs(imm=16)),
-        Instruction("vload", VectorArgs(vd=4, rs1=3, imm12=0)),  # V
-        Instruction("delay", ScalarArgs(imm=16)),
-        Instruction("vload", VectorArgs(vd=6, rs1=4, imm12=0)),  # scale half 0
-        Instruction("delay", ScalarArgs(imm=16)),
-        Instruction("vload", VectorArgs(vd=7, rs1=5, imm12=0)),  # scale half 1
-        Instruction("delay", ScalarArgs(imm=16)),
-        # Matmul 1: scores = Q @ K  (push K as weight; activation = Q)
-        Instruction("vmatpush.weight.mxu0", VectorArgs(vd=0, vs1=2)),
-        Instruction("delay", ScalarArgs(imm=16)),
-        Instruction("vmatmul.mxu0", MatrixArgs(vd=0, vs1=0, vs2=0)),
-        Instruction("delay", ScalarArgs(imm=32)),
-        Instruction("vmatpop.bf16.acc.mxu0", MatrixArgs(vd=10, vs1=0)),  # (m10,m11)
-        Instruction("delay", ScalarArgs(imm=32)),
-        # Scale: (m12, m13) = scores * scale
-        Instruction("vmul.bf16", VectorArgs(vd=12, vs1=10, vs2=6)),
-        Instruction("delay", ScalarArgs(imm=4)),
-        # Stable softmax
-        Instruction("vredmax.row.bf16", VectorArgs(vd=14, vs1=12)),
-        Instruction("delay", ScalarArgs(imm=4)),
-        Instruction("vsub.bf16", VectorArgs(vd=16, vs1=12, vs2=14)),
-        Instruction("delay", ScalarArgs(imm=4)),
-        Instruction("vexp.bf16", VectorArgs(vd=18, vs1=16)),
-        Instruction("delay", ScalarArgs(imm=16)),
-        Instruction("vredsum.row.bf16", VectorArgs(vd=20, vs1=18)),
-        Instruction("delay", ScalarArgs(imm=4)),
-        Instruction("vrecip.bf16", VectorArgs(vd=22, vs1=20)),
-        Instruction("delay", ScalarArgs(imm=16)),
-        Instruction("vmul.bf16", VectorArgs(vd=24, vs1=18, vs2=22)),
-        Instruction("delay", ScalarArgs(imm=4)),
-        # Pack probs BF16 → FP8 into m26 with unit scale (same row layout).
-        Instruction("seli", ScalarArgs(rd=0, imm=1)),
-        Instruction("vpack.bf16.fp8", VectorArgs(vd=26, vs1=24, es1=0)),
-        Instruction("delay", ScalarArgs(imm=16)),
-        # Matmul 2: out = packed_probs @ V
-        Instruction("vmatpush.weight.mxu0", VectorArgs(vd=0, vs1=4)),
-        Instruction("delay", ScalarArgs(imm=16)),
-        Instruction("vmatmul.mxu0", MatrixArgs(vd=0, vs1=26, vs2=0)),
-        Instruction("delay", ScalarArgs(imm=32)),
-        Instruction("vmatpop.bf16.acc.mxu0", MatrixArgs(vd=28, vs1=0)),  # (m28,m29)
-        Instruction("delay", ScalarArgs(imm=32)),
-        # Store out: m28 → VMEM[x6], m29 → VMEM[x7]; DMA both to DRAM.
-        Instruction("vstore", VectorArgs(vd=28, rs1=6, imm12=0)),
-        Instruction("delay", ScalarArgs(imm=16)),
-        Instruction("vstore", VectorArgs(vd=29, rs1=7, imm12=0)),
-        Instruction("delay", ScalarArgs(imm=16)),
-        Instruction("dma.store.ch<N>", DmaArgs(rd=12, rs1=6, rs2=14, channel=0)),
-        Instruction("dma.store.ch<N>", DmaArgs(rd=13, rs1=7, rs2=14, channel=1)),
-        Instruction("dma.wait.ch<N>", DmaArgs(channel=0)),
-        Instruction("dma.wait.ch<N>", DmaArgs(channel=1)),
-    ]
+    instructions: list[Instruction] = load_asm(ASM_FOLDER / 'smolvla_attention.S')
 
-    memory_regions: List[Tuple[int, torch.Tensor]] = [
+    memory_regions: list[tuple[int, torch.Tensor]] = [
         (DRAM_Q, Q),
         (DRAM_K, K),
         (DRAM_V, V),

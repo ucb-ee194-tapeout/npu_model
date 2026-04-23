@@ -5,12 +5,10 @@ This Program implements the 32x32 canonical form. The ISA uses
 ``vrecip`` + ``vmul`` (no dedicated divide op).
 """
 
-from typing import Any, List, Tuple
-
 import torch
-
-from ...software import Instruction, Program
-from npu_model.isa import DmaArgs, MatrixArgs, ScalarArgs, VectorArgs
+from npu_model.util.converter import load_asm
+from npu_model.software.instruction import Instruction
+from npu_model.software.program import Program, ASM_FOLDER
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -120,60 +118,9 @@ class SmolVLAElementwiseDivProgram(Program):
     file helpers, torch-allclose golden check via ``pytest tests/test_programs.py``.
     """
 
-    instructions: List[Instruction[Any]] = [
-        Instruction("lui", ScalarArgs(rd=1, imm=2)),
-        Instruction("addi", ScalarArgs(rd=2, rs1=1, imm=1024)),
-        Instruction("addi", ScalarArgs(rd=3, rs1=2, imm=1024)),
-        Instruction("addi", ScalarArgs(rd=4, rs1=3, imm=1024)),
-        Instruction("lui", ScalarArgs(rd=5, imm=3)),
-        Instruction("addi", ScalarArgs(rd=6, rs1=5, imm=1024)),
-        Instruction("addi", ScalarArgs(rd=7)),
-        Instruction("addi", ScalarArgs(rd=8, imm=1024)),
-        Instruction("addi", ScalarArgs(rd=9, rs1=8, imm=1024)),
-        Instruction("addi", ScalarArgs(rd=10, rs1=9, imm=1024)),
-        Instruction("lui", ScalarArgs(rd=11, imm=1)),
-        Instruction("addi", ScalarArgs(rd=11, rs1=11, imm=-1024)),
-        Instruction("addi", ScalarArgs(rd=12, rs1=11, imm=1024)),
-        Instruction("addi", ScalarArgs(rd=13, imm=1024)),
-        Instruction("dma.config.ch<N>", DmaArgs()),
-        Instruction("dma.config.ch<N>", DmaArgs(channel=1)),
-        Instruction("dma.wait.ch<N>", DmaArgs()),
-        Instruction("dma.wait.ch<N>", DmaArgs(channel=1)),
-        Instruction("dma.load.ch<N>", DmaArgs(rd=1, rs1=7, rs2=13)),
-        Instruction("dma.load.ch<N>", DmaArgs(rd=2, rs1=8, rs2=13, channel=1)),
-        Instruction("dma.wait.ch<N>", DmaArgs()),
-        Instruction("dma.wait.ch<N>", DmaArgs(channel=1)),
-        Instruction("dma.load.ch<N>", DmaArgs(rd=3, rs1=9, rs2=13)),
-        Instruction("dma.load.ch<N>", DmaArgs(rd=4, rs1=10, rs2=13, channel=1)),
-        Instruction("dma.wait.ch<N>", DmaArgs()),
-        Instruction("dma.wait.ch<N>", DmaArgs(channel=1)),
-        Instruction("vload", VectorArgs(rs1=1)),
-        Instruction("delay", ScalarArgs(imm=16)),
-        Instruction("vload", VectorArgs(vd=1, rs1=2)),
-        Instruction("delay", ScalarArgs(imm=16)),
-        Instruction("vload", VectorArgs(vd=2, rs1=3)),
-        Instruction("delay", ScalarArgs(imm=16)),
-        Instruction("vload", VectorArgs(vd=3, rs1=4)),
-        Instruction("delay", ScalarArgs(imm=16)),
-        Instruction("vrecip.bf16", VectorArgs(vd=4, vs1=2)),
-        Instruction("delay", ScalarArgs(imm=16)),
-        Instruction("vrecip.bf16", VectorArgs(vd=5, vs1=3)),
-        Instruction("delay", ScalarArgs(imm=16)),
-        Instruction("vmul.bf16", VectorArgs(vd=6, vs2=4)),
-        Instruction("delay", ScalarArgs(imm=4)),
-        Instruction("vmul.bf16", VectorArgs(vd=7, vs1=1, vs2=5)),
-        Instruction("delay", ScalarArgs(imm=4)),
-        Instruction("vstore", VectorArgs(vd=6, rs1=5)),
-        Instruction("delay", ScalarArgs(imm=16)),
-        Instruction("vstore", VectorArgs(vd=7, rs1=6)),
-        Instruction("delay", ScalarArgs(imm=16)),
-        Instruction("dma.store.ch<N>", DmaArgs(rd=11, rs1=5, rs2=13)),
-        Instruction("dma.store.ch<N>", DmaArgs(rd=12, rs1=6, rs2=13, channel=1)),
-        Instruction("dma.wait.ch<N>", DmaArgs()),
-        Instruction("dma.wait.ch<N>", DmaArgs(channel=1)),
-    ]
+    instructions: list[Instruction] = load_asm(ASM_FOLDER / 'smolvla_elementwise_div.S')
 
-    memory_regions: List[Tuple[int, torch.Tensor]] = [
+    memory_regions: list[tuple[int, torch.Tensor]] = [
         (DRAM_A_H0, INPUT_A[:, :16].contiguous()),
         (DRAM_A_H1, INPUT_A[:, 16:].contiguous()),
         (DRAM_B_H0, INPUT_B[:, :16].contiguous()),

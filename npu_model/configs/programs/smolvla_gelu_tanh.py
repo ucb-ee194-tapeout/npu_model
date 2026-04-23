@@ -11,12 +11,10 @@ The handwritten ISA loads polynomial-table constants at
 32x16 halves of GELU(x).
 """
 
-from typing import Any, List, Tuple
-
 import torch
-
-from ...software import Instruction, Program
-from npu_model.isa import DmaArgs, MatrixArgs, ScalarArgs, VectorArgs
+from npu_model.util.converter import load_asm
+from npu_model.software.instruction import Instruction
+from npu_model.software.program import Program, ASM_FOLDER
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -138,103 +136,14 @@ class SmolVLAGeluTanhProgram(Program):
     file helpers, torch-allclose golden check via ``pytest tests/test_programs.py``.
     """
 
-    instructions: List[Instruction[Any]] = [
-        Instruction("lui", ScalarArgs(rd=1, imm=2)),
-        Instruction("addi", ScalarArgs(rd=2, rs1=1, imm=1024)),
-        Instruction("addi", ScalarArgs(rd=3, rs1=2, imm=1024)),
-        Instruction("addi", ScalarArgs(rd=4, rs1=3, imm=1024)),
-        Instruction("lui", ScalarArgs(rd=5, imm=3)),
-        Instruction("addi", ScalarArgs(rd=6, rs1=5, imm=1024)),
-        Instruction("addi", ScalarArgs(rd=7, rs1=6, imm=1024)),
-        Instruction("addi", ScalarArgs(rd=8)),
-        Instruction("addi", ScalarArgs(rd=9, imm=1024)),
-        Instruction("addi", ScalarArgs(rd=10, rs1=9, imm=1024)),
-        Instruction("addi", ScalarArgs(rd=11, rs1=10, imm=1024)),
-        Instruction("lui", ScalarArgs(rd=12, imm=1)),
-        Instruction("addi", ScalarArgs(rd=12, rs1=12)),
-        Instruction("lui", ScalarArgs(rd=13, imm=1)),
-        Instruction("addi", ScalarArgs(rd=13, rs1=13, imm=1024)),
-        Instruction("lui", ScalarArgs(rd=14, imm=1)),
-        Instruction("addi", ScalarArgs(rd=14, rs1=14, imm=1024)),
-        Instruction("addi", ScalarArgs(rd=15, rs1=14, imm=1024)),
-        Instruction("addi", ScalarArgs(rd=16, imm=1024)),
-        Instruction("dma.config.ch<N>", DmaArgs()),
-        Instruction("dma.config.ch<N>", DmaArgs(channel=1)),
-        Instruction("dma.wait.ch<N>", DmaArgs()),
-        Instruction("dma.wait.ch<N>", DmaArgs(channel=1)),
-        Instruction("dma.load.ch<N>", DmaArgs(rd=1, rs1=8, rs2=16)),
-        Instruction("dma.load.ch<N>", DmaArgs(rd=2, rs1=9, rs2=16, channel=1)),
-        Instruction("dma.wait.ch<N>", DmaArgs()),
-        Instruction("dma.wait.ch<N>", DmaArgs(channel=1)),
-        Instruction("dma.load.ch<N>", DmaArgs(rd=3, rs1=10, rs2=16)),
-        Instruction("dma.load.ch<N>", DmaArgs(rd=4, rs1=11, rs2=16, channel=1)),
-        Instruction("dma.wait.ch<N>", DmaArgs()),
-        Instruction("dma.wait.ch<N>", DmaArgs(channel=1)),
-        Instruction("dma.load.ch<N>", DmaArgs(rd=5, rs1=12, rs2=16)),
-        Instruction("dma.wait.ch<N>", DmaArgs()),
-        Instruction("vload", VectorArgs(rs1=1)),
-        Instruction("delay", ScalarArgs(imm=16)),
-        Instruction("vload", VectorArgs(vd=1, rs1=2)),
-        Instruction("delay", ScalarArgs(imm=16)),
-        Instruction("vload", VectorArgs(vd=2, rs1=3)),
-        Instruction("delay", ScalarArgs(imm=16)),
-        Instruction("vload", VectorArgs(vd=3, rs1=4)),
-        Instruction("delay", ScalarArgs(imm=16)),
-        Instruction("vload", VectorArgs(vd=4, rs1=5)),
-        Instruction("delay", ScalarArgs(imm=16)),
-        Instruction("vli.all", VectorArgs(vd=5, imm=1)),
-        Instruction("vmul.bf16", VectorArgs(vd=6)),
-        Instruction("delay", ScalarArgs(imm=4)),
-        Instruction("vmul.bf16", VectorArgs(vd=7, vs1=6)),
-        Instruction("delay", ScalarArgs(imm=4)),
-        Instruction("vmul.bf16", VectorArgs(vd=8, vs1=7, vs2=3)),
-        Instruction("delay", ScalarArgs(imm=4)),
-        Instruction("vadd.bf16", VectorArgs(vd=9, vs2=8)),
-        Instruction("delay", ScalarArgs(imm=4)),
-        Instruction("vmul.bf16", VectorArgs(vd=10, vs1=9, vs2=4)),
-        Instruction("delay", ScalarArgs(imm=4)),
-        Instruction("vtanh.bf16", VectorArgs(vd=11, vs1=10)),
-        Instruction("delay", ScalarArgs(imm=16)),
-        Instruction("vadd.bf16", VectorArgs(vd=12, vs1=5, vs2=11)),
-        Instruction("delay", ScalarArgs(imm=4)),
-        Instruction("vmul.bf16", VectorArgs(vd=13, vs2=2)),
-        Instruction("delay", ScalarArgs(imm=4)),
-        Instruction("vmul.bf16", VectorArgs(vd=14, vs1=13, vs2=12)),
-        Instruction("delay", ScalarArgs(imm=4)),
-        Instruction("vmul.bf16", VectorArgs(vd=6, vs1=1, vs2=1)),
-        Instruction("delay", ScalarArgs(imm=4)),
-        Instruction("vmul.bf16", VectorArgs(vd=7, vs1=6, vs2=1)),
-        Instruction("delay", ScalarArgs(imm=4)),
-        Instruction("vmul.bf16", VectorArgs(vd=8, vs1=7, vs2=3)),
-        Instruction("delay", ScalarArgs(imm=4)),
-        Instruction("vadd.bf16", VectorArgs(vd=9, vs1=1, vs2=8)),
-        Instruction("delay", ScalarArgs(imm=4)),
-        Instruction("vmul.bf16", VectorArgs(vd=10, vs1=9, vs2=4)),
-        Instruction("delay", ScalarArgs(imm=4)),
-        Instruction("vtanh.bf16", VectorArgs(vd=11, vs1=10)),
-        Instruction("delay", ScalarArgs(imm=16)),
-        Instruction("vadd.bf16", VectorArgs(vd=12, vs1=5, vs2=11)),
-        Instruction("delay", ScalarArgs(imm=4)),
-        Instruction("vmul.bf16", VectorArgs(vd=13, vs1=1, vs2=2)),
-        Instruction("delay", ScalarArgs(imm=4)),
-        Instruction("vmul.bf16", VectorArgs(vd=15, vs1=13, vs2=12)),
-        Instruction("delay", ScalarArgs(imm=4)),
-        Instruction("vstore", VectorArgs(vd=14, rs1=6)),
-        Instruction("delay", ScalarArgs(imm=16)),
-        Instruction("vstore", VectorArgs(vd=15, rs1=7)),
-        Instruction("delay", ScalarArgs(imm=16)),
-        Instruction("dma.store.ch<N>", DmaArgs(rd=14, rs1=6, rs2=16)),
-        Instruction("dma.store.ch<N>", DmaArgs(rd=15, rs1=7, rs2=16, channel=1)),
-        Instruction("dma.wait.ch<N>", DmaArgs()),
-        Instruction("dma.wait.ch<N>", DmaArgs(channel=1)),
-    ]
+    instructions: list[Instruction] = load_asm(ASM_FOLDER / 'smolvla_gelu_tanh.S')
 
     # Leaving gelu_tanh inputs minimal — tabulated constants default
     # to zero, which means the numerical check below is a smoke
     # (will fail unless the original polynomial-table values are
     # supplied). Populate DRAM_C1..C3 with the autocomp constants to
     # enable torch.allclose.
-    memory_regions: List[Tuple[int, torch.Tensor]] = [
+    memory_regions: list[tuple[int, torch.Tensor]] = [
         (DRAM_X_H0, INPUT[:, :16].contiguous()),
         (DRAM_X_H1, INPUT[:, 16:].contiguous()),
     ]

@@ -9,13 +9,10 @@ MLIR → ISA mapping:
     arith.mulf %a %b → vmul.bf16(a_h, b_h)    (per 32x16 half)
 """
 
-from typing import Any, List, Tuple
-
 import torch
-
-from ...software import Instruction, Program
-from npu_model.isa import DmaArgs, ScalarArgs, VectorArgs
-
+from npu_model.util.converter import load_asm
+from npu_model.software.instruction import Instruction
+from npu_model.software.program import Program, ASM_FOLDER
 
 ELEMENTWISE_MUL_MLIR = """\
 func.func @elementwise_mul(
@@ -92,50 +89,9 @@ TILE_BYTES = 2048  # 32 * 32 * 2 (bf16)
 class SmolVLAElementwiseMulProgram(Program):
     """y = a * b on two 32x32 bf16 tiles (elementwise)."""
 
-    instructions: List[Instruction[Any]] = [
-        Instruction(mnemonic="lui", args=ScalarArgs(rd=1, imm=0x4)),
-        Instruction(mnemonic="lui", args=ScalarArgs(rd=2, imm=0x5)),
-        Instruction(mnemonic="lui", args=ScalarArgs(rd=3, imm=0x6)),
-        Instruction(mnemonic="addi", args=ScalarArgs(rd=4, rs1=0, imm=DRAM_A_BASE)),
-        Instruction(mnemonic="lui", args=ScalarArgs(rd=5, imm=0x1)),
-        Instruction(mnemonic="lui", args=ScalarArgs(rd=6, imm=0x2)),
-        Instruction(mnemonic="lui", args=ScalarArgs(rd=7, imm=0x1)),
-        Instruction(
-            mnemonic="addi", args=ScalarArgs(rd=7, rs1=7, imm=-2048)
-        ),  # x7 = 2048
-        Instruction(mnemonic="dma.config.ch<N>", args=DmaArgs(rs1=0, channel=0)),
-        Instruction(mnemonic="dma.config.ch<N>", args=DmaArgs(rs1=0, channel=1)),
-        Instruction(
-            mnemonic="dma.load.ch<N>", args=DmaArgs(rd=1, rs1=4, rs2=7, channel=0)
-        ),
-        Instruction(
-            mnemonic="dma.load.ch<N>", args=DmaArgs(rd=2, rs1=5, rs2=7, channel=1)
-        ),
-        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
-        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=1)),
-        Instruction(mnemonic="vload", args=VectorArgs(vd=0, rs1=1, imm12=0)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
-        Instruction(mnemonic="vload", args=VectorArgs(vd=1, rs1=1, imm12=32)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
-        Instruction(mnemonic="vload", args=VectorArgs(vd=2, rs1=2, imm12=0)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
-        Instruction(mnemonic="vload", args=VectorArgs(vd=3, rs1=2, imm12=32)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
-        Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=4, vs1=0, vs2=2)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
-        Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=5, vs1=1, vs2=3)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
-        Instruction(mnemonic="vstore", args=VectorArgs(vd=4, rs1=3, imm12=0)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
-        Instruction(mnemonic="vstore", args=VectorArgs(vd=5, rs1=3, imm12=32)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=20)),
-        Instruction(
-            mnemonic="dma.store.ch<N>", args=DmaArgs(rd=6, rs1=3, rs2=7, channel=0)
-        ),
-        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
-    ]
+    instructions: list[Instruction] = load_asm(ASM_FOLDER / 'smolvla_elementwise_mul.S')
 
-    memory_regions: List[Tuple[int, torch.Tensor]] = [
+    memory_regions: list[tuple[int, torch.Tensor]] = [
         (DRAM_A_BASE, INPUT_A),
         (DRAM_B_BASE, INPUT_B),
     ]

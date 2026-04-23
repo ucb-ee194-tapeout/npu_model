@@ -25,7 +25,7 @@ class HardwareParams:
     """ Number of elements each tree reduces, or height of systolic array, equals DL. """
 
 
-def initialize_stats() -> dict:
+def initialize_stats() -> dict[str, float]:
     return {
         "cycles": 0,
         "num_instructions": 0,
@@ -35,7 +35,7 @@ def initialize_stats() -> dict:
     }
 
 
-def simulate_output_stationary(cfg: HardwareParams, M: int, N: int, K: int) -> dict:
+def simulate_output_stationary(cfg: HardwareParams, M: int, N: int, K: int) -> dict[str, float]:
     stats = initialize_stats()
 
     input_tile_size_bytes = cfg.input_dtype_width * cfg.MT * cfg.KT
@@ -68,7 +68,7 @@ def simulate_output_stationary(cfg: HardwareParams, M: int, N: int, K: int) -> d
     return stats
 
 
-def simulate_weight_stationary(cfg: HardwareParams, M: int, N: int, K: int) -> dict:
+def simulate_weight_stationary(cfg: HardwareParams, M: int, N: int, K: int) -> dict[str, float]:
     stats = initialize_stats()
 
     input_tile_size_bytes = cfg.input_dtype_width * cfg.MT * cfg.KT
@@ -107,7 +107,7 @@ def simulate_weight_stationary_rf_reuse(
     N: int,
     K: int,
     reg_set_size: int = 4,
-) -> dict:
+) -> dict[str, float]:
     stats = initialize_stats()
 
     input_tile_size_bytes = cfg.input_dtype_width * cfg.MT * cfg.KT
@@ -177,23 +177,23 @@ def run_case_study(
     )
     print(f"  Total FLOPs: {total_flops:,}  |  Ideal cycles: {ideal_cycles:,.0f}")
 
-    ws_in = _eff(ideal_input_bytes, ws_stats["input_load_bytes"])
-    os_in = _eff(ideal_input_bytes, os_stats["input_load_bytes"])
-    ws_wt = _eff(ideal_weight_bytes, ws_stats["weight_load_bytes"])
-    os_wt = _eff(ideal_weight_bytes, os_stats["weight_load_bytes"])
-    ws_out = _eff(ideal_output_bytes, ws_stats["output_store_bytes"])
-    os_out = _eff(ideal_output_bytes, os_stats["output_store_bytes"])
+    ws_in = _eff(ideal_input_bytes, int(ws_stats["input_load_bytes"]))
+    os_in = _eff(ideal_input_bytes, int(os_stats["input_load_bytes"]))
+    ws_wt = _eff(ideal_weight_bytes, int(ws_stats["weight_load_bytes"]))
+    os_wt = _eff(ideal_weight_bytes, int(os_stats["weight_load_bytes"]))
+    ws_out = _eff(ideal_output_bytes, int(ws_stats["output_store_bytes"]))
+    os_out = _eff(ideal_output_bytes, int(os_stats["output_store_bytes"]))
     ws_total = _eff(
         ideal_input_bytes + ideal_weight_bytes + ideal_output_bytes,
-        ws_stats["input_load_bytes"]
-        + ws_stats["weight_load_bytes"]
-        + ws_stats["output_store_bytes"],
+        int(ws_stats["input_load_bytes"])
+        + int(ws_stats["weight_load_bytes"])
+        + int(ws_stats["output_store_bytes"]),
     )
     os_total = _eff(
         ideal_input_bytes + ideal_weight_bytes + ideal_output_bytes,
-        os_stats["input_load_bytes"]
-        + os_stats["weight_load_bytes"]
-        + os_stats["output_store_bytes"],
+        int(os_stats["input_load_bytes"])
+        + int(os_stats["weight_load_bytes"])
+        + int(os_stats["output_store_bytes"]),
     )
     mem_tbl = [
         [
@@ -252,8 +252,8 @@ def run_case_study(
         "os_write_bytes": os_write_bytes,
         "ws_total_bytes": ws_total_bytes,
         "os_total_bytes": os_total_bytes,
-        "ws_eff_pct": _eff_pct(ideal_total, ws_total_bytes),
-        "os_eff_pct": _eff_pct(ideal_total, os_total_bytes),
+        "ws_eff_pct": _eff_pct(ideal_total, int(ws_total_bytes)),
+        "os_eff_pct": _eff_pct(ideal_total, int(os_total_bytes)),
     }
 
 
@@ -350,7 +350,7 @@ def main():
         ("GemmaAttention KxQ", 816, 256, 816),
         ("GemmaAttention PxV", 816, 816, 256),
     ]
-    results = []
+    results: list[dict[str,Any]] = []
     for name, M, N, K in studies:
         results.append(run_case_study(name, cfg, M=M, N=N, K=K))
 

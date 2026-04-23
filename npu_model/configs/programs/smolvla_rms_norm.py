@@ -24,13 +24,10 @@ Run:
     # Expect: OK   SmolVLARmsNormProgram
 """
 
-from typing import Any, List, Tuple
-
 import torch
-
-from ...software import Instruction, Program
-from npu_model.isa import DmaArgs, ScalarArgs, VectorArgs
-
+from npu_model.util.converter import load_asm
+from npu_model.software.instruction import Instruction
+from npu_model.software.program import Program, ASM_FOLDER
 
 # ═══════════════════════════════════════════════════════════════════════════
 # 1. MLIR definition.
@@ -229,121 +226,9 @@ class SmolVLARmsNormProgram(Program):
       (m6, m7)   = X * inv_rms = Y (reuses pair 6/7)
     """
 
-    instructions: List[Instruction[Any]] = [
-        # VMEM addresses: single contiguous staging ranges per pair.
-        # x1 = VMEM X pair (m0, m1)      → base 0x2000
-        # x2 = VMEM inv_dim pair (m6, m7) → base 0x3000
-        # x3 = VMEM eps pair (m8, m9)    → base 0x4000
-        # x4 = VMEM OUT pair             → base 0x5000
-        Instruction(mnemonic="lui", args=ScalarArgs(rd=1, imm=0x2)),
-        Instruction(mnemonic="lui", args=ScalarArgs(rd=2, imm=0x3)),
-        Instruction(mnemonic="lui", args=ScalarArgs(rd=3, imm=0x4)),
-        Instruction(mnemonic="lui", args=ScalarArgs(rd=4, imm=0x5)),
-        # DRAM addresses
-        Instruction(
-            mnemonic="addi", args=ScalarArgs(rd=5, rs1=0, imm=DRAM_X_H0)
-        ),  # 0x0000
-        Instruction(mnemonic="addi", args=ScalarArgs(rd=6, rs1=5, imm=1024)),  # 0x0400
-        Instruction(mnemonic="addi", args=ScalarArgs(rd=7, rs1=6, imm=1024)),  # 0x0800
-        Instruction(mnemonic="addi", args=ScalarArgs(rd=8, rs1=7, imm=1024)),  # 0x0C00
-        Instruction(mnemonic="lui", args=ScalarArgs(rd=9, imm=0x1)),  # 0x1000 OUT_H0
-        Instruction(
-            mnemonic="addi", args=ScalarArgs(rd=10, rs1=9, imm=1024)
-        ),  # 0x1400 OUT_H1
-        Instruction(
-            mnemonic="addi", args=ScalarArgs(rd=13, rs1=0, imm=1024)
-        ),  # 1024 per-half
-        # Secondary VMEM offsets (for DMA-LOAD destinations of the second half of each pair)
-        Instruction(
-            mnemonic="addi", args=ScalarArgs(rd=11, rs1=1, imm=1024)
-        ),  # x11 = x1 + 1024 (m1 VMEM addr)
-        Instruction(
-            mnemonic="addi", args=ScalarArgs(rd=12, rs1=2, imm=1024)
-        ),  # x12 = x2 + 1024 (m7 VMEM addr)
-        Instruction(
-            mnemonic="addi", args=ScalarArgs(rd=14, rs1=3, imm=1024)
-        ),  # x14 = x3 + 1024 (m9 VMEM addr)
-        Instruction(
-            mnemonic="addi", args=ScalarArgs(rd=15, rs1=4, imm=1024)
-        ),  # x15 = x4 + 1024 (OUT m13 VMEM addr)
-        # DMA loads (X_H0, X_H1, INV_DIM+1 halves, EPS+1 halves)
-        Instruction(mnemonic="dma.config.ch<N>", args=DmaArgs(rs1=0, channel=0)),
-        Instruction(mnemonic="dma.config.ch<N>", args=DmaArgs(rs1=0, channel=1)),
-        Instruction(
-            mnemonic="dma.load.ch<N>", args=DmaArgs(rd=1, rs1=5, rs2=13, channel=0)
-        ),  # X_H0 → VMEM[x1]
-        Instruction(
-            mnemonic="dma.load.ch<N>", args=DmaArgs(rd=11, rs1=6, rs2=13, channel=1)
-        ),  # X_H1 → VMEM[x1+1024]
-        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
-        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=1)),
-        # inv_dim tile is the same 1024-B scalar-broadcast block repeated twice in VMEM for pair read
-        Instruction(
-            mnemonic="dma.load.ch<N>", args=DmaArgs(rd=2, rs1=7, rs2=13, channel=0)
-        ),  # INV_DIM → m6
-        Instruction(
-            mnemonic="dma.load.ch<N>", args=DmaArgs(rd=12, rs1=7, rs2=13, channel=1)
-        ),  # INV_DIM → m7 (same data)
-        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
-        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=1)),
-        Instruction(
-            mnemonic="dma.load.ch<N>", args=DmaArgs(rd=3, rs1=8, rs2=13, channel=0)
-        ),  # EPS → m8
-        Instruction(
-            mnemonic="dma.load.ch<N>", args=DmaArgs(rd=14, rs1=8, rs2=13, channel=1)
-        ),  # EPS → m9 (same data)
-        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
-        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=1)),
-        # Load MRF (all pair reads)
-        Instruction(mnemonic="vload", args=VectorArgs(vd=0, rs1=1, imm12=0)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
-        Instruction(mnemonic="vload", args=VectorArgs(vd=1, rs1=1, imm12=32)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
-        Instruction(mnemonic="vload", args=VectorArgs(vd=6, rs1=2, imm12=0)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
-        Instruction(mnemonic="vload", args=VectorArgs(vd=7, rs1=2, imm12=32)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
-        Instruction(mnemonic="vload", args=VectorArgs(vd=8, rs1=3, imm12=0)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
-        Instruction(mnemonic="vload", args=VectorArgs(vd=9, rs1=3, imm12=32)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
-        # (m2, m3) = X^2 (pair-op vsquare, full-tile square)
-        Instruction(mnemonic="vsquare.bf16", args=VectorArgs(vd=2, vs1=0)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
-        # (m4, m5) = row-sum(X^2)  (reduces along dim=1 over 32 cols)
-        Instruction(mnemonic="vredsum.row.bf16", args=VectorArgs(vd=4, vs1=2)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
-        # (m10, m11) = mean(X^2) = sum * inv_dim
-        Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=10, vs1=4, vs2=6)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
-        # (m12, m13) = mean + eps
-        Instruction(mnemonic="vadd.bf16", args=VectorArgs(vd=12, vs1=10, vs2=8)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
-        # (m14, m15) = sqrt(mean + eps)
-        Instruction(mnemonic="vsqrt.bf16", args=VectorArgs(vd=14, vs1=12)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
-        # (m4, m5) = 1 / sqrt (reused pair)
-        Instruction(mnemonic="vrecip.bf16", args=VectorArgs(vd=4, vs1=14)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
-        # (m6, m7) = X * inv_rms = Y  (reused pair)
-        Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=6, vs1=0, vs2=4)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
-        # Store both halves of Y
-        Instruction(mnemonic="vstore", args=VectorArgs(vd=6, rs1=4, imm12=0)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
-        Instruction(mnemonic="vstore", args=VectorArgs(vd=7, rs1=4, imm12=32)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
-        Instruction(
-            mnemonic="dma.store.ch<N>", args=DmaArgs(rd=9, rs1=4, rs2=13, channel=0)
-        ),
-        Instruction(
-            mnemonic="dma.store.ch<N>", args=DmaArgs(rd=10, rs1=15, rs2=13, channel=1)
-        ),
-        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
-        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=1)),
-    ]
+    instructions: list[Instruction] = load_asm(ASM_FOLDER / 'smolvla_rms_norm.S')
 
-    memory_regions: List[Tuple[int, torch.Tensor]] = [
+    memory_regions: list[tuple[int, torch.Tensor]] = [
         (DRAM_X_H0, _x_h0),
         (DRAM_X_H1, _x_h1),
         (DRAM_INV_DIM, _inv_dim),

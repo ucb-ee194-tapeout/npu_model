@@ -82,6 +82,11 @@ class Simulation:
 
     def run(self, max_cycles: int = 10000):
         """Run simulation until completion or max_cycles."""
+        if self.core is None:
+            raise ValueError("Attempted to run without a core.")
+        
+        if self.logger is None:
+            raise ValueError("Attempted to run without a logger.")
 
         # self.core.run(max_cycles=max_cycles)
         self.core.reset()
@@ -128,10 +133,10 @@ class Simulation:
             print("Open with Perfetto (https://ui.perfetto.dev)")
 
     def close(self) -> None:
-        if getattr(self, "core", None) is not None:
+        if self.core is not None:
             self.core.close()
             self.core = None
-        if getattr(self, "logger", None) is not None:
+        if self.logger is not None:
             self.logger.close()
             self.logger = None
         self.program = None
@@ -139,6 +144,9 @@ class Simulation:
 
     def get_stats(self) -> SimulationStatistics:
         """Get execution statistics."""
+        if self.core is None:
+            raise ValueError("Attempted to get stats without a core.")
+
         stats = SimulationStatistics(
             cycles=self.cycle_count,
             total_instructions=self.core.total_completed,
