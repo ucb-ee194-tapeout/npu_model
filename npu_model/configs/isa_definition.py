@@ -594,7 +594,9 @@ def vunpack_fp8_bf16(state: ArchState, args: VectorArgs) -> None:
     funct7=0b1001000,
 )
 def vrelu_bf16(state: ArchState, args: VectorArgs) -> None:
-    _write_mrf_bf16_pair(state, args.vd, torch.relu(_read_mrf_bf16_pair(state, args.vs1)))
+    _write_mrf_bf16_pair(
+        state, args.vd, torch.relu(_read_mrf_bf16_pair(state, args.vs1))
+    )
 
 
 @instr(

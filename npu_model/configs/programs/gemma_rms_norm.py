@@ -141,4 +141,7 @@ class GemmaRmsNormProgram(Program):
     # FIXME: Re-derive a standalone golden reference for the pair-register BF16
     # VPU path. The current kernel wiring is exercised by simulation, but the
     # previous float-side golden no longer matches the staged BF16 execution.
-    golden_result = None
+    golden_result: tuple[int, torch.Tensor] = (
+        DRAM_OUTPUT_BASE,
+        gemma_rms_norm_forward(INPUT_DATA).to(torch.bfloat16),
+    )
