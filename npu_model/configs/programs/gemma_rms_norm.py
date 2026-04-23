@@ -17,24 +17,24 @@ VMEM_EPS_BASE = 0x2800
 VMEM_OUTPUT_BASE = 0x3000
 
 
-def _gemma_rms_norm_program_reference(
-    x: torch.Tensor, eps: float = EPS
-) -> torch.Tensor:
-    state = ArchState(DefaultHardwareConfig().arch_state_config)
-    x_bf16 = x.to(torch.bfloat16).contiguous()
-    state.write_mrf_bf16_tile(0, x_bf16)
-    state.write_mrf_bf16_tile(2, torch.full_like(x_bf16, eps, dtype=torch.bfloat16))
-    state.write_mrf_bf16(8, torch.full((32, 16), x.shape[-1], dtype=torch.bfloat16))
-    state.write_mrf_bf16(9, torch.full((32, 16), x.shape[-1], dtype=torch.bfloat16))
-    vmul_bf16(state, VectorArgs(vd=4, vs1=0, vs2=0))
-    vredsum_row_bf16(state, VectorArgs(vd=6, vs1=4))
-    vrecip_bf16(state, VectorArgs(vd=10, vs1=8))
-    vmul_bf16(state, VectorArgs(vd=12, vs1=6, vs2=10))
-    vadd_bf16(state, VectorArgs(vd=14, vs1=12, vs2=2))
-    vsqrt_bf16(state, VectorArgs(vd=16, vs1=14))
-    vrecip_bf16(state, VectorArgs(vd=18, vs1=16))
-    vmul_bf16(state, VectorArgs(vd=20, vs1=0, vs2=18))
-    return state.read_mrf_bf16_tile(20).clone()
+# def _gemma_rms_norm_program_reference(
+#     x: torch.Tensor, eps: float = EPS
+# ) -> torch.Tensor:
+#     state = ArchState(DefaultHardwareConfig().arch_state_config)
+#     x_bf16 = x.to(torch.bfloat16).contiguous()
+#     state.write_mrf_bf16_tile(0, x_bf16)
+#     state.write_mrf_bf16_tile(2, torch.full_like(x_bf16, eps, dtype=torch.bfloat16))
+#     state.write_mrf_bf16(8, torch.full((32, 16), x.shape[-1], dtype=torch.bfloat16))
+#     state.write_mrf_bf16(9, torch.full((32, 16), x.shape[-1], dtype=torch.bfloat16))
+#     vmul_bf16(state, VectorArgs(vd=4, vs1=0, vs2=0))
+#     vredsum_row_bf16(state, VectorArgs(vd=6, vs1=4))
+#     vrecip_bf16(state, VectorArgs(vd=10, vs1=8))
+#     vmul_bf16(state, VectorArgs(vd=12, vs1=6, vs2=10))
+#     vadd_bf16(state, VectorArgs(vd=14, vs1=12, vs2=2))
+#     vsqrt_bf16(state, VectorArgs(vd=16, vs1=14))
+#     vrecip_bf16(state, VectorArgs(vd=18, vs1=16))
+#     vmul_bf16(state, VectorArgs(vd=20, vs1=0, vs2=18))
+#     return state.read_mrf_bf16_tile(20).clone()
 
 
 

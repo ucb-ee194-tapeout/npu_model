@@ -109,7 +109,7 @@ class IType[RD: (ScalarReg, ExponentReg) = ScalarReg, IMM: (Imm12, SBImm12) = Im
         cls.funct3 = Funct3(funct3)
         IsaSpec.I[mnemonic] = cls
         return super().__init_subclass__(exu, mnemonic, opcode, instr=True)
-    
+
 class SType(Instruction, instr=False):
     funct3: Funct3    = NotImplemented
     rs1: ScalarReg    = ScalarReg(0)
@@ -118,8 +118,12 @@ class SType(Instruction, instr=False):
 
     def to_bytecode(self):
         imm_b = _mask(self.imm, 12)
-        imm1_b = imm_b & 0b000011111111
-        imm2_b = (imm_b & 0b111100000000) >> 8
+
+        # RISC-V Standard Split:
+        # imm_high = bits 11 down to 5
+        # imm_low  = bits 4 down to 0
+        imm_high = (imm_b >> 5) & 0x7F
+        imm_low = imm_b & 0x1F
 
         rs2_b = _mask(self.rs2, 5)
         rs1_b = _mask(self.rs1, 5)
@@ -127,14 +131,14 @@ class SType(Instruction, instr=False):
         opcode_b = _mask(self.opcode, 7)
 
         return (
-            (imm1_b << 24)
-            | (rs2_b << 19)
-            | (rs1_b << 14)
-            | (funct3_b << 11)
-            | (imm2_b << 7)
+            (imm_high << 25)
+            | (rs2_b << 20)
+            | (rs1_b << 15)
+            | (funct3_b << 12)
+            | (imm_low << 7)
             | opcode_b
         )
-    
+
     def __init_subclass__(cls, exu: EXU, opcode: OpcodeL, funct3: Funct3L, mnemonic: str | None = None) -> None:
         mnemonic = mnemonic if mnemonic != None else cls.__name__.lower().replace("_",".")
         cls.funct3 = Funct3(funct3)
@@ -148,25 +152,29 @@ class SBType(Instruction, instr=False):
     imm: SBImm12      = SBImm12(0)
 
     def to_bytecode(self):
+        # Branch immediates are 13 bits (bit 0 is always 0)
         imm_b = _mask(self.imm, 13)
-        imm12_b = (imm_b >> 12) & 1
-        imm49_b = (imm_b >> 5) & 0x3F
-        imm04_b = (imm_b >> 1) & 0xF
-        imm11_b = (imm_b >> 11) & 1
-        rs2_b = _mask(self.rs2, 5)
-        rs1_b = _mask(self.rs1, 5)
+        
+        # Extract bits exactly per the RISC-V ISA spec
+        imm12    = (imm_b >> 12) & 0x1    # bit 12
+        imm11    = (imm_b >> 11) & 0x1    # bit 11
+        imm10_5  = (imm_b >> 5)  & 0x3F   # bits 10:5 (6 bits)
+        imm4_1   = (imm_b >> 1)  & 0xF    # bits 4:1  (4 bits)
+
+        rs2_b    = _mask(self.rs2, 5)
+        rs1_b    = _mask(self.rs1, 5)
         funct3_b = _mask(self.funct3, 3)
         opcode_b = _mask(self.opcode, 7)
 
         return (
-            (imm12_b << 31)
-            | (imm49_b << 25)
-            | (rs2_b << 20)
-            | (rs1_b << 15)
-            | (funct3_b << 12)
-            | (imm04_b << 8)
-            | (imm11_b << 4)
-            | opcode_b
+            (imm12 << 31)    |
+            (imm10_5 << 25)  |
+            (rs2_b << 20)    |
+            (rs1_b << 15)    |
+            (funct3_b << 12) |
+            (imm4_1 << 8)    | # bits 4:1 go to bits 11:8
+            (imm11 << 7)     | # bit 11 goes to bit 7
+            opcode_b
         )
     
     def __init_subclass__(cls, exu: EXU, opcode: OpcodeL, funct3: Funct3L, mnemonic: str | None = None) -> None:
@@ -217,7 +225,7 @@ class UJType(Instruction, instr=False):
         mnemonic = mnemonic if mnemonic != None else cls.__name__.lower().replace("_",".")
         IsaSpec.UJ[mnemonic] = cls
         return super().__init_subclass__(exu, mnemonic, opcode, instr=True)
-    
+
 class VLSType(Instruction, instr=False):
     funct2: Funct2 = NotImplemented
     vd: MatrixReg  = MatrixReg(0)
@@ -249,16 +257,20 @@ class VRType[VD: (MatrixReg,Accumulator,WeightBuffer) = MatrixReg, VS2: (MatrixR
     def to_bytecode(self):
         vs1 = self.vs1 if hasattr(self, 'vs1') else (self.es1 if hasattr(self, 'es1') else 0)
         vs2 = self.vs2 if hasattr(self, 'vs2') else 0
-        vd  = self.vd if hasattr(self, 'vd') else 0
+        vd  = self.vd  if hasattr(self, 'vd')  else 0
 
-        funct7_b = _mask(self.funct7, 7)
-        vs2_b = _mask(vs2, 6)
-        vs1_b = _mask(vs1, 6)
-        vd_b = _mask(vd, 6)
-        opcode_b = _mask(self.opcode, 7)
+        funct7_b = _mask(self.funct7, 7) # Bits 31:25
+        vs2_b    = _mask(vs2, 5)          # Bits 24:20 (5 bits)
+        vs1_b    = _mask(vs1, 7)          # Bits 19:13 (7 bits)
+        vd_b     = _mask(vd, 6)           # Bits 12:7  (6 bits)
+        opcode_b = _mask(self.opcode, 7)  # Bits 6:0
 
         return (
-            (funct7_b << 25) | (vs2_b << 19) | (vs1_b << 13) << (vd_b << 7) | opcode_b
+            (funct7_b << 25) | 
+            (vs2_b << 19)    | # Fixed: Shift 20 puts vs2 in 24:20
+            (vs1_b << 13)    | # Fixed: Shift 13 puts vs1 in 19:13
+            (vd_b << 7)      | 
+            opcode_b
         )
         
     def __init_subclass__(cls, exu: EXU, opcode: OpcodeL, funct7: Funct7L, mnemonic: str | None = None) -> None:

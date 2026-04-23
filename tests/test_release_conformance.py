@@ -14,14 +14,19 @@ from tests.helpers import run_simulation
 
 
 def encode_s_type(opcode: int, funct3: int, rs1: int, rs2: int, imm: int) -> int:
+    # Ensure immediate is treated as a 12-bit signed value
     imm &= 0xFFF
+
+    imm_11_5 = (imm >> 5) & 0x7F  # Top 7 bits
+    imm_4_0 = imm & 0x1F  # Bottom 5 bits
+
     return (
-        (((imm >> 5) & 0x7F) << 25)
-        | ((rs2 & 0x1F) << 20)
-        | ((rs1 & 0x1F) << 15)
-        | ((funct3 & 0x7) << 12)
-        | ((imm & 0x1F) << 7)
-        | (opcode & 0x7F)
+        (imm_11_5 << 25)  # imm[11:5] at bits 31:25
+        | ((rs2 & 0x1F) << 20)  # rs2 at bits 24:20
+        | ((rs1 & 0x1F) << 15)  # rs1 at bits 19:15
+        | ((funct3 & 0x7) << 12)  # funct3 at bits 14:12
+        | (imm_4_0 << 7)  # imm[4:0] at bits 11:7
+        | (opcode & 0x7F)  # opcode at bits 6:0
     )
 
 
@@ -90,7 +95,7 @@ def test_taken_branch_executes_exactly_two_delay_slots_before_redirect() -> None
     instrs: list[Instruction] = [
         ADDI(rd=x(1), rs1=x(0), imm=1),
         ADDI(rd=x(4), rs1=x(0), imm=0),
-        BEQ(rs1=x(1), rs2=x(1), imm=4),
+        BEQ(rs1=x(1), rs2=x(1), imm=16),
         ADDI(rd=x(2), rs1=x(0), imm=11),
         ADDI(rd=x(3), rs1=x(0), imm=22),
         ADDI(rd=x(4), rs1=x(0), imm=99),
