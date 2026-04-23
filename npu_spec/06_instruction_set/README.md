@@ -1,4 +1,4 @@
-# Atlas Accelerator Instruction Green Card
+# Penguin TPU (Atlas Accelerator) Instruction Green Card
 
 Conventions used in the opcode tables:
 
