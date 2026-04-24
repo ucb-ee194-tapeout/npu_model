@@ -213,7 +213,7 @@ _eps = torch.full((32, 16), 1e-6, dtype=torch.bfloat16)
 
 
 class SmolVLARmsNormProgram(Program):
-    """y = x * rsqrt(mean(x^2) + eps). 32x32 bf16 tile, no learnable scale.
+    """y = x * rsqrt(mean(x^2) + eps). 32x32 bf16 tile, no learnable scale. cycles: ~707
 
     Pair-op rewrite: (m0, m1) is the (32,32) input tile; vredsum.row.bf16
     reduces all 32 columns in one shot. Mreg layout:

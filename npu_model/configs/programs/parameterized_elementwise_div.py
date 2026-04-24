@@ -1,13 +1,18 @@
 """Parameterized elementwise divide kernel: C = A / B for arbitrary M×N.
 
-Uses vrecip.bf16 + vmul.bf16 (no dedicated divide instruction).  Both
-inputs and output are stored in tiled row-major bf16 layout (2048 B per
-32×32 tile), matching the smolvla_elementwise_add convention.
+Uses vrecip.bf16 + vmul.bf16 (no dedicated divide instruction). Uses a
+hardware counted loop over all tiles. Each tile is 2048 B bf16.
 
 Constraints:
     - M and N must be multiples of 32.
 
 VMEM slots: VMEM_A=0x2000, VMEM_B=0x2800, VMEM_C=0x3000 (each 2 KB).
+
+Scalar register map:
+    x1  VMEM_A    x2  VMEM_B    x3  VMEM_C
+    x4  TILE_BYTES_BF16 (2048, also used as pointer stride)
+    x5  dram_a pointer    x6  dram_b pointer    x7  dram_c pointer
+    x8  loop counter      x9  total_tiles (loop limit)
 """
 
 from typing import Any, List, Tuple
@@ -40,14 +45,6 @@ def _emit_load_imm32(rd: int, value: int, out: list[Instruction]) -> None:
         out.append(Instruction("addi", ScalarArgs(rd=rd, rs1=0, imm=lower)))
 
 
-def _emit_load_vmem_addr(rd: int, vmem_addr: int, out: list[Instruction]) -> None:
-    _emit_load_imm32(rd, vmem_addr, out)
-
-
-def _bf16_tile_offset(m: int, n: int, N: int) -> int:
-    return (m * (N // TILE) + n) * TILE_BYTES_BF16
-
-
 def _tile_matrix_bf16(mat: torch.Tensor, M: int, N: int) -> torch.Tensor:
     M_tiles = M // TILE
     N_tiles = N // TILE
@@ -68,65 +65,72 @@ def make_elementwise_div_instructions(
 ) -> list[Instruction]:
     """Generate the full instruction list for an M×N elementwise divide.
 
-    ISA: (v4,v5) = vrecip(v2,v3); (v6,v7) = vmul(v0,v4, v1,v5).
+    ISA: (v4,v5) = vrecip(v2,v3); (v6,v7) = vmul(v0,v4).
     """
     assert M % TILE == 0 and N % TILE == 0
-    M_tiles = M // TILE
-    N_tiles = N // TILE
+    total_tiles = (M // TILE) * (N // TILE)
+    nop = Instruction("addi", ScalarArgs(rd=0, rs1=0, imm=0))
 
     insns: list[Instruction] = []
-    _emit_load_vmem_addr(1, VMEM_A, insns)
-    _emit_load_vmem_addr(2, VMEM_B, insns)
-    _emit_load_vmem_addr(3, VMEM_C, insns)
+
+    _emit_load_imm32(1, 0x2000, insns)
+    _emit_load_imm32(2, 0x2800, insns)
+    _emit_load_imm32(3, 0x3000, insns)
     _emit_load_imm32(4, TILE_BYTES_BF16, insns)
+    _emit_load_imm32(5, dram_a, insns)
+    _emit_load_imm32(6, dram_b, insns)
+    _emit_load_imm32(7, dram_c, insns)
+    insns.append(Instruction("addi", ScalarArgs(rd=8, rs1=0, imm=0)))
+    _emit_load_imm32(9, total_tiles, insns)
 
     insns.append(Instruction("dma.config.ch<N>", DmaArgs(channel=0)))
     insns.append(Instruction("dma.config.ch<N>", DmaArgs(channel=1)))
     insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=0)))
     insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=1)))
 
-    for m in range(M_tiles):
-        for n in range(N_tiles):
-            a_addr = dram_a + _bf16_tile_offset(m, n, N)
-            b_addr = dram_b + _bf16_tile_offset(m, n, N)
-            c_addr = dram_c + _bf16_tile_offset(m, n, N)
+    loop_start = len(insns)
 
-            _emit_load_imm32(5, a_addr, insns)
-            _emit_load_imm32(6, b_addr, insns)
+    insns.append(Instruction("dma.load.ch<N>", DmaArgs(rd=1, rs1=5, rs2=4, channel=0)))
+    insns.append(Instruction("dma.load.ch<N>", DmaArgs(rd=2, rs1=6, rs2=4, channel=1)))
+    insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=0)))
+    insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=1)))
 
-            insns.append(Instruction("dma.load.ch<N>", DmaArgs(rd=1, rs1=5, rs2=4, channel=0)))
-            insns.append(Instruction("dma.load.ch<N>", DmaArgs(rd=2, rs1=6, rs2=4, channel=1)))
-            insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=0)))
-            insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=1)))
+    # v0, v1 = A halves; v2, v3 = B halves
+    insns.append(Instruction("vload", VectorArgs(vd=0, rs1=1, imm12=0)))
+    insns.append(Instruction("delay", ScalarArgs(imm=34)))
+    insns.append(Instruction("vload", VectorArgs(vd=1, rs1=1, imm12=32)))
+    insns.append(Instruction("delay", ScalarArgs(imm=34)))
+    insns.append(Instruction("vload", VectorArgs(vd=2, rs1=2, imm12=0)))
+    insns.append(Instruction("delay", ScalarArgs(imm=34)))
+    insns.append(Instruction("vload", VectorArgs(vd=3, rs1=2, imm12=32)))
+    insns.append(Instruction("delay", ScalarArgs(imm=34)))
 
-            # v0, v1 = A halves; v2, v3 = B halves
-            insns.append(Instruction("vload", VectorArgs(vd=0, rs1=1, imm12=0)))
-            insns.append(Instruction("delay", ScalarArgs(imm=16)))
-            insns.append(Instruction("vload", VectorArgs(vd=1, rs1=1, imm12=32)))
-            insns.append(Instruction("delay", ScalarArgs(imm=16)))
-            insns.append(Instruction("vload", VectorArgs(vd=2, rs1=2, imm12=0)))
-            insns.append(Instruction("delay", ScalarArgs(imm=16)))
-            insns.append(Instruction("vload", VectorArgs(vd=3, rs1=2, imm12=32)))
-            insns.append(Instruction("delay", ScalarArgs(imm=16)))
+    # (v4, v5) = 1/B
+    insns.append(Instruction("vrecip.bf16", VectorArgs(vd=4, vs1=2)))
+    insns.append(Instruction("delay", ScalarArgs(imm=66)))
 
-            # (v4, v5) = 1/B  — pair-op writes both
-            insns.append(Instruction("vrecip.bf16", VectorArgs(vd=4, vs1=2)))
-            insns.append(Instruction("delay", ScalarArgs(imm=66)))
+    # (v6, v7) = A/B = A * (1/B)
+    insns.append(Instruction("vmul.bf16", VectorArgs(vd=6, vs1=0, vs2=4)))
+    insns.append(Instruction("delay", ScalarArgs(imm=66)))
 
-            # (v6, v7) = A * (1/B) = A/B  — pair-op writes both
-            insns.append(Instruction("vmul.bf16", VectorArgs(vd=6, vs1=0, vs2=4)))
-            insns.append(Instruction("delay", ScalarArgs(imm=66)))
+    insns.append(Instruction("vstore", VectorArgs(vd=6, rs1=3, imm12=0)))
+    insns.append(Instruction("delay", ScalarArgs(imm=34)))
+    insns.append(Instruction("vstore", VectorArgs(vd=7, rs1=3, imm12=32)))
+    insns.append(Instruction("delay", ScalarArgs(imm=34)))
 
-            insns.append(Instruction("vstore", VectorArgs(vd=6, rs1=3, imm12=0)))
-            insns.append(Instruction("delay", ScalarArgs(imm=16)))
-            insns.append(Instruction("vstore", VectorArgs(vd=7, rs1=3, imm12=32)))
-            insns.append(Instruction("delay", ScalarArgs(imm=20)))
+    insns.append(Instruction("dma.store.ch<N>", DmaArgs(rd=7, rs1=3, rs2=4, channel=0)))
+    insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=0)))
 
-            _emit_load_imm32(8, c_addr, insns)
-            insns.append(Instruction("dma.store.ch<N>", DmaArgs(rd=8, rs1=3, rs2=4, channel=0)))
-            insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=0)))
+    insns.append(Instruction("add", ScalarArgs(rd=5, rs1=5, rs2=4)))
+    insns.append(Instruction("add", ScalarArgs(rd=6, rs1=6, rs2=4)))
+    insns.append(Instruction("add", ScalarArgs(rd=7, rs1=7, rs2=4)))
+    insns.append(Instruction("addi", ScalarArgs(rd=8, rs1=8, imm=1)))
 
-    insns.append(Instruction("ecall", ScalarArgs()))
+    blt_idx = len(insns)
+    insns.append(Instruction("blt", ScalarArgs(rs1=8, rs2=9, imm=loop_start - blt_idx)))
+    insns.append(nop)
+    insns.append(nop)
+
     return insns
 
 
@@ -144,7 +148,6 @@ def _make_program(M: int, N: int, seed: int):
     torch.manual_seed(seed)
     a = torch.randn(M, N, dtype=torch.bfloat16)
     b = torch.randn(M, N, dtype=torch.bfloat16)
-    # Avoid near-zero denominators
     b = torch.where(b.abs() < 0.25, torch.full_like(b, 0.5), b)
     expected = elementwise_div_reference(a, b)
 
@@ -161,7 +164,7 @@ _32_insns, _32_regions, _32_golden = _make_program(32, 32, seed=40)
 
 
 class ParameterizedElementwiseDiv32x32Program(Program):
-    """Elementwise divide on a single 32×32 bf16 tile."""
+    """Elementwise divide on a single 32x32 bf16 tile."""
 
     instructions: List[Instruction[Any]] = _32_insns
     memory_regions: List[Tuple[int, torch.Tensor]] = _32_regions
@@ -172,7 +175,7 @@ _64_insns, _64_regions, _64_golden = _make_program(64, 64, seed=41)
 
 
 class ParameterizedElementwiseDiv64x64Program(Program):
-    """Elementwise divide on a 64×64 bf16 tensor (2×2 tiles)."""
+    """Elementwise divide on a 64x64 bf16 tensor (2x2 tiles)."""
 
     instructions: List[Instruction[Any]] = _64_insns
     memory_regions: List[Tuple[int, torch.Tensor]] = _64_regions
@@ -183,7 +186,7 @@ _64x32_insns, _64x32_regions, _64x32_golden = _make_program(64, 32, seed=42)
 
 
 class ParameterizedElementwiseDiv64x32Program(Program):
-    """Elementwise divide on a 64×32 bf16 tensor (2×1 tiles)."""
+    """Elementwise divide on a 64x32 bf16 tensor (2x1 tiles)."""
 
     instructions: List[Instruction[Any]] = _64x32_insns
     memory_regions: List[Tuple[int, torch.Tensor]] = _64x32_regions

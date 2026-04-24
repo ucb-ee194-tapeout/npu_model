@@ -151,7 +151,7 @@ TILE_BYTES = 2048
 
 
 class SmolVLAFusedNormScaleProgram(Program):
-    """fused_norm_scale: out[i,j] = matrix[i,j] * rsqrt(variance[i,j])."""
+    """fused_norm_scale: out[i,j] = matrix[i,j] * rsqrt(variance[i,j]). cycles: ~402"""
 
     instructions: List[Instruction[Any]] = [
         # Scalar setup

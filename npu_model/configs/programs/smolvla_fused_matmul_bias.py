@@ -169,7 +169,7 @@ BF16_BYTES = 2048
 
 
 class SmolVLAFusedMatmulBiasProgram(Program):
-    """fused_matmul_bias: (A_fp8 @ B_fp8)_bf16 + bias_bf16."""
+    """fused_matmul_bias: (A_fp8 @ B_fp8)_bf16 + bias_bf16. cycles: ~430 (mxu0-bound)"""
 
     instructions: List[Instruction[Any]] = [
         # Scalar setup — VMEM addresses

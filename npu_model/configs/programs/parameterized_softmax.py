@@ -1,26 +1,23 @@
 """Parameterized row-wise stable softmax kernel for M×32 bf16 tensors.
 
-N is fixed at 32.  M must be a multiple of 32.  Each group of 32 rows is
-processed independently using the col-blocked layout:
-  H0 = cols  0–15  (1024 B bf16 32×16)
-  H1 = cols 16–31  (1024 B bf16 32×16)
+N is fixed at 32. M must be a multiple of 32. Uses a hardware counted
+loop over groups of 32 rows (M_groups iterations).
 
-DRAM layout (per _make_program):
-  [dram_x  ]  M_groups × 2 × 1024 B  — col-blocked input
-  [dram_out ]  M_groups × 2 × 1024 B  — col-blocked output
+Col-blocked layout (H0 = cols 0-15, H1 = cols 16-31 per group):
+  dram_x:   M_groups * 2 * 1024 B input
+  dram_out: M_groups * 2 * 1024 B output
 
 VMEM slots:
-  0x2000  VMEM_X   2 KB — current input pair  (H0 at +0, H1 at +1024)
-  0x3000  VMEM_OUT 2 KB — current output pair (H0 at +0, H1 at +1024)
+  0x2000  VMEM_X   2 KB (H0 at +0, H1 at +1024)
+  0x3000  VMEM_OUT 2 KB (H0 at +0, H1 at +1024)
 
-MRF layout per group:
-  (v0,  v1 ) = X
-  (v2,  v3 ) = rowmax(X)   via vredmax.row.bf16
-  (v4,  v5 ) = X − rowmax  via vsub.bf16
-  (v6,  v7 ) = exp(X−max)  via vexp.bf16
-  (v8,  v9 ) = rowsum(exp) via vredsum.row.bf16
-  (v10, v11) = 1/rowsum    via vrecip.bf16
-  (v12, v13) = Y = exp * inv_rowsum
+Scalar register map:
+    x1  VMEM_X    x2  VMEM_OUT    x3  HALF_BYTES (1024)
+    x4  VMEM_X + 1024 (H1 dest)  x5  VMEM_OUT + 1024 (H1 source for DMA)
+    x6  dram_x ptr (H0, advances by 2048 per group)
+    x7  dram_out ptr (H0, advances by 2048 per group)
+    x8  group counter    x9  M_groups (limit)    x10  2048 (group stride)
+    x11  H1 input addr (computed per iter)    x12  H1 output addr (computed per iter)
 """
 
 from typing import Any, List, Tuple
@@ -52,13 +49,7 @@ def _emit_load_imm32(rd: int, value: int, out: list[Instruction]) -> None:
         out.append(Instruction("addi", ScalarArgs(rd=rd, rs1=0, imm=lower)))
 
 
-def _emit_load_vmem_addr(rd: int, vmem_addr: int, out: list[Instruction]) -> None:
-    _emit_load_imm32(rd, vmem_addr, out)
-
-
 def _colblock_bf16(mat: torch.Tensor, M: int) -> torch.Tensor:
-    """Arrange M×32 into col-blocked format: for each 32-row group,
-    H0 (cols 0–15) then H1 (cols 16–31)."""
     parts = []
     for g in range(M // TILE):
         group = mat[g * TILE : (g + 1) * TILE, :]
@@ -68,7 +59,6 @@ def _colblock_bf16(mat: torch.Tensor, M: int) -> torch.Tensor:
 
 
 def softmax_reference(x: torch.Tensor) -> torch.Tensor:
-    """Row-wise stable softmax matching the bf16 ISA sequence."""
     xf = x.float()
     xm = xf - xf.max(dim=-1, keepdim=True).values
     ex = xm.exp()
@@ -80,89 +70,89 @@ def make_softmax_instructions(
     dram_x: int,
     dram_out: int,
 ) -> list[Instruction]:
-    """Generate instructions for an M×32 row-wise softmax.
-
-    Scalar register map:
-        x1  VMEM_X base   x2  VMEM_OUT base   x3  HALF_BYTES (1024)
-        x4  VMEM_X + 1024 (X_H1 VMEM dest)   x5  VMEM_OUT + 1024 (for dma.store H1)
-    Per-group scratch: x6, x7
-    """
+    """Generate instructions for an M×32 row-wise softmax."""
     assert M % TILE == 0
     M_groups = M // TILE
+    nop = Instruction("addi", ScalarArgs(rd=0, rs1=0, imm=0))
 
     insns: list[Instruction] = []
 
-    _emit_load_vmem_addr(1, VMEM_X, insns)
-    _emit_load_vmem_addr(2, VMEM_OUT, insns)
+    _emit_load_imm32(1, VMEM_X, insns)
+    _emit_load_imm32(2, VMEM_OUT, insns)
     _emit_load_imm32(3, HALF_BYTES, insns)
-    _emit_load_imm32(4, VMEM_X + HALF_BYTES, insns)    # VMEM_X_H1
-    _emit_load_imm32(5, VMEM_OUT + HALF_BYTES, insns)  # VMEM_OUT_H1
+    _emit_load_imm32(4, VMEM_X + HALF_BYTES, insns)
+    _emit_load_imm32(5, VMEM_OUT + HALF_BYTES, insns)
+    _emit_load_imm32(6, dram_x, insns)
+    _emit_load_imm32(7, dram_out, insns)
+    insns.append(Instruction("addi", ScalarArgs(rd=8, rs1=0, imm=0)))
+    _emit_load_imm32(9, M_groups, insns)
+    _emit_load_imm32(10, 2 * HALF_BYTES, insns)
 
     insns.append(Instruction("dma.config.ch<N>", DmaArgs(channel=0)))
     insns.append(Instruction("dma.config.ch<N>", DmaArgs(channel=1)))
     insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=0)))
     insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=1)))
 
-    for g in range(M_groups):
-        x_h0 = dram_x + g * 2 * HALF_BYTES
-        x_h1 = x_h0 + HALF_BYTES
+    loop_start = len(insns)
 
-        _emit_load_imm32(6, x_h0, insns)
-        _emit_load_imm32(7, x_h1, insns)
+    # H1 addresses = H0 + HALF_BYTES
+    insns.append(Instruction("add", ScalarArgs(rd=11, rs1=6, rs2=3)))
+    insns.append(Instruction("add", ScalarArgs(rd=12, rs1=7, rs2=3)))
 
-        # DMA X_H0 → VMEM[x1], X_H1 → VMEM[x4] (parallel)
-        insns.append(Instruction("dma.load.ch<N>", DmaArgs(rd=1, rs1=6, rs2=3, channel=0)))
-        insns.append(Instruction("dma.load.ch<N>", DmaArgs(rd=4, rs1=7, rs2=3, channel=1)))
-        insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=0)))
-        insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=1)))
+    insns.append(Instruction("dma.load.ch<N>", DmaArgs(rd=1, rs1=6, rs2=3, channel=0)))
+    insns.append(Instruction("dma.load.ch<N>", DmaArgs(rd=4, rs1=11, rs2=3, channel=1)))
+    insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=0)))
+    insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=1)))
 
-        # vload (v0, v1) = X
-        insns.append(Instruction("vload", VectorArgs(vd=0, rs1=1, imm12=0)))
-        insns.append(Instruction("delay", ScalarArgs(imm=16)))
-        insns.append(Instruction("vload", VectorArgs(vd=1, rs1=1, imm12=32)))
-        insns.append(Instruction("delay", ScalarArgs(imm=16)))
+    insns.append(Instruction("vload", VectorArgs(vd=0, rs1=1, imm12=0)))
+    insns.append(Instruction("delay", ScalarArgs(imm=34)))
+    insns.append(Instruction("vload", VectorArgs(vd=1, rs1=1, imm12=32)))
+    insns.append(Instruction("delay", ScalarArgs(imm=34)))
 
-        # (v2, v3) = rowmax(X)
-        insns.append(Instruction("vredmax.row.bf16", VectorArgs(vd=2, vs1=0)))
-        insns.append(Instruction("delay", ScalarArgs(imm=69)))
+    # (v2, v3) = rowmax(X)
+    insns.append(Instruction("vredmax.row.bf16", VectorArgs(vd=2, vs1=0)))
+    insns.append(Instruction("delay", ScalarArgs(imm=34)))
 
-        # (v4, v5) = X − rowmax
-        insns.append(Instruction("vsub.bf16", VectorArgs(vd=4, vs1=0, vs2=2)))
-        insns.append(Instruction("delay", ScalarArgs(imm=66)))
+    # (v4, v5) = X - rowmax
+    insns.append(Instruction("vsub.bf16", VectorArgs(vd=4, vs1=0, vs2=2)))
+    insns.append(Instruction("delay", ScalarArgs(imm=66)))
 
-        # (v6, v7) = exp(X − rowmax)
-        insns.append(Instruction("vexp.bf16", VectorArgs(vd=6, vs1=4)))
-        insns.append(Instruction("delay", ScalarArgs(imm=66)))
+    # (v6, v7) = exp(X - rowmax)
+    insns.append(Instruction("vexp.bf16", VectorArgs(vd=6, vs1=4)))
+    insns.append(Instruction("delay", ScalarArgs(imm=66)))
 
-        # (v8, v9) = rowsum(exp)
-        insns.append(Instruction("vredsum.row.bf16", VectorArgs(vd=8, vs1=6)))
-        insns.append(Instruction("delay", ScalarArgs(imm=69)))
+    # (v8, v9) = rowsum(exp)
+    insns.append(Instruction("vredsum.row.bf16", VectorArgs(vd=8, vs1=6)))
+    insns.append(Instruction("delay", ScalarArgs(imm=39)))
 
-        # (v10, v11) = 1/rowsum
-        insns.append(Instruction("vrecip.bf16", VectorArgs(vd=10, vs1=8)))
-        insns.append(Instruction("delay", ScalarArgs(imm=66)))
+    # (v10, v11) = 1/rowsum
+    insns.append(Instruction("vrecip.bf16", VectorArgs(vd=10, vs1=8)))
+    insns.append(Instruction("delay", ScalarArgs(imm=66)))
 
-        # (v12, v13) = exp * inv_rowsum = Y
-        insns.append(Instruction("vmul.bf16", VectorArgs(vd=12, vs1=6, vs2=10)))
-        insns.append(Instruction("delay", ScalarArgs(imm=66)))
+    # (v12, v13) = exp * inv_rowsum = Y
+    insns.append(Instruction("vmul.bf16", VectorArgs(vd=12, vs1=6, vs2=10)))
+    insns.append(Instruction("delay", ScalarArgs(imm=66)))
 
-        # vstore (v12, v13) → VMEM_OUT
-        insns.append(Instruction("vstore", VectorArgs(vd=12, rs1=2, imm12=0)))
-        insns.append(Instruction("delay", ScalarArgs(imm=16)))
-        insns.append(Instruction("vstore", VectorArgs(vd=13, rs1=2, imm12=32)))
-        insns.append(Instruction("delay", ScalarArgs(imm=16)))
+    insns.append(Instruction("vstore", VectorArgs(vd=12, rs1=2, imm12=0)))
+    insns.append(Instruction("delay", ScalarArgs(imm=34)))
+    insns.append(Instruction("vstore", VectorArgs(vd=13, rs1=2, imm12=32)))
+    insns.append(Instruction("delay", ScalarArgs(imm=34)))
 
-        # DMA store Y_H0 and Y_H1 (parallel)
-        out_h0 = dram_out + g * 2 * HALF_BYTES
-        out_h1 = out_h0 + HALF_BYTES
-        _emit_load_imm32(6, out_h0, insns)
-        _emit_load_imm32(7, out_h1, insns)
-        insns.append(Instruction("dma.store.ch<N>", DmaArgs(rd=6, rs1=2, rs2=3, channel=0)))
-        insns.append(Instruction("dma.store.ch<N>", DmaArgs(rd=7, rs1=5, rs2=3, channel=1)))
-        insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=0)))
-        insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=1)))
+    # DMA store H0 and H1 in parallel (x12 = H1 output addr, x5 = VMEM_OUT_H1)
+    insns.append(Instruction("dma.store.ch<N>", DmaArgs(rd=7, rs1=2, rs2=3, channel=0)))
+    insns.append(Instruction("dma.store.ch<N>", DmaArgs(rd=12, rs1=5, rs2=3, channel=1)))
+    insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=0)))
+    insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=1)))
 
-    insns.append(Instruction("ecall", ScalarArgs()))
+    insns.append(Instruction("add", ScalarArgs(rd=6, rs1=6, rs2=10)))
+    insns.append(Instruction("add", ScalarArgs(rd=7, rs1=7, rs2=10)))
+    insns.append(Instruction("addi", ScalarArgs(rd=8, rs1=8, imm=1)))
+
+    blt_idx = len(insns)
+    insns.append(Instruction("blt", ScalarArgs(rs1=8, rs2=9, imm=loop_start - blt_idx)))
+    insns.append(nop)
+    insns.append(nop)
+
     return insns
 
 
@@ -185,7 +175,7 @@ _32_insns, _32_regions, _32_golden = _make_program(32, seed=100)
 
 
 class ParameterizedSoftmax32x32Program(Program):
-    """Row-wise softmax on a single 32×32 bf16 tile."""
+    """Row-wise softmax on a single 32x32 bf16 tile."""
 
     instructions: List[Instruction[Any]] = _32_insns
     memory_regions: List[Tuple[int, torch.Tensor]] = _32_regions
@@ -196,7 +186,7 @@ _64_insns, _64_regions, _64_golden = _make_program(64, seed=101)
 
 
 class ParameterizedSoftmax64x32Program(Program):
-    """Row-wise softmax on a 64×32 bf16 tensor (2 groups)."""
+    """Row-wise softmax on a 64x32 bf16 tensor (2 groups)."""
 
     instructions: List[Instruction[Any]] = _64_insns
     memory_regions: List[Tuple[int, torch.Tensor]] = _64_regions
@@ -207,7 +197,7 @@ _96_insns, _96_regions, _96_golden = _make_program(96, seed=102)
 
 
 class ParameterizedSoftmax96x32Program(Program):
-    """Row-wise softmax on a 96×32 bf16 tensor (3 groups)."""
+    """Row-wise softmax on a 96x32 bf16 tensor (3 groups)."""
 
     instructions: List[Instruction[Any]] = _96_insns
     memory_regions: List[Tuple[int, torch.Tensor]] = _96_regions

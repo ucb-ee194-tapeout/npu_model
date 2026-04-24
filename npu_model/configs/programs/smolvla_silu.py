@@ -134,7 +134,10 @@ TILE_BYTES = 2048  # 32 * 32 * 2 (bf16)
 
 
 class SmolVLASiluProgram(Program):
-    """SiLU(x) = x * sigmoid(x) = x / (1 + exp(-x))."""
+    """SiLU(x) = x * sigmoid(x) = x / (1 + exp(-x)).
+
+    cycles: ~924 (vpu-bound: 5×vmul + vexp + vadd + vrecip)
+    """
 
     instructions: List[Instruction[Any]] = [
         # ── Scalar register setup ──

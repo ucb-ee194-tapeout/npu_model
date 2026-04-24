@@ -143,12 +143,9 @@ EXPECTED_STACKED = torch.cat((EXPECTED[:, :16], EXPECTED[:, 16:]), dim=0)
 
 
 class SmolVLAGeluTanhProgram(Program):
-    """Auto-generated single-file Program for the ``gelu_tanh`` kernel.
+    """GELU(x) = 0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3))).
 
-    ISA is lifted from the merlin kernel manifest (see
-    ``benchmarks/SaturnNPU/kernel_library/manifest.json``). This Program
-    mirrors the ``smolvla_silu.py`` template: self-contained, no cross-
-    file helpers, torch-allclose golden check via ``pytest tests/test_programs.py``.
+    cycles: ~1064 (vpu-bound: 5×vmul + 2×vadd + vtanh + 8×vload)
     """
 
     # Scalar register map:

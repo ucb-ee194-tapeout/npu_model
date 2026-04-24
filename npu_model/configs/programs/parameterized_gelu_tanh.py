@@ -105,146 +105,158 @@ def make_gelu_tanh_instructions(
     """Generate instructions for an M×32 GELU (tanh approximation).
 
     Scalar register map:
-        x1  VMEM_X base        x2  VMEM_K_COEFF base   x3  VMEM_K_SQRT base
-        x4  VMEM_K_HALF base   x5  VMEM_OUT base        x6  HALF_BYTES (1024)
-        x7  VMEM_X + 1024      (X_H1 VMEM dest)
-        x8  VMEM_K_COEFF+1024  x9  VMEM_K_SQRT+1024   x10  VMEM_K_HALF+1024
-        x11  VMEM_OUT + 1024
-    Per-group scratch: x12, x13
+        x1  VMEM_X           x2  VMEM_K_COEFF      x3  VMEM_K_SQRT
+        x4  VMEM_K_HALF      x5  VMEM_OUT           x6  HALF_BYTES (1024)
+        x7  VMEM_X_H1        x8  VMEM_K_COEFF_H1    x9  VMEM_K_SQRT_H1
+        x10 VMEM_K_HALF_H1   x11 VMEM_OUT_H1
+        x12 dram_x ptr (H0, advances by 2048 per group)
+        x13 dram_out ptr (H0, advances by 2048 per group)
+        x14 group counter    x15 M_groups (limit)   x16 2048 (group stride)
+        x17 H1 input addr (computed per iter)        x18 H1 output addr (computed per iter)
     """
     assert M % TILE == 0
     M_groups = M // TILE
+    nop = Instruction("addi", ScalarArgs(rd=0, rs1=0, imm=0))
 
     insns: list[Instruction] = []
 
-    _emit_load_vmem_addr(1, VMEM_X, insns)
-    _emit_load_vmem_addr(2, VMEM_K_COEFF, insns)
-    _emit_load_vmem_addr(3, VMEM_K_SQRT, insns)
-    _emit_load_vmem_addr(4, VMEM_K_HALF, insns)
-    _emit_load_vmem_addr(5, VMEM_OUT, insns)
+    _emit_load_imm32(1, VMEM_X, insns)
+    _emit_load_imm32(2, VMEM_K_COEFF, insns)
+    _emit_load_imm32(3, VMEM_K_SQRT, insns)
+    _emit_load_imm32(4, VMEM_K_HALF, insns)
+    _emit_load_imm32(5, VMEM_OUT, insns)
     _emit_load_imm32(6, HALF_BYTES, insns)
     _emit_load_imm32(7, VMEM_X + HALF_BYTES, insns)
     _emit_load_imm32(8, VMEM_K_COEFF + HALF_BYTES, insns)
     _emit_load_imm32(9, VMEM_K_SQRT + HALF_BYTES, insns)
     _emit_load_imm32(10, VMEM_K_HALF + HALF_BYTES, insns)
     _emit_load_imm32(11, VMEM_OUT + HALF_BYTES, insns)
+    _emit_load_imm32(12, dram_x, insns)
+    _emit_load_imm32(13, dram_out, insns)
+    insns.append(Instruction("addi", ScalarArgs(rd=14, rs1=0, imm=0)))
+    _emit_load_imm32(15, M_groups, insns)
+    _emit_load_imm32(16, 2 * HALF_BYTES, insns)
 
     insns.append(Instruction("dma.config.ch<N>", DmaArgs(channel=0)))
     insns.append(Instruction("dma.config.ch<N>", DmaArgs(channel=1)))
     insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=0)))
     insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=1)))
 
-    # Load constants once (same data into both halves of each pair)
-    _emit_load_imm32(12, dram_k_coeff, insns)
-    insns.append(Instruction("dma.load.ch<N>", DmaArgs(rd=2, rs1=12, rs2=6, channel=0)))
-    insns.append(Instruction("dma.load.ch<N>", DmaArgs(rd=8, rs1=12, rs2=6, channel=1)))
+    # Load constants once into VMEM (reuse x17 as scratch addr before loop)
+    _emit_load_imm32(17, dram_k_coeff, insns)
+    insns.append(Instruction("dma.load.ch<N>", DmaArgs(rd=2, rs1=17, rs2=6, channel=0)))
+    insns.append(Instruction("dma.load.ch<N>", DmaArgs(rd=8, rs1=17, rs2=6, channel=1)))
     insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=0)))
     insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=1)))
 
-    _emit_load_imm32(12, dram_k_sqrt2pi, insns)
-    insns.append(Instruction("dma.load.ch<N>", DmaArgs(rd=3, rs1=12, rs2=6, channel=0)))
-    insns.append(Instruction("dma.load.ch<N>", DmaArgs(rd=9, rs1=12, rs2=6, channel=1)))
+    _emit_load_imm32(17, dram_k_sqrt2pi, insns)
+    insns.append(Instruction("dma.load.ch<N>", DmaArgs(rd=3, rs1=17, rs2=6, channel=0)))
+    insns.append(Instruction("dma.load.ch<N>", DmaArgs(rd=9, rs1=17, rs2=6, channel=1)))
     insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=0)))
     insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=1)))
 
-    _emit_load_imm32(12, dram_k_half, insns)
-    insns.append(Instruction("dma.load.ch<N>", DmaArgs(rd=4, rs1=12, rs2=6, channel=0)))
-    insns.append(Instruction("dma.load.ch<N>", DmaArgs(rd=10, rs1=12, rs2=6, channel=1)))
+    _emit_load_imm32(17, dram_k_half, insns)
+    insns.append(Instruction("dma.load.ch<N>", DmaArgs(rd=4, rs1=17, rs2=6, channel=0)))
+    insns.append(Instruction("dma.load.ch<N>", DmaArgs(rd=10, rs1=17, rs2=6, channel=1)))
     insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=0)))
     insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=1)))
 
-    for g in range(M_groups):
-        x_h0 = dram_x + g * 2 * HALF_BYTES
-        x_h1 = x_h0 + HALF_BYTES
+    loop_start = len(insns)
 
-        _emit_load_imm32(12, x_h0, insns)
-        _emit_load_imm32(13, x_h1, insns)
+    # Per-iter: compute H1 addresses from H0 pointers
+    insns.append(Instruction("add", ScalarArgs(rd=17, rs1=12, rs2=6)))  # x17 = dram_x_H1
+    insns.append(Instruction("add", ScalarArgs(rd=18, rs1=13, rs2=6)))  # x18 = dram_out_H1
 
-        # DMA X_H0 → VMEM_X, X_H1 → VMEM_X+1024 (parallel)
-        insns.append(Instruction("dma.load.ch<N>", DmaArgs(rd=1, rs1=12, rs2=6, channel=0)))
-        insns.append(Instruction("dma.load.ch<N>", DmaArgs(rd=7, rs1=13, rs2=6, channel=1)))
-        insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=0)))
-        insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=1)))
+    # DMA X_H0 → VMEM_X, X_H1 → VMEM_X_H1 (parallel)
+    insns.append(Instruction("dma.load.ch<N>", DmaArgs(rd=1, rs1=12, rs2=6, channel=0)))
+    insns.append(Instruction("dma.load.ch<N>", DmaArgs(rd=7, rs1=17, rs2=6, channel=1)))
+    insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=0)))
+    insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=1)))
 
-        # vload (v0, v1) = X
-        insns.append(Instruction("vload", VectorArgs(vd=0, rs1=1, imm12=0)))
-        insns.append(Instruction("delay", ScalarArgs(imm=16)))
-        insns.append(Instruction("vload", VectorArgs(vd=1, rs1=1, imm12=32)))
-        insns.append(Instruction("delay", ScalarArgs(imm=16)))
+    # vload (v0, v1) = X
+    insns.append(Instruction("vload", VectorArgs(vd=0, rs1=1, imm12=0)))
+    insns.append(Instruction("delay", ScalarArgs(imm=34)))
+    insns.append(Instruction("vload", VectorArgs(vd=1, rs1=1, imm12=32)))
+    insns.append(Instruction("delay", ScalarArgs(imm=34)))
 
-        # vload constants (reload each group to restore after v4/v6/v8 clobber)
-        insns.append(Instruction("vload", VectorArgs(vd=4, rs1=2, imm12=0)))   # k_coeff H0
-        insns.append(Instruction("delay", ScalarArgs(imm=16)))
-        insns.append(Instruction("vload", VectorArgs(vd=5, rs1=2, imm12=32)))  # k_coeff H1
-        insns.append(Instruction("delay", ScalarArgs(imm=16)))
-        insns.append(Instruction("vload", VectorArgs(vd=6, rs1=3, imm12=0)))   # k_sqrt H0
-        insns.append(Instruction("delay", ScalarArgs(imm=16)))
-        insns.append(Instruction("vload", VectorArgs(vd=7, rs1=3, imm12=32)))  # k_sqrt H1
-        insns.append(Instruction("delay", ScalarArgs(imm=16)))
-        insns.append(Instruction("vload", VectorArgs(vd=8, rs1=4, imm12=0)))   # k_half H0
-        insns.append(Instruction("delay", ScalarArgs(imm=16)))
-        insns.append(Instruction("vload", VectorArgs(vd=9, rs1=4, imm12=32)))  # k_half H1
-        insns.append(Instruction("delay", ScalarArgs(imm=16)))
+    # vload constants (reload each group from VMEM to restore after VPU clobber)
+    insns.append(Instruction("vload", VectorArgs(vd=4, rs1=2, imm12=0)))   # k_coeff H0
+    insns.append(Instruction("delay", ScalarArgs(imm=34)))
+    insns.append(Instruction("vload", VectorArgs(vd=5, rs1=2, imm12=32)))  # k_coeff H1
+    insns.append(Instruction("delay", ScalarArgs(imm=34)))
+    insns.append(Instruction("vload", VectorArgs(vd=6, rs1=3, imm12=0)))   # k_sqrt H0
+    insns.append(Instruction("delay", ScalarArgs(imm=34)))
+    insns.append(Instruction("vload", VectorArgs(vd=7, rs1=3, imm12=32)))  # k_sqrt H1
+    insns.append(Instruction("delay", ScalarArgs(imm=34)))
+    insns.append(Instruction("vload", VectorArgs(vd=8, rs1=4, imm12=0)))   # k_half H0
+    insns.append(Instruction("delay", ScalarArgs(imm=34)))
+    insns.append(Instruction("vload", VectorArgs(vd=9, rs1=4, imm12=32)))  # k_half H1
+    insns.append(Instruction("delay", ScalarArgs(imm=34)))
 
-        # (v2, v3) = X²
-        insns.append(Instruction("vsquare.bf16", VectorArgs(vd=2, vs1=0)))
-        insns.append(Instruction("delay", ScalarArgs(imm=66)))
+    # (v2, v3) = X²
+    insns.append(Instruction("vsquare.bf16", VectorArgs(vd=2, vs1=0)))
+    insns.append(Instruction("delay", ScalarArgs(imm=66)))
 
-        # (v12, v13) = X³ = X² * X
-        insns.append(Instruction("vmul.bf16", VectorArgs(vd=12, vs1=2, vs2=0)))
-        insns.append(Instruction("delay", ScalarArgs(imm=66)))
+    # (v12, v13) = X³ = X² * X
+    insns.append(Instruction("vmul.bf16", VectorArgs(vd=12, vs1=2, vs2=0)))
+    insns.append(Instruction("delay", ScalarArgs(imm=66)))
 
-        # (v12, v13) = k_coeff * X³
-        insns.append(Instruction("vmul.bf16", VectorArgs(vd=12, vs1=12, vs2=4)))
-        insns.append(Instruction("delay", ScalarArgs(imm=66)))
+    # (v12, v13) = k_coeff * X³
+    insns.append(Instruction("vmul.bf16", VectorArgs(vd=12, vs1=12, vs2=4)))
+    insns.append(Instruction("delay", ScalarArgs(imm=66)))
 
-        # (v12, v13) = X + k_coeff*X³
-        insns.append(Instruction("vadd.bf16", VectorArgs(vd=12, vs1=0, vs2=12)))
-        insns.append(Instruction("delay", ScalarArgs(imm=66)))
+    # (v12, v13) = X + k_coeff*X³
+    insns.append(Instruction("vadd.bf16", VectorArgs(vd=12, vs1=0, vs2=12)))
+    insns.append(Instruction("delay", ScalarArgs(imm=66)))
 
-        # (v12, v13) = sqrt(2/π) * (X + k_coeff*X³)
-        insns.append(Instruction("vmul.bf16", VectorArgs(vd=12, vs1=12, vs2=6)))
-        insns.append(Instruction("delay", ScalarArgs(imm=66)))
+    # (v12, v13) = sqrt(2/π) * (X + k_coeff*X³)
+    insns.append(Instruction("vmul.bf16", VectorArgs(vd=12, vs1=12, vs2=6)))
+    insns.append(Instruction("delay", ScalarArgs(imm=66)))
 
-        # (v12, v13) = tanh(...)
-        insns.append(Instruction("vtanh.bf16", VectorArgs(vd=12, vs1=12)))
-        insns.append(Instruction("delay", ScalarArgs(imm=66)))
+    # (v12, v13) = tanh(...)
+    insns.append(Instruction("vtanh.bf16", VectorArgs(vd=12, vs1=12)))
+    insns.append(Instruction("delay", ScalarArgs(imm=66)))
 
-        # (v10, v11) = 1.0  — vli.all is a single-register write; two calls needed
-        insns.append(Instruction("vli.all", VectorArgs(vd=10, imm=1)))
-        insns.append(Instruction("delay", ScalarArgs(imm=65)))
-        insns.append(Instruction("vli.all", VectorArgs(vd=11, imm=1)))
-        insns.append(Instruction("delay", ScalarArgs(imm=65)))
+    # (v10, v11) = 1.0 — vli.all writes a single register
+    insns.append(Instruction("vli.all", VectorArgs(vd=10, imm=1)))
+    insns.append(Instruction("delay", ScalarArgs(imm=65)))
+    insns.append(Instruction("vli.all", VectorArgs(vd=11, imm=1)))
+    insns.append(Instruction("delay", ScalarArgs(imm=65)))
 
-        # (v12, v13) = 1 + tanh(...)
-        insns.append(Instruction("vadd.bf16", VectorArgs(vd=12, vs1=10, vs2=12)))
-        insns.append(Instruction("delay", ScalarArgs(imm=66)))
+    # (v12, v13) = 1 + tanh(...)
+    insns.append(Instruction("vadd.bf16", VectorArgs(vd=12, vs1=10, vs2=12)))
+    insns.append(Instruction("delay", ScalarArgs(imm=66)))
 
-        # (v12, v13) = 0.5 * (1 + tanh(...))
-        insns.append(Instruction("vmul.bf16", VectorArgs(vd=12, vs1=12, vs2=8)))
-        insns.append(Instruction("delay", ScalarArgs(imm=66)))
+    # (v12, v13) = 0.5 * (1 + tanh(...))
+    insns.append(Instruction("vmul.bf16", VectorArgs(vd=12, vs1=12, vs2=8)))
+    insns.append(Instruction("delay", ScalarArgs(imm=66)))
 
-        # (v14, v15) = Y = X * 0.5*(1+tanh(...))
-        insns.append(Instruction("vmul.bf16", VectorArgs(vd=14, vs1=0, vs2=12)))
-        insns.append(Instruction("delay", ScalarArgs(imm=66)))
+    # (v14, v15) = Y = X * 0.5*(1+tanh(...))
+    insns.append(Instruction("vmul.bf16", VectorArgs(vd=14, vs1=0, vs2=12)))
+    insns.append(Instruction("delay", ScalarArgs(imm=66)))
 
-        # vstore (v14, v15) → VMEM_OUT
-        insns.append(Instruction("vstore", VectorArgs(vd=14, rs1=5, imm12=0)))
-        insns.append(Instruction("delay", ScalarArgs(imm=16)))
-        insns.append(Instruction("vstore", VectorArgs(vd=15, rs1=5, imm12=32)))
-        insns.append(Instruction("delay", ScalarArgs(imm=16)))
+    # vstore (v14, v15) → VMEM_OUT
+    insns.append(Instruction("vstore", VectorArgs(vd=14, rs1=5, imm12=0)))
+    insns.append(Instruction("delay", ScalarArgs(imm=34)))
+    insns.append(Instruction("vstore", VectorArgs(vd=15, rs1=5, imm12=32)))
+    insns.append(Instruction("delay", ScalarArgs(imm=34)))
 
-        # DMA store Y_H0, Y_H1 (parallel)
-        out_h0 = dram_out + g * 2 * HALF_BYTES
-        out_h1 = out_h0 + HALF_BYTES
-        _emit_load_imm32(12, out_h0, insns)
-        _emit_load_imm32(13, out_h1, insns)
-        insns.append(Instruction("dma.store.ch<N>", DmaArgs(rd=12, rs1=5, rs2=6, channel=0)))
-        insns.append(Instruction("dma.store.ch<N>", DmaArgs(rd=13, rs1=11, rs2=6, channel=1)))
-        insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=0)))
-        insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=1)))
+    # DMA store Y_H0 and Y_H1 in parallel
+    insns.append(Instruction("dma.store.ch<N>", DmaArgs(rd=13, rs1=5, rs2=6, channel=0)))
+    insns.append(Instruction("dma.store.ch<N>", DmaArgs(rd=18, rs1=11, rs2=6, channel=1)))
+    insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=0)))
+    insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=1)))
 
-    insns.append(Instruction("ecall", ScalarArgs()))
+    # Advance pointers and counter
+    insns.append(Instruction("add", ScalarArgs(rd=12, rs1=12, rs2=16)))
+    insns.append(Instruction("add", ScalarArgs(rd=13, rs1=13, rs2=16)))
+    insns.append(Instruction("addi", ScalarArgs(rd=14, rs1=14, imm=1)))
+
+    blt_idx = len(insns)
+    insns.append(Instruction("blt", ScalarArgs(rs1=14, rs2=15, imm=loop_start - blt_idx)))
+    insns.append(nop)
+    insns.append(nop)
+
     return insns
 
 

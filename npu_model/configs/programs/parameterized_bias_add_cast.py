@@ -117,15 +117,15 @@ def make_bias_add_cast_instructions(
 
     # vload LMUL=2 input pair: (v0, v1) = x halves
     insns.append(Instruction("vload", VectorArgs(vd=0, rs1=1, imm12=0)))   # v0 = x H0
-    insns.append(Instruction("delay", ScalarArgs(imm=16)))
+    insns.append(Instruction("delay", ScalarArgs(imm=34)))
     insns.append(Instruction("vload", VectorArgs(vd=1, rs1=1, imm12=32)))  # v1 = x H1
-    insns.append(Instruction("delay", ScalarArgs(imm=16)))
+    insns.append(Instruction("delay", ScalarArgs(imm=34)))
 
     # vload LMUL=2 bias pair: (v2, v3) = bias halves
     insns.append(Instruction("vload", VectorArgs(vd=2, rs1=2, imm12=0)))   # v2 = bias H0
-    insns.append(Instruction("delay", ScalarArgs(imm=16)))
+    insns.append(Instruction("delay", ScalarArgs(imm=34)))
     insns.append(Instruction("vload", VectorArgs(vd=3, rs1=2, imm12=32)))  # v3 = bias H1
-    insns.append(Instruction("delay", ScalarArgs(imm=16)))
+    insns.append(Instruction("delay", ScalarArgs(imm=34)))
 
     # LMUL=2 add: (v4, v5) = (v0, v1) + (v2, v3)
     insns.append(Instruction("vadd.bf16", VectorArgs(vd=4, vs1=0, vs2=2)))
@@ -137,14 +137,13 @@ def make_bias_add_cast_instructions(
 
     # vstore fp8 v6 → VMEM_OUT
     insns.append(Instruction("vstore", VectorArgs(vd=6, rs1=3, imm12=0)))
-    insns.append(Instruction("delay", ScalarArgs(imm=16)))
+    insns.append(Instruction("delay", ScalarArgs(imm=34)))
 
     # DMA store fp8 output (1024 B) → DRAM
     _emit_load_imm32(8, dram_out, insns)
     insns.append(Instruction("dma.store.ch<N>", DmaArgs(rd=8, rs1=3, rs2=5, channel=0)))
     insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=0)))
 
-    insns.append(Instruction("ecall", ScalarArgs()))
     return insns
 
 

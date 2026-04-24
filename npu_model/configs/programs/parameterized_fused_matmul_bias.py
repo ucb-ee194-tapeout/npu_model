@@ -98,16 +98,24 @@ def make_fused_matmul_bias_instructions(
 ) -> list[Instruction]:
     """Generate instructions for fused M×32×N matmul+bias (K=32 fixed).
 
+    Uses hardware branch loops over M and N tile dimensions. K=32 means
+    a single vmatmul.mxu0 per tile (no K accumulation loop).
+
     Scalar register map:
         x1  VMEM_A      x2  VMEM_B      x3  VMEM_BIAS     x4  VMEM_OUT
-        x5  FP8_TILE_BYTES (1024)        x6  BF16_TILE_BYTES (2048)
-        x7  VMEM_BIAS + 1024             x8  VMEM_OUT + 1024
-    Per-tile scratch: x9, x10, x11, x12
+        x5  1024 (fp8)  x6  2048 (bf16)
+        x7  VMEM_BIAS+1024              x8  VMEM_OUT+1024
+        x9  M_tiles     x10 N_tiles
+        x11 dram_b base x12 dram_bias base  x13 dram_out base
+        x14 A_m_ptr     x15 B_n_ptr    x16 bias_ptr       x17 out_ptr
+        x18 m counter   x19 n counter
+        x20 stride_bias_m = N_tiles*2048   x21 stride_out_m = N_tiles*2048
     """
     assert M % TILE == 0 and N % TILE == 0
     M_tiles = M // TILE
     N_tiles = N // TILE
 
+    nop = Instruction("addi", ScalarArgs(rd=0, rs1=0, imm=0))
     insns: list[Instruction] = []
 
     _emit_load_vmem_addr(1, VMEM_A, insns)
@@ -116,75 +124,89 @@ def make_fused_matmul_bias_instructions(
     _emit_load_vmem_addr(4, VMEM_OUT, insns)
     _emit_load_imm32(5, FP8_TILE_BYTES, insns)
     _emit_load_imm32(6, BF16_TILE_BYTES, insns)
-    _emit_load_imm32(7, VMEM_BIAS + HALF_BYTES, insns)  # VMEM_BIAS_H1
-    _emit_load_imm32(8, VMEM_OUT + HALF_BYTES, insns)   # VMEM_OUT_H1
+    _emit_load_imm32(7, VMEM_BIAS + HALF_BYTES, insns)
+    _emit_load_imm32(8, VMEM_OUT + HALF_BYTES, insns)
+    _emit_load_imm32(9, M_tiles, insns)
+    _emit_load_imm32(10, N_tiles, insns)
+    _emit_load_imm32(11, dram_b, insns)
+    _emit_load_imm32(12, dram_bias, insns)
+    _emit_load_imm32(13, dram_out, insns)
+    _emit_load_imm32(14, dram_a, insns)          # A_m_ptr (initial)
+    _emit_load_imm32(20, N_tiles * BF16_TILE_BYTES, insns)  # stride for bias and out per m
+    insns.append(Instruction("addi", ScalarArgs(rd=18, rs1=0, imm=0)))  # m = 0
 
     insns.append(Instruction("dma.config.ch<N>", DmaArgs(channel=0)))
     insns.append(Instruction("dma.config.ch<N>", DmaArgs(channel=1)))
     insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=0)))
     insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=1)))
 
-    tile_idx = 0
-    for mt in range(M_tiles):
-        for nt in range(N_tiles):
-            a_addr = dram_a + mt * FP8_TILE_BYTES
-            b_addr = dram_b + nt * FP8_TILE_BYTES
-            bias_addr = dram_bias + tile_idx * BF16_TILE_BYTES
-            out_addr = dram_out + tile_idx * BF16_TILE_BYTES
+    # m-loop
+    m_loop_start = len(insns)
+    # Reset n-dimension pointers to beginning of this m row
+    insns.append(Instruction("addi", ScalarArgs(rd=15, rs1=11, imm=0)))  # B_n_ptr = dram_b
+    insns.append(Instruction("addi", ScalarArgs(rd=16, rs1=12, imm=0)))  # bias_ptr = dram_bias base for m
+    insns.append(Instruction("addi", ScalarArgs(rd=17, rs1=13, imm=0)))  # out_ptr = dram_out base for m
+    insns.append(Instruction("addi", ScalarArgs(rd=19, rs1=0, imm=0)))   # n = 0
 
-            # Load A and B (fp8, parallel)
-            _emit_load_imm32(9, a_addr, insns)
-            _emit_load_imm32(10, b_addr, insns)
-            insns.append(Instruction("dma.load.ch<N>", DmaArgs(rd=1, rs1=9, rs2=5, channel=0)))
-            insns.append(Instruction("dma.load.ch<N>", DmaArgs(rd=2, rs1=10, rs2=5, channel=1)))
-            insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=0)))
-            insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=1)))
+    # n-loop
+    n_loop_start = len(insns)
+    # Load A (fp8) and B (fp8) in parallel
+    insns.append(Instruction("dma.load.ch<N>", DmaArgs(rd=1, rs1=14, rs2=5, channel=0)))
+    insns.append(Instruction("dma.load.ch<N>", DmaArgs(rd=2, rs1=15, rs2=5, channel=1)))
+    insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=0)))
+    insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=1)))
 
-            # Load bias (bf16, 2048 B, both halves)
-            _emit_load_imm32(9, bias_addr, insns)
-            insns.append(Instruction("dma.load.ch<N>", DmaArgs(rd=3, rs1=9, rs2=6, channel=0)))
-            insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=0)))
+    # Load bias (2048 B bf16, both halves)
+    insns.append(Instruction("dma.load.ch<N>", DmaArgs(rd=3, rs1=16, rs2=6, channel=0)))
+    insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=0)))
 
-            # vload v0 = A_fp8 (single register, 1024 B)
-            insns.append(Instruction("vload", VectorArgs(vd=0, rs1=1, imm12=0)))
-            insns.append(Instruction("delay", ScalarArgs(imm=16)))
+    insns.append(Instruction("vload", VectorArgs(vd=0, rs1=1, imm12=0)))   # A fp8
+    insns.append(Instruction("delay", ScalarArgs(imm=34)))
+    insns.append(Instruction("vload", VectorArgs(vd=2, rs1=2, imm12=0)))   # B fp8
+    insns.append(Instruction("delay", ScalarArgs(imm=34)))
+    insns.append(Instruction("vload", VectorArgs(vd=4, rs1=3, imm12=0)))   # bias H0
+    insns.append(Instruction("delay", ScalarArgs(imm=34)))
+    insns.append(Instruction("vload", VectorArgs(vd=5, rs1=3, imm12=32)))  # bias H1
+    insns.append(Instruction("delay", ScalarArgs(imm=34)))
 
-            # vload v2 = B_fp8 (single register)
-            insns.append(Instruction("vload", VectorArgs(vd=2, rs1=2, imm12=0)))
-            insns.append(Instruction("delay", ScalarArgs(imm=16)))
+    insns.append(Instruction("vmatpush.weight.mxu0", MatrixArgs(vd=0, vs1=2)))
+    insns.append(Instruction("delay", ScalarArgs(imm=32)))
+    insns.append(Instruction("vmatmul.mxu0", MatrixArgs(vd=0, vs1=0, vs2=0)))
+    insns.append(Instruction("delay", ScalarArgs(imm=96)))
+    insns.append(Instruction("vmatpop.bf16.acc.mxu0", MatrixArgs(vd=6, vs1=0)))
+    insns.append(Instruction("delay", ScalarArgs(imm=32)))
 
-            # vload (v4, v5) = bias pair
-            insns.append(Instruction("vload", VectorArgs(vd=4, rs1=3, imm12=0)))
-            insns.append(Instruction("delay", ScalarArgs(imm=16)))
-            insns.append(Instruction("vload", VectorArgs(vd=5, rs1=3, imm12=32)))
-            insns.append(Instruction("delay", ScalarArgs(imm=16)))
+    insns.append(Instruction("vadd.bf16", VectorArgs(vd=8, vs1=6, vs2=4)))
+    insns.append(Instruction("delay", ScalarArgs(imm=66)))
 
-            # MXU: B → WB[0], acc[0] = A @ WB[0], (v6, v7) = result bf16
-            insns.append(Instruction("vmatpush.weight.mxu0", MatrixArgs(vd=0, vs1=2)))
-            insns.append(Instruction("delay", ScalarArgs(imm=16)))
-            insns.append(Instruction("vmatmul.mxu0", MatrixArgs(vd=0, vs1=0, vs2=0)))
-            insns.append(Instruction("delay", ScalarArgs(imm=32)))
-            insns.append(Instruction("vmatpop.bf16.acc.mxu0", MatrixArgs(vd=6, vs1=0)))
-            insns.append(Instruction("delay", ScalarArgs(imm=32)))
+    insns.append(Instruction("vstore", VectorArgs(vd=8, rs1=4, imm12=0)))
+    insns.append(Instruction("delay", ScalarArgs(imm=34)))
+    insns.append(Instruction("vstore", VectorArgs(vd=9, rs1=4, imm12=32)))
+    insns.append(Instruction("delay", ScalarArgs(imm=34)))
 
-            # (v8, v9) = result + bias
-            insns.append(Instruction("vadd.bf16", VectorArgs(vd=8, vs1=6, vs2=4)))
-            insns.append(Instruction("delay", ScalarArgs(imm=66)))
+    insns.append(Instruction("dma.store.ch<N>", DmaArgs(rd=17, rs1=4, rs2=6, channel=0)))
+    insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=0)))
 
-            # vstore (v8, v9) → VMEM_OUT
-            insns.append(Instruction("vstore", VectorArgs(vd=8, rs1=4, imm12=0)))
-            insns.append(Instruction("delay", ScalarArgs(imm=16)))
-            insns.append(Instruction("vstore", VectorArgs(vd=9, rs1=4, imm12=32)))
-            insns.append(Instruction("delay", ScalarArgs(imm=16)))
+    # Advance n: B moves by FP8_TILE, bias and out move by BF16_TILE
+    insns.append(Instruction("addi", ScalarArgs(rd=15, rs1=15, imm=FP8_TILE_BYTES)))  # B_n_ptr += 1024
+    insns.append(Instruction("add", ScalarArgs(rd=16, rs1=16, rs2=6)))                # bias_ptr += 2048
+    insns.append(Instruction("add", ScalarArgs(rd=17, rs1=17, rs2=6)))                # out_ptr += 2048
+    insns.append(Instruction("addi", ScalarArgs(rd=19, rs1=19, imm=1)))
+    n_blt_idx = len(insns)
+    insns.append(Instruction("blt", ScalarArgs(rs1=19, rs2=10, imm=n_loop_start - n_blt_idx)))
+    insns.append(nop)
+    insns.append(nop)
 
-            # DMA store output (2048 B col-blocked)
-            _emit_load_imm32(9, out_addr, insns)
-            insns.append(Instruction("dma.store.ch<N>", DmaArgs(rd=9, rs1=4, rs2=6, channel=0)))
-            insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=0)))
+    # Advance m: A moves by FP8_TILE (one row block), bias and out by N_tiles*BF16_TILE
+    insns.append(Instruction("addi", ScalarArgs(rd=14, rs1=14, imm=FP8_TILE_BYTES)))  # A_m_ptr += 1024
+    insns.append(Instruction("add", ScalarArgs(rd=12, rs1=12, rs2=20)))  # dram_bias base += stride
+    insns.append(Instruction("add", ScalarArgs(rd=13, rs1=13, rs2=20)))  # dram_out base += stride
+    insns.append(Instruction("addi", ScalarArgs(rd=18, rs1=18, imm=1)))
+    m_blt_idx = len(insns)
+    insns.append(Instruction("blt", ScalarArgs(rs1=18, rs2=9, imm=m_loop_start - m_blt_idx)))
+    insns.append(nop)
+    insns.append(nop)
 
-            tile_idx += 1
-
-    insns.append(Instruction("ecall", ScalarArgs()))
     return insns
 
 

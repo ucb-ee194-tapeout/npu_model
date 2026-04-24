@@ -96,20 +96,30 @@ def make_requant_instructions(
 
     Scalar register map:
         x1  VMEM_X_H0     x2  VMEM_X_H1     x3  VMEM_OUT
-        x4  HALF_BYTES (1024)
+        x4  1024 (HALF_BYTES = FP8_TILE_BYTES)
+        x5  dram_x ptr (H0, advances by 2048 per tile)
+        x6  dram_out ptr (advances by 1024 per tile)
+        x7  tile counter  x8  total_tiles    x9  2048 (input tile stride)
+        x10 H1 input addr (computed per iter)
     ERF: seli rd=0, imm=1  → scale register 0 = 1.0 (unit scale)
-    Per-tile scratch: x5, x6, x7
     """
     assert M % TILE == 0 and N % TILE == 0
     M_tiles = M // TILE
     N_tiles = N // TILE
+    total_tiles = M_tiles * N_tiles
+    nop = Instruction("addi", ScalarArgs(rd=0, rs1=0, imm=0))
 
     insns: list[Instruction] = []
 
-    _emit_load_vmem_addr(1, VMEM_X_H0, insns)
-    _emit_load_vmem_addr(2, VMEM_X_H1, insns)
-    _emit_load_vmem_addr(3, VMEM_OUT, insns)
+    _emit_load_imm32(1, VMEM_X_H0, insns)
+    _emit_load_imm32(2, VMEM_X_H1, insns)
+    _emit_load_imm32(3, VMEM_OUT, insns)
     _emit_load_imm32(4, HALF_BYTES, insns)
+    _emit_load_imm32(5, dram_x, insns)
+    _emit_load_imm32(6, dram_out, insns)
+    insns.append(Instruction("addi", ScalarArgs(rd=7, rs1=0, imm=0)))
+    _emit_load_imm32(8, total_tiles, insns)
+    _emit_load_imm32(9, 2 * HALF_BYTES, insns)
 
     # Set unit scale in ERF register 0 once
     insns.append(Instruction("seli", ScalarArgs(rd=0, imm=1)))
@@ -119,44 +129,45 @@ def make_requant_instructions(
     insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=0)))
     insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=1)))
 
-    tile_idx = 0
-    for mt in range(M_tiles):
-        for nt in range(N_tiles):
-            h0_addr = dram_x + tile_idx * 2 * HALF_BYTES
-            h1_addr = h0_addr + HALF_BYTES
-            out_addr = dram_out + tile_idx * FP8_TILE_BYTES
+    loop_start = len(insns)
 
-            _emit_load_imm32(5, h0_addr, insns)
-            _emit_load_imm32(6, h1_addr, insns)
+    # x10 = H1 input addr = x5 + x4
+    insns.append(Instruction("add", ScalarArgs(rd=10, rs1=5, rs2=4)))
 
-            # DMA H0 → VMEM_X_H0, H1 → VMEM_X_H1 (parallel)
-            insns.append(Instruction("dma.load.ch<N>", DmaArgs(rd=1, rs1=5, rs2=4, channel=0)))
-            insns.append(Instruction("dma.load.ch<N>", DmaArgs(rd=2, rs1=6, rs2=4, channel=1)))
-            insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=0)))
-            insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=1)))
+    # DMA H0 → VMEM_X_H0, H1 → VMEM_X_H1 (parallel)
+    insns.append(Instruction("dma.load.ch<N>", DmaArgs(rd=1, rs1=5, rs2=4, channel=0)))
+    insns.append(Instruction("dma.load.ch<N>", DmaArgs(rd=2, rs1=10, rs2=4, channel=1)))
+    insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=0)))
+    insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=1)))
 
-            # vload v0 = H0, v1 = H1  (single-register loads)
-            insns.append(Instruction("vload", VectorArgs(vd=0, rs1=1, imm12=0)))
-            insns.append(Instruction("delay", ScalarArgs(imm=16)))
-            insns.append(Instruction("vload", VectorArgs(vd=1, rs1=2, imm12=0)))
-            insns.append(Instruction("delay", ScalarArgs(imm=16)))
+    # vload v0 = H0, v1 = H1
+    insns.append(Instruction("vload", VectorArgs(vd=0, rs1=1, imm12=0)))
+    insns.append(Instruction("delay", ScalarArgs(imm=34)))
+    insns.append(Instruction("vload", VectorArgs(vd=1, rs1=2, imm12=0)))
+    insns.append(Instruction("delay", ScalarArgs(imm=34)))
 
-            # Pack (v0, v1) bf16 pair → v2 fp8 tile using scale ERF[0]=1
-            insns.append(Instruction("vpack.bf16.fp8", VectorArgs(vd=2, vs1=0, es1=0)))
-            insns.append(Instruction("delay", ScalarArgs(imm=66)))
+    # Pack (v0, v1) bf16 pair → v2 fp8 tile using scale ERF[0]=1
+    insns.append(Instruction("vpack.bf16.fp8", VectorArgs(vd=2, vs1=0, es1=0)))
+    insns.append(Instruction("delay", ScalarArgs(imm=66)))
 
-            # vstore v2 → VMEM_OUT (fp8, 1024 B)
-            insns.append(Instruction("vstore", VectorArgs(vd=2, rs1=3, imm12=0)))
-            insns.append(Instruction("delay", ScalarArgs(imm=16)))
+    # vstore v2 → VMEM_OUT (fp8, 1024 B)
+    insns.append(Instruction("vstore", VectorArgs(vd=2, rs1=3, imm12=0)))
+    insns.append(Instruction("delay", ScalarArgs(imm=34)))
 
-            # DMA store fp8 tile → DRAM
-            _emit_load_imm32(7, out_addr, insns)
-            insns.append(Instruction("dma.store.ch<N>", DmaArgs(rd=7, rs1=3, rs2=4, channel=0)))
-            insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=0)))
+    # DMA store fp8 tile → DRAM
+    insns.append(Instruction("dma.store.ch<N>", DmaArgs(rd=6, rs1=3, rs2=4, channel=0)))
+    insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=0)))
 
-            tile_idx += 1
+    # Advance pointers and counter
+    insns.append(Instruction("add", ScalarArgs(rd=5, rs1=5, rs2=9)))   # x5 += 2048
+    insns.append(Instruction("add", ScalarArgs(rd=6, rs1=6, rs2=4)))   # x6 += 1024
+    insns.append(Instruction("addi", ScalarArgs(rd=7, rs1=7, imm=1)))  # counter++
 
-    insns.append(Instruction("ecall", ScalarArgs()))
+    blt_idx = len(insns)
+    insns.append(Instruction("blt", ScalarArgs(rs1=7, rs2=8, imm=loop_start - blt_idx)))
+    insns.append(nop)
+    insns.append(nop)
+
     return insns
 
 

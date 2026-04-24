@@ -143,12 +143,10 @@ VMEM_OUT_H1 = 0x1400  # second 32x16 half of the bf16 output tile
 
 
 class SmolVLAMatmulKChainProgram(Program):
-    """Two-tile K-chain matmul composed from the per-tile matmul kernel.
+    """Two-tile K-chain matmul (K=64 split into 2×32). Uses MXU0 with acc.
 
-    Uses dual DMA channels to parallelize A-tile and B-tile loads.
-    Chains ``vmatmul.mxu0`` (first K-tile) with ``vmatmul.acc.mxu0``
-    (second K-tile); both target the same accumulator slot so the
-    final ``vmatpop`` yields A_k0@B_k0 + A_k1@B_k1.
+    Chains vmatmul.mxu0 + vmatmul.acc.mxu0 for the two K-tiles.
+    cycles: ~492 (2×vmatmul.mxu0 × 96cy + 3×vmatpush/pop × 32cy + 4×vload + 2×vstore)
     """
 
     instructions: List[Instruction[Any]] = [
@@ -187,7 +185,7 @@ class SmolVLAMatmulKChainProgram(Program):
         Instruction("vload", VectorArgs(vd=1, rs1=8)),  # mrf[1] ← B_K0
         Instruction("delay", ScalarArgs(imm=34)),
         Instruction("vmatpush.weight.mxu0", VectorArgs(vs1=1)),  # wb[0]  ← mrf[1]
-        Instruction("delay", ScalarArgs(imm=34)),
+        Instruction("delay", ScalarArgs(imm=32)),
         Instruction("vmatmul.mxu0", MatrixArgs()),  # acc[0] = mrf[0] @ wb[0]
         Instruction("delay", ScalarArgs(imm=96)),
         # ── K tile 1: acc += A_K1 @ B_K1 ───────────────────────────────
@@ -208,7 +206,6 @@ class SmolVLAMatmulKChainProgram(Program):
         Instruction("delay", ScalarArgs(imm=34)),
         Instruction("dma.store.ch<N>", DmaArgs(rd=5, rs1=10, rs2=13, channel=0)),
         Instruction("dma.wait.ch<N>", DmaArgs(channel=0)),
-        Instruction("ecall", ScalarArgs()),
     ]
 
     memory_regions: List[Tuple[int, torch.Tensor]] = [

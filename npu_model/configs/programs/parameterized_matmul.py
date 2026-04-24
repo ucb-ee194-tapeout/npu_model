@@ -136,16 +136,20 @@ def make_matmul_instructions(
 ) -> list[Instruction]:
     """Generate the full instruction list for an M×K×N tiled matmul.
 
-    Assumes A and B are already in DRAM in tiled layout (see _tile_matrix).
-    C is written to DRAM in tiled layout (see _c_offset).
+    Uses hardware branch loops over M, N, and K dimensions instead of
+    Python-level unrolling. The first K-tile is peeled (uses vmatmul.mxu0
+    to reset the accumulator); subsequent K-tiles run in a hardware loop
+    using vmatmul.acc.mxu0.
 
-    Scalar register allocation:
-        x1   VMEM_A address          x2   VMEM_B address
-        x3   VMEM_C0 address         x4   VMEM_C1 address
-        x5   tile size (1024 B)      x6   output tile size (2048 B)
-        x10  scratch: current DRAM A tile address
-        x11  scratch: current DRAM B tile address
-        x12  scratch: current DRAM C tile address
+    Scalar register map:
+        x1   VMEM_A         x2   VMEM_B          x3  VMEM_C0       x4  VMEM_C1
+        x5   1024 (fp8)     x6   2048 (bf16)
+        x7   stride_B_k = N_tiles*1024            x8  stride_A_m = K_tiles*1024
+        x9   stride_C_m = N_tiles*2048
+        x10  M_tiles        x11  N_tiles          x12 K_tiles (if K_tiles>1)
+        x13  dram_b base    x14  C_m_base         x15 A_m_base
+        x16  B_n_base       x17  C_out_ptr        x18 A_k_ptr      x19 B_k_ptr
+        x20  m counter      x21  n counter        x22 k counter (if K_tiles>1)
     """
     assert M % TILE == 0 and K % TILE == 0 and N % TILE == 0, (
         f"M={M}, K={K}, N={N} must all be multiples of {TILE}"
@@ -154,81 +158,112 @@ def make_matmul_instructions(
     K_tiles = K // TILE
     N_tiles = N // TILE
 
+    nop = Instruction("addi", ScalarArgs(rd=0, rs1=0, imm=0))
     insns: list[Instruction] = []
 
-    # ── one-time scalar setup ──────────────────────────────────────────
+    # Prologue: fixed VMEM addresses and tile strides
     _emit_load_vmem_addr(1, VMEM_A, insns)
     _emit_load_vmem_addr(2, VMEM_B, insns)
     _emit_load_vmem_addr(3, VMEM_C0, insns)
     _emit_load_vmem_addr(4, VMEM_C1, insns)
     insns.append(Instruction("addi", ScalarArgs(rd=5, rs1=0, imm=TILE_BYTES_FP8)))
     _emit_load_imm32(6, TILE_BYTES_BF16, insns)
+    _emit_load_imm32(7, N_tiles * TILE_BYTES_FP8, insns)   # stride_B_k
+    _emit_load_imm32(8, K_tiles * TILE_BYTES_FP8, insns)   # stride_A_m
+    _emit_load_imm32(9, N_tiles * TILE_BYTES_BF16, insns)  # stride_C_m
+    _emit_load_imm32(10, M_tiles, insns)
+    _emit_load_imm32(11, N_tiles, insns)
+    if K_tiles > 1:
+        _emit_load_imm32(12, K_tiles, insns)
+    _emit_load_imm32(13, dram_b, insns)
+    _emit_load_imm32(14, dram_c, insns)   # C_m_base (initial)
+    _emit_load_imm32(15, dram_a, insns)   # A_m_base (initial)
+    insns.append(Instruction("addi", ScalarArgs(rd=20, rs1=0, imm=0)))  # m = 0
 
-    # DMA channel init (once)
     insns.append(Instruction("dma.config.ch<N>", DmaArgs(channel=0)))
     insns.append(Instruction("dma.config.ch<N>", DmaArgs(channel=1)))
     insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=0)))
     insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=1)))
 
-    # ── tile loops (unrolled at program-generation time) ───────────────
-    for m in range(M_tiles):
-        for n in range(N_tiles):
-            # Accumulate over K tiles for output tile (m, n).
-            for k in range(K_tiles):
-                a_addr = dram_a + _a_offset(m, k, K)
-                b_addr = dram_b + _b_offset(k, n, N)
+    # m-loop
+    m_loop_start = len(insns)
+    insns.append(Instruction("addi", ScalarArgs(rd=16, rs1=13, imm=0)))  # B_n_base = dram_b
+    insns.append(Instruction("addi", ScalarArgs(rd=17, rs1=14, imm=0)))  # C_out_ptr = C_m_base
+    insns.append(Instruction("addi", ScalarArgs(rd=21, rs1=0, imm=0)))   # n = 0
 
-                # Load addresses into scratch registers.
-                _emit_load_imm32(10, a_addr, insns)
-                _emit_load_imm32(11, b_addr, insns)
+    # n-loop
+    n_loop_start = len(insns)
+    insns.append(Instruction("addi", ScalarArgs(rd=18, rs1=15, imm=0)))  # A_k_ptr = A_m_base
+    insns.append(Instruction("addi", ScalarArgs(rd=19, rs1=16, imm=0)))  # B_k_ptr = B_n_base
 
-                # DMA DRAM → VMEM (A on ch0, B on ch1, parallel).
-                insns.append(Instruction(
-                    "dma.load.ch<N>", DmaArgs(rd=1, rs1=10, rs2=5, channel=0)
-                ))
-                insns.append(Instruction(
-                    "dma.load.ch<N>", DmaArgs(rd=2, rs1=11, rs2=5, channel=1)
-                ))
-                insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=0)))
-                insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=1)))
+    # Peeled k=0: reset accumulator
+    insns.append(Instruction("dma.load.ch<N>", DmaArgs(rd=1, rs1=18, rs2=5, channel=0)))
+    insns.append(Instruction("dma.load.ch<N>", DmaArgs(rd=2, rs1=19, rs2=5, channel=1)))
+    insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=0)))
+    insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=1)))
+    insns.append(Instruction("vload", VectorArgs(vd=0, rs1=1)))
+    insns.append(Instruction("delay", ScalarArgs(imm=34)))
+    insns.append(Instruction("vload", VectorArgs(vd=1, rs1=2)))
+    insns.append(Instruction("delay", ScalarArgs(imm=34)))
+    insns.append(Instruction("vmatpush.weight.mxu0", VectorArgs(vs1=1)))
+    insns.append(Instruction("delay", ScalarArgs(imm=32)))
+    insns.append(Instruction("vmatmul.mxu0", MatrixArgs(vs1=0)))
+    insns.append(Instruction("delay", ScalarArgs(imm=96)))
+    insns.append(Instruction("addi", ScalarArgs(rd=18, rs1=18, imm=TILE_BYTES_FP8)))  # A_k_ptr++
+    insns.append(Instruction("add", ScalarArgs(rd=19, rs1=19, rs2=7)))               # B_k_ptr++
 
-                # VMEM → MRF.
-                insns.append(Instruction("vload", VectorArgs(vd=0, rs1=1)))  # A tile
-                insns.append(Instruction("delay", ScalarArgs(imm=16)))
-                insns.append(Instruction("vload", VectorArgs(vd=1, rs1=2)))  # B tile
-                insns.append(Instruction("delay", ScalarArgs(imm=16)))
+    # k-loop for k=1..K_tiles-1 (skipped when K_tiles==1)
+    if K_tiles > 1:
+        insns.append(Instruction("addi", ScalarArgs(rd=22, rs1=0, imm=1)))  # k = 1
+        k_loop_start = len(insns)
+        insns.append(Instruction("dma.load.ch<N>", DmaArgs(rd=1, rs1=18, rs2=5, channel=0)))
+        insns.append(Instruction("dma.load.ch<N>", DmaArgs(rd=2, rs1=19, rs2=5, channel=1)))
+        insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=0)))
+        insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=1)))
+        insns.append(Instruction("vload", VectorArgs(vd=0, rs1=1)))
+        insns.append(Instruction("delay", ScalarArgs(imm=34)))
+        insns.append(Instruction("vload", VectorArgs(vd=1, rs1=2)))
+        insns.append(Instruction("delay", ScalarArgs(imm=34)))
+        insns.append(Instruction("vmatpush.weight.mxu0", VectorArgs(vs1=1)))
+        insns.append(Instruction("delay", ScalarArgs(imm=32)))
+        insns.append(Instruction("vmatmul.acc.mxu0", MatrixArgs(vs1=0)))
+        insns.append(Instruction("delay", ScalarArgs(imm=96)))
+        insns.append(Instruction("addi", ScalarArgs(rd=18, rs1=18, imm=TILE_BYTES_FP8)))
+        insns.append(Instruction("add", ScalarArgs(rd=19, rs1=19, rs2=7)))
+        insns.append(Instruction("addi", ScalarArgs(rd=22, rs1=22, imm=1)))
+        blt_idx = len(insns)
+        insns.append(Instruction("blt", ScalarArgs(rs1=22, rs2=12, imm=k_loop_start - blt_idx)))
+        insns.append(nop)
+        insns.append(nop)
 
-                # Push B as weight, then multiply.
-                insns.append(Instruction("vmatpush.weight.mxu0", VectorArgs(vs1=1)))
-                insns.append(Instruction("delay", ScalarArgs(imm=16)))
+    # Pop accumulator, store output tile
+    insns.append(Instruction("vmatpop.bf16.acc.mxu0", VectorArgs(vd=2)))
+    insns.append(Instruction("delay", ScalarArgs(imm=32)))
+    insns.append(Instruction("vstore", VectorArgs(vd=2, rs1=3)))
+    insns.append(Instruction("delay", ScalarArgs(imm=34)))
+    insns.append(Instruction("vstore", VectorArgs(vd=3, rs1=4)))
+    insns.append(Instruction("delay", ScalarArgs(imm=34)))
+    insns.append(Instruction("dma.store.ch<N>", DmaArgs(rd=17, rs1=3, rs2=6, channel=0)))
+    insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=0)))
 
-                if k == 0:
-                    # First K-tile: reset accumulator.
-                    insns.append(Instruction("vmatmul.mxu0", MatrixArgs(vs1=0)))
-                else:
-                    # Subsequent K-tiles: accumulate into existing acc.
-                    insns.append(Instruction("vmatmul.acc.mxu0", MatrixArgs(vs1=0)))
-                insns.append(Instruction("delay", ScalarArgs(imm=32)))
+    # Advance n
+    insns.append(Instruction("addi", ScalarArgs(rd=16, rs1=16, imm=TILE_BYTES_FP8)))  # B_n_base += 1024
+    insns.append(Instruction("add", ScalarArgs(rd=17, rs1=17, rs2=6)))                # C_out_ptr += 2048
+    insns.append(Instruction("addi", ScalarArgs(rd=21, rs1=21, imm=1)))
+    n_blt_idx = len(insns)
+    insns.append(Instruction("blt", ScalarArgs(rs1=21, rs2=11, imm=n_loop_start - n_blt_idx)))
+    insns.append(nop)
+    insns.append(nop)
 
-            # All K-tiles done: pop accumulator to MRF (mrf[2], mrf[3]).
-            insns.append(Instruction("vmatpop.bf16.acc.mxu0", VectorArgs(vd=2)))
-            insns.append(Instruction("delay", ScalarArgs(imm=32)))
+    # Advance m
+    insns.append(Instruction("add", ScalarArgs(rd=15, rs1=15, rs2=8)))   # A_m_base += stride_A_m
+    insns.append(Instruction("add", ScalarArgs(rd=14, rs1=14, rs2=9)))   # C_m_base += stride_C_m
+    insns.append(Instruction("addi", ScalarArgs(rd=20, rs1=20, imm=1)))
+    m_blt_idx = len(insns)
+    insns.append(Instruction("blt", ScalarArgs(rs1=20, rs2=10, imm=m_loop_start - m_blt_idx)))
+    insns.append(nop)
+    insns.append(nop)
 
-            # MRF → VMEM.
-            insns.append(Instruction("vstore", VectorArgs(vd=2, rs1=3)))  # low  half
-            insns.append(Instruction("delay", ScalarArgs(imm=16)))
-            insns.append(Instruction("vstore", VectorArgs(vd=3, rs1=4)))  # high half
-            insns.append(Instruction("delay", ScalarArgs(imm=16)))
-
-            # VMEM → DRAM output tile.
-            c_addr = dram_c + _c_offset(m, n, N)
-            _emit_load_imm32(12, c_addr, insns)
-            insns.append(Instruction(
-                "dma.store.ch<N>", DmaArgs(rd=12, rs1=3, rs2=6, channel=0)
-            ))
-            insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=0)))
-
-    insns.append(Instruction("ecall", ScalarArgs()))
     return insns
 
 

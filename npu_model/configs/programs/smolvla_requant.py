@@ -99,13 +99,7 @@ DRAM_OUT = 0x0B00
 
 
 class SmolVLARequantProgram(Program):
-    """Auto-generated single-file Program for the ``requant`` kernel.
-
-    ISA is lifted from the merlin kernel manifest (see
-    ``benchmarks/SaturnNPU/kernel_library/manifest.json``). This Program
-    mirrors the ``smolvla_silu.py`` template: self-contained, no cross-
-    file helpers, torch-allclose golden check via ``pytest tests/test_programs.py``.
-    """
+    """bf16 → fp8 requantization (unit scale) on a 32x32 tile. cycles: ~168"""
 
     instructions: List[Instruction[Any]] = [
         Instruction("lui", ScalarArgs(rd=1, imm=2)),

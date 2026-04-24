@@ -1,20 +1,22 @@
 """Parameterized fused_norm_scale kernel for arbitrary M×N.
 
 Computes out[i,j] = matrix[i,j] * rsqrt(variance[i,j]).
-
-op_a: rsqrt(variance) = 1 / sqrt(variance)  — vsqrt.bf16 + vrecip.bf16
-op_b: elementwise_mul(matrix, rsqrt_v)       — vmul.bf16
-
-Both inputs and output stored in tiled row-major bf16 layout (2048 B per tile).
+Uses a hardware counted loop over all 32x32 bf16 tiles.
 
 Constraints:
     - M and N must be multiples of 32.
     - Variance values must be positive.
 
 VMEM slots:
-    VMEM_VAR = 0x2000   2 KB — variance tile
-    VMEM_MAT = 0x2800   2 KB — matrix tile
-    VMEM_OUT = 0x3000   2 KB — output tile
+    VMEM_VAR = 0x2000   2 KB
+    VMEM_MAT = 0x2800   2 KB
+    VMEM_OUT = 0x3000   2 KB
+
+Scalar register map:
+    x1  VMEM_VAR    x2  VMEM_MAT    x3  VMEM_OUT
+    x4  TILE_BYTES_BF16 (2048, also stride)
+    x5  dram_var pointer    x6  dram_mat pointer    x7  dram_out pointer
+    x8  loop counter        x9  total_tiles (loop limit)
 """
 
 from typing import Any, List, Tuple
@@ -23,10 +25,6 @@ import torch
 
 from ...software import Instruction, Program
 from npu_model.isa import DmaArgs, ScalarArgs, VectorArgs
-
-VMEM_VAR = 0x2000
-VMEM_MAT = 0x2800
-VMEM_OUT = 0x3000
 
 TILE = 32
 BF16_BYTES = 2
@@ -45,14 +43,6 @@ def _emit_load_imm32(rd: int, value: int, out: list[Instruction]) -> None:
             out.append(Instruction("addi", ScalarArgs(rd=rd, rs1=rd, imm=lower)))
     else:
         out.append(Instruction("addi", ScalarArgs(rd=rd, rs1=0, imm=lower)))
-
-
-def _emit_load_vmem_addr(rd: int, vmem_addr: int, out: list[Instruction]) -> None:
-    _emit_load_imm32(rd, vmem_addr, out)
-
-
-def _bf16_tile_offset(m: int, n: int, N: int) -> int:
-    return (m * (N // TILE) + n) * TILE_BYTES_BF16
 
 
 def _tile_matrix_bf16(mat: torch.Tensor, M: int, N: int) -> torch.Tensor:
@@ -83,78 +73,76 @@ def make_fused_norm_scale_instructions(
         (v8, v9) = output = matrix * rsqrt
     """
     assert M % TILE == 0 and N % TILE == 0
-    M_tiles = M // TILE
-    N_tiles = N // TILE
+    total_tiles = (M // TILE) * (N // TILE)
+    nop = Instruction("addi", ScalarArgs(rd=0, rs1=0, imm=0))
 
     insns: list[Instruction] = []
-    _emit_load_vmem_addr(1, VMEM_VAR, insns)
-    _emit_load_vmem_addr(2, VMEM_MAT, insns)
-    _emit_load_vmem_addr(3, VMEM_OUT, insns)
+
+    _emit_load_imm32(1, 0x2000, insns)
+    _emit_load_imm32(2, 0x2800, insns)
+    _emit_load_imm32(3, 0x3000, insns)
     _emit_load_imm32(4, TILE_BYTES_BF16, insns)
+    _emit_load_imm32(5, dram_var, insns)
+    _emit_load_imm32(6, dram_mat, insns)
+    _emit_load_imm32(7, dram_out, insns)
+    insns.append(Instruction("addi", ScalarArgs(rd=8, rs1=0, imm=0)))
+    _emit_load_imm32(9, total_tiles, insns)
 
     insns.append(Instruction("dma.config.ch<N>", DmaArgs(channel=0)))
     insns.append(Instruction("dma.config.ch<N>", DmaArgs(channel=1)))
     insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=0)))
     insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=1)))
 
-    for m in range(M_tiles):
-        for n in range(N_tiles):
-            var_addr = dram_var + _bf16_tile_offset(m, n, N)
-            mat_addr = dram_mat + _bf16_tile_offset(m, n, N)
-            out_addr = dram_out + _bf16_tile_offset(m, n, N)
+    loop_start = len(insns)
 
-            _emit_load_imm32(5, var_addr, insns)
-            _emit_load_imm32(6, mat_addr, insns)
+    insns.append(Instruction("dma.load.ch<N>", DmaArgs(rd=1, rs1=5, rs2=4, channel=0)))
+    insns.append(Instruction("dma.load.ch<N>", DmaArgs(rd=2, rs1=6, rs2=4, channel=1)))
+    insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=0)))
+    insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=1)))
 
-            # DMA variance and matrix in parallel
-            insns.append(Instruction("dma.load.ch<N>", DmaArgs(rd=1, rs1=5, rs2=4, channel=0)))
-            insns.append(Instruction("dma.load.ch<N>", DmaArgs(rd=2, rs1=6, rs2=4, channel=1)))
-            insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=0)))
-            insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=1)))
+    # Load variance pair (v0, v1)
+    insns.append(Instruction("vload", VectorArgs(vd=0, rs1=1, imm12=0)))
+    insns.append(Instruction("delay", ScalarArgs(imm=34)))
+    insns.append(Instruction("vload", VectorArgs(vd=1, rs1=1, imm12=32)))
+    insns.append(Instruction("delay", ScalarArgs(imm=34)))
 
-            # Load variance pair (v0, v1)
-            insns.append(Instruction("vload", VectorArgs(vd=0, rs1=1, imm12=0)))
-            insns.append(Instruction("delay", ScalarArgs(imm=16)))
-            insns.append(Instruction("vload", VectorArgs(vd=1, rs1=1, imm12=32)))
-            insns.append(Instruction("delay", ScalarArgs(imm=16)))
+    # Load matrix pair (v2, v3)
+    insns.append(Instruction("vload", VectorArgs(vd=2, rs1=2, imm12=0)))
+    insns.append(Instruction("delay", ScalarArgs(imm=34)))
+    insns.append(Instruction("vload", VectorArgs(vd=3, rs1=2, imm12=32)))
+    insns.append(Instruction("delay", ScalarArgs(imm=34)))
 
-            # Load matrix pair (v2, v3)
-            insns.append(Instruction("vload", VectorArgs(vd=2, rs1=2, imm12=0)))
-            insns.append(Instruction("delay", ScalarArgs(imm=16)))
-            insns.append(Instruction("vload", VectorArgs(vd=3, rs1=2, imm12=32)))
-            insns.append(Instruction("delay", ScalarArgs(imm=16)))
+    insns.append(Instruction("vsqrt.bf16", VectorArgs(vd=4, vs1=0)))
+    insns.append(Instruction("delay", ScalarArgs(imm=66)))
+    insns.append(Instruction("vrecip.bf16", VectorArgs(vd=6, vs1=4)))
+    insns.append(Instruction("delay", ScalarArgs(imm=66)))
+    insns.append(Instruction("vmul.bf16", VectorArgs(vd=8, vs1=2, vs2=6)))
+    insns.append(Instruction("delay", ScalarArgs(imm=66)))
 
-            # op_a: rsqrt = 1/sqrt(var)
-            insns.append(Instruction("vsqrt.bf16", VectorArgs(vd=4, vs1=0)))   # (v4,v5) = sqrt(var)
-            insns.append(Instruction("delay", ScalarArgs(imm=66)))
-            insns.append(Instruction("vrecip.bf16", VectorArgs(vd=6, vs1=4)))  # (v6,v7) = rsqrt
-            insns.append(Instruction("delay", ScalarArgs(imm=66)))
+    insns.append(Instruction("vstore", VectorArgs(vd=8, rs1=3, imm12=0)))
+    insns.append(Instruction("delay", ScalarArgs(imm=34)))
+    insns.append(Instruction("vstore", VectorArgs(vd=9, rs1=3, imm12=32)))
+    insns.append(Instruction("delay", ScalarArgs(imm=34)))
 
-            # op_b: matrix * rsqrt
-            insns.append(Instruction("vmul.bf16", VectorArgs(vd=8, vs1=2, vs2=6)))  # (v8,v9) = out
-            insns.append(Instruction("delay", ScalarArgs(imm=66)))
+    insns.append(Instruction("dma.store.ch<N>", DmaArgs(rd=7, rs1=3, rs2=4, channel=0)))
+    insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=0)))
 
-            # Store
-            insns.append(Instruction("vstore", VectorArgs(vd=8, rs1=3, imm12=0)))
-            insns.append(Instruction("delay", ScalarArgs(imm=16)))
-            insns.append(Instruction("vstore", VectorArgs(vd=9, rs1=3, imm12=32)))
-            insns.append(Instruction("delay", ScalarArgs(imm=16)))
+    insns.append(Instruction("add", ScalarArgs(rd=5, rs1=5, rs2=4)))
+    insns.append(Instruction("add", ScalarArgs(rd=6, rs1=6, rs2=4)))
+    insns.append(Instruction("add", ScalarArgs(rd=7, rs1=7, rs2=4)))
+    insns.append(Instruction("addi", ScalarArgs(rd=8, rs1=8, imm=1)))
 
-            _emit_load_imm32(7, out_addr, insns)
-            insns.append(Instruction("dma.store.ch<N>", DmaArgs(rd=7, rs1=3, rs2=4, channel=0)))
-            insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=0)))
+    blt_idx = len(insns)
+    insns.append(Instruction("blt", ScalarArgs(rs1=8, rs2=9, imm=loop_start - blt_idx)))
+    insns.append(nop)
+    insns.append(nop)
 
-    insns.append(Instruction("ecall", ScalarArgs()))
     return insns
 
 
 def fused_norm_scale_reference(
     variance: torch.Tensor, matrix: torch.Tensor
 ) -> torch.Tensor:
-    """output[i,j] = matrix[i,j] * rsqrt(variance[i,j]).
-
-    Matches the two-step kernel: bf16 sqrt, bf16 recip, bf16 mul.
-    """
     sqrt_v = torch.sqrt(variance.float()).to(torch.bfloat16)
     rsqrt_v = (1.0 / sqrt_v.float()).to(torch.bfloat16)
     return (matrix.float() * rsqrt_v.float()).to(matrix.dtype)
@@ -185,7 +173,7 @@ _32_insns, _32_regions, _32_golden = _make_program(32, 32, seed=80)
 
 
 class ParameterizedFusedNormScale32x32Program(Program):
-    """fused_norm_scale on a single 32×32 bf16 tile."""
+    """fused_norm_scale on a single 32x32 bf16 tile."""
 
     instructions: List[Instruction[Any]] = _32_insns
     memory_regions: List[Tuple[int, torch.Tensor]] = _32_regions
@@ -196,7 +184,7 @@ _64_insns, _64_regions, _64_golden = _make_program(64, 64, seed=81)
 
 
 class ParameterizedFusedNormScale64x64Program(Program):
-    """fused_norm_scale on a 64×64 bf16 tensor (2×2 tiles)."""
+    """fused_norm_scale on a 64x64 bf16 tensor (2x2 tiles)."""
 
     instructions: List[Instruction[Any]] = _64_insns
     memory_regions: List[Tuple[int, torch.Tensor]] = _64_regions
@@ -207,7 +195,7 @@ _64x32_insns, _64x32_regions, _64x32_golden = _make_program(64, 32, seed=82)
 
 
 class ParameterizedFusedNormScale64x32Program(Program):
-    """fused_norm_scale on a 64×32 bf16 tensor (2×1 tiles)."""
+    """fused_norm_scale on a 64x32 bf16 tensor (2x1 tiles)."""
 
     instructions: List[Instruction[Any]] = _64x32_insns
     memory_regions: List[Tuple[int, torch.Tensor]] = _64x32_regions
