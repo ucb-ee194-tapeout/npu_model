@@ -442,6 +442,9 @@ class SmolVLAFusedAttentionProgram(Program):
             mnemonic="addi", args=ScalarArgs(rd=16, rs1=0, imm=1024)
         ),  # x16 = 1024
         # ── DMA: DRAM → VMEM ─────────────────────────────────────────────────
+        # Batch 1: Q + KT0 + VT0 + SCALE on 4 channels (~2052cy wait).
+        # Immediately after, issue KT1+VT1 async so they arrive during K-tile 0
+        # compute (~2874cy of setup + compute hides the 2052cy DMA).
         Instruction(mnemonic="dma.config.ch<N>", args=DmaArgs(rs1=0, channel=0)),
         Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
         Instruction(
@@ -451,23 +454,22 @@ class SmolVLAFusedAttentionProgram(Program):
             mnemonic="dma.load.ch<N>", args=DmaArgs(rd=2, rs1=9, rs2=15, channel=1)
         ),  # KT0
         Instruction(
-            mnemonic="dma.load.ch<N>", args=DmaArgs(rd=3, rs1=10, rs2=15, channel=2)
-        ),  # KT1
-        Instruction(
-            mnemonic="dma.load.ch<N>", args=DmaArgs(rd=4, rs1=11, rs2=15, channel=3)
+            mnemonic="dma.load.ch<N>", args=DmaArgs(rd=4, rs1=11, rs2=15, channel=2)
         ),  # VT0
+        Instruction(
+            mnemonic="dma.load.ch<N>", args=DmaArgs(rd=6, rs1=13, rs2=16, channel=3)
+        ),  # SCALE
         Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
         Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=1)),
         Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=2)),
         Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=3)),
+        # Kick off KT1+VT1 async — no wait, K-tile 0 compute covers the latency.
         Instruction(
-            mnemonic="dma.load.ch<N>", args=DmaArgs(rd=5, rs1=12, rs2=15, channel=0)
+            mnemonic="dma.load.ch<N>", args=DmaArgs(rd=3, rs1=10, rs2=15, channel=0)
+        ),  # KT1
+        Instruction(
+            mnemonic="dma.load.ch<N>", args=DmaArgs(rd=5, rs1=12, rs2=15, channel=1)
         ),  # VT1
-        Instruction(
-            mnemonic="dma.load.ch<N>", args=DmaArgs(rd=6, rs1=13, rs2=16, channel=1)
-        ),  # SCALE
-        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
-        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=1)),
         # ── Q: VMEM → MRF, then bf16 → fp8 via acc[1] roundtrip ──────────────
         # Load four [32,16] blocks into (m0, m1, m2, m3): Q_lo = (m0,m1), Q_hi = (m2,m3).
         Instruction(mnemonic="vload", args=VectorArgs(vd=0, rs1=1, imm12=0)),
@@ -597,30 +599,28 @@ class SmolVLAFusedAttentionProgram(Program):
         Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
         Instruction(mnemonic="vmatpop.fp8.acc.mxu0", args=MatrixArgs(vd=42, vs1=1)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
-        # vc_left = exp_s @ V_left
-        Instruction(mnemonic="vmatpush.weight.mxu0", args=MatrixArgs(vd=0, vs1=28)),
+        # vc_left = exp_s @ V_left; issue exp_diff*l on VPU concurrently with MXU1
+        Instruction(mnemonic="vmatpush.weight.mxu1", args=MatrixArgs(vd=0, vs1=28)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
-        Instruction(mnemonic="vmatmul.mxu0", args=MatrixArgs(vd=0, vs1=42, vs2=0)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=96)),
-        Instruction(mnemonic="vmatpop.bf16.acc.mxu0", args=MatrixArgs(vd=44, vs1=0)),
+        Instruction(mnemonic="vmatmul.mxu1", args=MatrixArgs(vd=0, vs1=42, vs2=0)),
+        Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=48, vs1=36, vs2=10)),  # VPU covers MXU1 35cy
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=35)),
+        Instruction(mnemonic="vmatpop.bf16.acc.mxu1", args=MatrixArgs(vd=44, vs1=0)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
-        # vc_right = exp_s @ V_right
-        Instruction(mnemonic="vmatpush.weight.mxu0", args=MatrixArgs(vd=0, vs1=30)),
+        # vc_right = exp_s @ V_right; issue rowsum(exp_s) on VPU concurrently
+        Instruction(mnemonic="vmatpush.weight.mxu1", args=MatrixArgs(vd=0, vs1=30)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
-        Instruction(mnemonic="vmatmul.mxu0", args=MatrixArgs(vd=0, vs1=42, vs2=0)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=96)),
-        Instruction(mnemonic="vmatpop.bf16.acc.mxu0", args=MatrixArgs(vd=46, vs1=0)),
+        Instruction(mnemonic="vmatmul.mxu1", args=MatrixArgs(vd=0, vs1=42, vs2=0)),
+        Instruction(mnemonic="vredsum.row.bf16", args=VectorArgs(vd=50, vs1=40)),  # VPU covers MXU1 35cy
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=35)),
+        Instruction(mnemonic="vmatpop.bf16.acc.mxu1", args=MatrixArgs(vd=46, vs1=0)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
         # O += V contribution
         Instruction(mnemonic="vadd.bf16", args=VectorArgs(vd=12, vs1=12, vs2=44)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
         Instruction(mnemonic="vadd.bf16", args=VectorArgs(vd=14, vs1=14, vs2=46)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
-        # l = exp_diff * l + rowsum(exp_s)
-        Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=48, vs1=36, vs2=10)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
-        Instruction(mnemonic="vredsum.row.bf16", args=VectorArgs(vd=50, vs1=40)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=39)),
+        # l update: m48 (exp_diff*l) and m50 (rowsum) both ready long before here
         Instruction(mnemonic="vadd.bf16", args=VectorArgs(vd=10, vs1=48, vs2=50)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
         # m_prev = m_new (pair copy: two vmov ops for both halves)
@@ -631,6 +631,9 @@ class SmolVLAFusedAttentionProgram(Program):
         # ══════════════════════════════════════════════════════════════════════
         # K TILE 1  (k_seq 32:64) — same body, K1/V1 inputs
         # ══════════════════════════════════════════════════════════════════════
+        # KT1+VT1 were issued async before K-tile 0; they are done by now.
+        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
+        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=1)),
         # Load KT1
         Instruction(mnemonic="vload", args=VectorArgs(vd=16, rs1=3, imm12=0)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
@@ -698,26 +701,24 @@ class SmolVLAFusedAttentionProgram(Program):
         Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
         Instruction(mnemonic="vmatpop.fp8.acc.mxu0", args=MatrixArgs(vd=42, vs1=1)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
-        Instruction(mnemonic="vmatpush.weight.mxu0", args=MatrixArgs(vd=0, vs1=28)),
+        Instruction(mnemonic="vmatpush.weight.mxu1", args=MatrixArgs(vd=0, vs1=28)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
-        Instruction(mnemonic="vmatmul.mxu0", args=MatrixArgs(vd=0, vs1=42, vs2=0)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=96)),
-        Instruction(mnemonic="vmatpop.bf16.acc.mxu0", args=MatrixArgs(vd=44, vs1=0)),
+        Instruction(mnemonic="vmatmul.mxu1", args=MatrixArgs(vd=0, vs1=42, vs2=0)),
+        Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=48, vs1=36, vs2=10)),  # VPU covers MXU1 35cy
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=35)),
+        Instruction(mnemonic="vmatpop.bf16.acc.mxu1", args=MatrixArgs(vd=44, vs1=0)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
-        Instruction(mnemonic="vmatpush.weight.mxu0", args=MatrixArgs(vd=0, vs1=30)),
+        Instruction(mnemonic="vmatpush.weight.mxu1", args=MatrixArgs(vd=0, vs1=30)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
-        Instruction(mnemonic="vmatmul.mxu0", args=MatrixArgs(vd=0, vs1=42, vs2=0)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=96)),
-        Instruction(mnemonic="vmatpop.bf16.acc.mxu0", args=MatrixArgs(vd=46, vs1=0)),
+        Instruction(mnemonic="vmatmul.mxu1", args=MatrixArgs(vd=0, vs1=42, vs2=0)),
+        Instruction(mnemonic="vredsum.row.bf16", args=VectorArgs(vd=50, vs1=40)),  # VPU covers MXU1 35cy
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=35)),
+        Instruction(mnemonic="vmatpop.bf16.acc.mxu1", args=MatrixArgs(vd=46, vs1=0)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
         Instruction(mnemonic="vadd.bf16", args=VectorArgs(vd=12, vs1=12, vs2=44)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
         Instruction(mnemonic="vadd.bf16", args=VectorArgs(vd=14, vs1=14, vs2=46)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
-        Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=48, vs1=36, vs2=10)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
-        Instruction(mnemonic="vredsum.row.bf16", args=VectorArgs(vd=50, vs1=40)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=39)),
         Instruction(mnemonic="vadd.bf16", args=VectorArgs(vd=10, vs1=48, vs2=50)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
         Instruction(mnemonic="vmov", args=VectorArgs(vd=8, vs1=38)),

@@ -195,41 +195,40 @@ class SmolVLAFusedMatmulBiasProgram(Program):
         ),  # fp8 tile
         Instruction(mnemonic="lui", args=ScalarArgs(rd=10, imm=0x1)),
         Instruction(mnemonic="addi", args=ScalarArgs(rd=10, rs1=10, imm=-2048)),  # 2048
-        # DMA A, B in parallel (fp8, 1024 B each)
+        # DMA A, B, bias in one parallel round (A+B are 1024B each, bias is 2048B)
         Instruction(mnemonic="dma.config.ch<N>", args=DmaArgs(rs1=0, channel=0)),
         Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
         Instruction(
             mnemonic="dma.load.ch<N>", args=DmaArgs(rd=1, rs1=5, rs2=9, channel=0)
-        ),
+        ),  # A
         Instruction(
             mnemonic="dma.load.ch<N>", args=DmaArgs(rd=2, rs1=6, rs2=9, channel=1)
-        ),
-        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
-        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=1)),
-        # DMA bias (bf16, 2048 B)
+        ),  # B
         Instruction(
-            mnemonic="dma.load.ch<N>", args=DmaArgs(rd=3, rs1=7, rs2=10, channel=0)
-        ),
-        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
-        # Load A_fp8 and B_fp8 into single mregs m0, m2 (MXU consumes whole 32x32 fp8 tile).
+            mnemonic="dma.load.ch<N>", args=DmaArgs(rd=3, rs1=7, rs2=10, channel=2)
+        ),  # bias
+        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),  # A ready (~516cy)
+        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=1)),  # B ready (~516cy)
+        # A and B are ready. Bias (ch2, 2048B) takes ~1028cy — still loading.
+        # Run the matmul now; dma.wait ch2 will overlap with MXU0 executing.
         Instruction(mnemonic="vload", args=VectorArgs(vd=0, rs1=1, imm12=0)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
         Instruction(mnemonic="vload", args=VectorArgs(vd=2, rs1=2, imm12=0)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
-        # Load bias pair into (m4, m5)
-        Instruction(mnemonic="vload", args=VectorArgs(vd=4, rs1=3, imm12=0)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
-        Instruction(mnemonic="vload", args=VectorArgs(vd=5, rs1=3, imm12=32)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
-        # op_a: fp8 matmul via MXU
         Instruction(
             mnemonic="vmatpush.weight.mxu0", args=MatrixArgs(vd=0, vs1=2)
         ),  # B → WB[0]
         Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
         Instruction(
             mnemonic="vmatmul.mxu0", args=MatrixArgs(vd=0, vs1=0, vs2=0)
-        ),  # acc[0] = A @ WB[0]
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=96)),
+        ),  # acc[0] = A @ WB[0], 96cy non-blocking
+        # Wait for bias DMA while MXU0 is computing — ~512cy bias remaining, 96cy matmul.
+        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=2)),  # bias ready
+        Instruction(mnemonic="vload", args=VectorArgs(vd=4, rs1=3, imm12=0)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
+        Instruction(mnemonic="vload", args=VectorArgs(vd=5, rs1=3, imm12=32)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
+        # Matmul done long before the bias loads above finished (96cy << ~512cy wait).
         Instruction(
             mnemonic="vmatpop.bf16.acc.mxu0", args=MatrixArgs(vd=6, vs1=0)
         ),  # (m6, m7) = C bf16

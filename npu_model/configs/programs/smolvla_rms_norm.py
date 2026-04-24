@@ -266,35 +266,36 @@ class SmolVLARmsNormProgram(Program):
         Instruction(
             mnemonic="addi", args=ScalarArgs(rd=15, rs1=4, imm=1024)
         ),  # x15 = x4 + 1024 (OUT m13 VMEM addr)
-        # DMA loads (X_H0, X_H1, INV_DIM+1 halves, EPS+1 halves)
+        # Load X and inv_dim in one parallel batch using 4 channels, then EPS in a second batch.
         Instruction(mnemonic="dma.config.ch<N>", args=DmaArgs(rs1=0, channel=0)),
         Instruction(mnemonic="dma.config.ch<N>", args=DmaArgs(rs1=0, channel=1)),
+        Instruction(mnemonic="dma.config.ch<N>", args=DmaArgs(rs1=0, channel=2)),
+        Instruction(mnemonic="dma.config.ch<N>", args=DmaArgs(rs1=0, channel=3)),
         Instruction(
             mnemonic="dma.load.ch<N>", args=DmaArgs(rd=1, rs1=5, rs2=13, channel=0)
-        ),  # X_H0 → VMEM[x1]
+        ),  # X_H0 → m0
         Instruction(
             mnemonic="dma.load.ch<N>", args=DmaArgs(rd=11, rs1=6, rs2=13, channel=1)
-        ),  # X_H1 → VMEM[x1+1024]
-        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
-        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=1)),
-        # inv_dim tile is the same 1024-B scalar-broadcast block repeated twice in VMEM for pair read
+        ),  # X_H1 → m1
         Instruction(
-            mnemonic="dma.load.ch<N>", args=DmaArgs(rd=2, rs1=7, rs2=13, channel=0)
+            mnemonic="dma.load.ch<N>", args=DmaArgs(rd=2, rs1=7, rs2=13, channel=2)
         ),  # INV_DIM → m6
         Instruction(
-            mnemonic="dma.load.ch<N>", args=DmaArgs(rd=12, rs1=7, rs2=13, channel=1)
+            mnemonic="dma.load.ch<N>", args=DmaArgs(rd=12, rs1=7, rs2=13, channel=3)
         ),  # INV_DIM → m7 (same data)
         Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
         Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=1)),
+        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=2)),
+        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=3)),
+        # Issue EPS async now — the vsquare+vredsum+vmul chain (~443cy) covers most of
+        # the 516cy DMA. We wait for EPS just before vadd(mean + eps).
         Instruction(
             mnemonic="dma.load.ch<N>", args=DmaArgs(rd=3, rs1=8, rs2=13, channel=0)
         ),  # EPS → m8
         Instruction(
             mnemonic="dma.load.ch<N>", args=DmaArgs(rd=14, rs1=8, rs2=13, channel=1)
         ),  # EPS → m9 (same data)
-        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
-        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=1)),
-        # Load MRF (all pair reads)
+        # Load X and inv_dim into MRF while EPS DMA is in flight.
         Instruction(mnemonic="vload", args=VectorArgs(vd=0, rs1=1, imm12=0)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
         Instruction(mnemonic="vload", args=VectorArgs(vd=1, rs1=1, imm12=32)),
@@ -303,19 +304,22 @@ class SmolVLARmsNormProgram(Program):
         Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
         Instruction(mnemonic="vload", args=VectorArgs(vd=7, rs1=2, imm12=32)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
-        Instruction(mnemonic="vload", args=VectorArgs(vd=8, rs1=3, imm12=0)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
-        Instruction(mnemonic="vload", args=VectorArgs(vd=9, rs1=3, imm12=32)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
-        # (m2, m3) = X^2 (pair-op vsquare, full-tile square)
+        # (m2, m3) = X^2
         Instruction(mnemonic="vsquare.bf16", args=VectorArgs(vd=2, vs1=0)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
-        # (m4, m5) = row-sum(X^2)  (reduces along dim=1 over 32 cols)
+        # (m4, m5) = row-sum(X^2)
         Instruction(mnemonic="vredsum.row.bf16", args=VectorArgs(vd=4, vs1=2)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=39)),
         # (m10, m11) = mean(X^2) = sum * inv_dim
         Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=10, vs1=4, vs2=6)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
+        # EPS DMA (~516cy) started ~443cy ago; wait for the remaining ~73cy, then load.
+        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
+        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=1)),
+        Instruction(mnemonic="vload", args=VectorArgs(vd=8, rs1=3, imm12=0)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
+        Instruction(mnemonic="vload", args=VectorArgs(vd=9, rs1=3, imm12=32)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
         # (m12, m13) = mean + eps
         Instruction(mnemonic="vadd.bf16", args=VectorArgs(vd=12, vs1=10, vs2=8)),
         Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
