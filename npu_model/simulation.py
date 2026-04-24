@@ -28,6 +28,7 @@ class Simulation:
         program: Program,
         verbose: bool = True,
         ignore_runtime_errors: bool = False,
+        record_timeline: bool = False,
     ):
         """
         Create a simple NPU hardware configuration.
@@ -45,6 +46,8 @@ class Simulation:
         self.program = program
         self.verbose = verbose
         self.ignore_runtime_errors = ignore_runtime_errors
+        self.record_timeline = record_timeline
+        self.timeline: list[dict[str, bool]] | None = None
         self.runtime_errors: list[tuple[int, str, str]] = []
 
         # Create logger for trace output
@@ -83,14 +86,24 @@ class Simulation:
     def run(self, max_cycles: int = 10000):
         """Run simulation until completion or max_cycles."""
 
-        # self.core.run(max_cycles=max_cycles)
         self.core.reset()
 
         self.cycle_count = 0
 
+        if self.record_timeline:
+            self.timeline = []
+            prev_busy = {exu.name: exu.busy_cycles for exu in self.core.exus}
+
         while not self.core.is_finished() and self.cycle_count < max_cycles:
             self.core.tick()
             self.cycle_count += 1
+
+            if self.record_timeline:
+                cur_busy = {exu.name: exu.busy_cycles for exu in self.core.exus}
+                self.timeline.append(
+                    {name: cur_busy[name] > prev_busy[name] for name in prev_busy}
+                )
+                prev_busy = cur_busy
 
         # Flush any pending completions in EXUs
         self.core.stop()
