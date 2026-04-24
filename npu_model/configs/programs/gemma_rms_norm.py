@@ -87,45 +87,46 @@ class GemmaRmsNormProgram(Program):
         Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=1)),
         # VMEM -> MRF
         Instruction(mnemonic="vload", args=VectorArgs(vd=0, rs1=1, imm12=0)),  # x low
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
         Instruction(mnemonic="vload", args=VectorArgs(vd=1, rs1=1, imm12=32)),  # x high
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
         Instruction(mnemonic="vload", args=VectorArgs(vd=2, rs1=2, imm12=0)),  # eps low
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
-        Instruction(mnemonic="vload", args=VectorArgs(vd=3, rs1=2, imm12=32)),  # eps high
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
+        Instruction(
+            mnemonic="vload", args=VectorArgs(vd=3, rs1=2, imm12=32)
+        ),  # eps high
         Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
         # x_sq = x * x
         Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=4, vs1=0, vs2=0)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=5)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
         # sum_sq over columns, broadcast back across each row
         Instruction(mnemonic="vredsum.row.bf16", args=VectorArgs(vd=6, vs1=4)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=5)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=39)),
         # mean_sq = sum_sq * (1/ROW_SIZE)
         Instruction(mnemonic="vli.all", args=VectorArgs(vd=8, imm=ROW_SIZE)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=2)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=65)),
         Instruction(mnemonic="vli.all", args=VectorArgs(vd=9, imm=ROW_SIZE)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=2)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=65)),
         Instruction(mnemonic="vrecip.bf16", args=VectorArgs(vd=10, vs1=8)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=17)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
         Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=12, vs1=6, vs2=10)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=5)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
         # var_eps = var + eps
         Instruction(mnemonic="vadd.bf16", args=VectorArgs(vd=14, vs1=12, vs2=2)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=5)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
         # rsqrt = 1/sqrt(var_eps)
         Instruction(mnemonic="vsqrt.bf16", args=VectorArgs(vd=16, vs1=14)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=17)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
         Instruction(mnemonic="vrecip.bf16", args=VectorArgs(vd=18, vs1=16)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=17)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
         # output = x * rsqrt
         Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=20, vs1=0, vs2=18)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=5)),
-
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
         # MRF -> VMEM -> DRAM
         Instruction(mnemonic="vstore", args=VectorArgs(vd=20, rs1=3, imm12=0)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
         Instruction(mnemonic="vstore", args=VectorArgs(vd=21, rs1=3, imm12=32)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
         Instruction(
             mnemonic="dma.store.ch<N>", args=DmaArgs(rd=6, rs1=3, rs2=7, channel=0)
         ),
@@ -140,4 +141,7 @@ class GemmaRmsNormProgram(Program):
     # FIXME: Re-derive a standalone golden reference for the pair-register BF16
     # VPU path. The current kernel wiring is exercised by simulation, but the
     # previous float-side golden no longer matches the staged BF16 execution.
-    golden_result = None
+    golden_result: tuple[int, torch.Tensor] = (
+        DRAM_OUTPUT_BASE,
+        gemma_rms_norm_forward(INPUT_DATA).to(torch.bfloat16),
+    )

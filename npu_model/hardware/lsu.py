@@ -25,6 +25,20 @@ MEM_OPS = {
     "vstore",
 }
 
+LSU_OP_LATENCIES = {
+    "lb": 2,
+    "lh": 2,
+    "lw": 2,
+    "lbu": 2,
+    "lhu": 2,
+    "sb": 1,
+    "sh": 1,
+    "sw": 1,
+    "seld": 2,
+    "vload": 34,
+    "vstore": 34
+}
+
 
 class LoadStoreUnit(ExecutionUnit):
     """
@@ -58,17 +72,7 @@ class LoadStoreUnit(ExecutionUnit):
         self._busy_cycles = 0
 
     def _get_latency(self, uop: Uop[Any]) -> int:
-        if uop.insn.mnemonic in ["vload", "vstore"]:
-            # Assuming a standard 32x32 FP8 tile is 1024 bytes
-            return max(
-                1,
-                math.ceil(
-                    self.config.arch_state_config.mrf_width
-                    * self.config.arch_state_config.mrf_depth
-                    / self.config.vmem_bytes_per_cycle
-                ),
-            )
-        return 1
+        return LSU_OP_LATENCIES[uop.insn.mnemonic]
 
     def tick(self, idu_output: StageData[Uop[Any] | None]) -> None:
         self.cycle += 1

@@ -10,46 +10,46 @@ from .stage_data import StageData
 from .config import HardwareConfig
 from .bank_conflict import mrf_accesses, vmem_accesses
 
-VPU_SIMPLE_OPS = {
-    "vadd.bf16",
-    "vsub.bf16",
-    "vmul.bf16",
-    "vrelu.bf16",
-    "vsquare.bf16",
-    "vcube.bf16",
-    "vminimum.bf16",
-    "vmaximum.bf16",
-    "vredsum.bf16",
-    "vredmin.bf16",
-    "vredmax.bf16",
-    "vredsum.row.bf16",
-    "vredmin.row.bf16",
-    "vredmax.row.bf16",
-}
 
-VPU_NON_PIPELINEABLE_OPS = {
-    "vrecip.bf16",
-    "vexp.bf16",
-    "vexp2.bf16",
-    "vsin.bf16",
-    "vcos.bf16",
-    "vtanh.bf16",
-    "vlog2.bf16",
-    "vsqrt.bf16",
-    "vlog.bf16",
-    "vmax.bf16",
-    "vmin.bf16",
-}
-
-VPU_LOCAL_TRANSFER_OPS = {
-    "vmov",
-}
-
-# no specific delay at this point
-XLU_OPS = {"vtrpose.xlu"}
-
-LOCAL_TRANSFER_TILE_BYTES = {
-    "vmov": 1024,
+VPU_OP_LATENCIES = {
+    # Col sum/max/min (Latency: 130)
+    "vredsum.bf16": 130,
+    "vredmin.bf16": 130,
+    "vredmax.bf16": 130,
+    #row reductions
+    "vredsum.row.bf16": 39,
+    "vredmin.row.bf16": 34,
+    "vredmax.row.bf16": 34,
+    
+    # Vli (Latency: 65)
+    # Vector Load Immediate instructions
+    "vli.all": 65,
+    "vli.row": 65,
+    "vli.col": 65,
+    "vli.one": 65,
+    
+    # Everything else (Latency: 66)
+    # Element-wise arithmetic, conversions, and Matrix Unit (MXU) interactions
+    "vadd.bf16": 66,
+    "vsub.bf16": 66,
+    "vmul.bf16": 66,
+    "vminimum.bf16": 66,
+    "vmaximum.bf16": 66,
+    "vmov": 66,
+    "vrecip.bf16": 66,
+    "vexp.bf16": 66,
+    "vexp2.bf16": 66,
+    "vpack.bf16.fp8": 66,
+    "vunpack.fp8.bf16": 66,
+    "vrelu.bf16": 66,
+    "vsin.bf16": 66,
+    "vcos.bf16": 66,
+    "vtanh.bf16": 66,
+    "vlog2.bf16": 66,
+    "vsqrt.bf16": 66,
+    "vsquare.bf16": 66,
+    "vcube.bf16": 66,
+    "vtrpose.xlu": 66
 }
 
 
@@ -87,24 +87,7 @@ class VectorExecutionUnit(ExecutionUnit):
 
     def _execution_latency(self, uop: Uop[VectorArgs]) -> int:
         mnemonic = uop.insn.mnemonic
-        if mnemonic in LOCAL_TRANSFER_TILE_BYTES:
-            return max(
-                1,
-                math.ceil(
-                    LOCAL_TRANSFER_TILE_BYTES[mnemonic]
-                    / self.config.vmem_bytes_per_cycle
-                ),
-            )
-        if mnemonic in XLU_OPS:
-            return self.config.xlu_transform_latency_cycles
-        if mnemonic in VPU_LOCAL_TRANSFER_OPS:
-            return self.config.vpu_simple_op_latency_cycles
-        if mnemonic in VPU_SIMPLE_OPS:
-            return self.config.vpu_simple_op_latency_cycles
-        if mnemonic in VPU_NON_PIPELINEABLE_OPS:
-            return self.config.vpu_non_pipelineable_op_latency_cycles
-        else:
-            return 1
+        return VPU_OP_LATENCIES[mnemonic]
 
     def tick(self, idu_output: StageData[Uop[Any] | None]) -> None:
         self.cycle += 1

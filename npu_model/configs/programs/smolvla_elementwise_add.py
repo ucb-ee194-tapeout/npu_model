@@ -16,7 +16,7 @@ Model context:
     transformer block + bias adds + positional adds).
 
 MLIR → ISA mapping:
-    arith.addf %a %b → vadd.bf16(a_h, b_h)     (per 32x16 half)
+    arith.addf %a %b → vadd.bf16(a, b)   pair-op: (vd, vd+1) = (vs1, vs1+1) + (vs2, vs2+1)
 """
 
 from typing import Any, List, Tuple
@@ -185,29 +185,27 @@ class SmolVLAElementwiseAddProgram(Program):
         Instruction(
             mnemonic="vload", args=VectorArgs(vd=0, rs1=1, imm12=0)
         ),  # v0 = A[:32, :16]
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
         Instruction(
             mnemonic="vload", args=VectorArgs(vd=1, rs1=1, imm12=32)
         ),  # v1 = A[:32, 16:32] (= next 1024 B)
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
         Instruction(
             mnemonic="vload", args=VectorArgs(vd=2, rs1=2, imm12=0)
         ),  # v2 = B half 0
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
         Instruction(
             mnemonic="vload", args=VectorArgs(vd=3, rs1=2, imm12=32)
         ),  # v3 = B half 1
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
-        # ── Per-half add ──
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
+        # ── Pair-op add: (v4, v5) = (v0, v1) + (v2, v3) ──
         Instruction(mnemonic="vadd.bf16", args=VectorArgs(vd=4, vs1=0, vs2=2)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
-        Instruction(mnemonic="vadd.bf16", args=VectorArgs(vd=5, vs1=1, vs2=3)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=4)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
         # ── Store: MRF → VMEM → DRAM ──
         Instruction(mnemonic="vstore", args=VectorArgs(vd=4, rs1=3, imm12=0)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=16)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
         Instruction(mnemonic="vstore", args=VectorArgs(vd=5, rs1=3, imm12=32)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=20)),
+        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
         Instruction(
             mnemonic="dma.store.ch<N>", args=DmaArgs(rd=6, rs1=3, rs2=7, channel=0)
         ),
