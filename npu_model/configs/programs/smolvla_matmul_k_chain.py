@@ -169,15 +169,16 @@ class SmolVLAMatmulKChainProgram(Program):
         # ── DMA channel init ───────────────────────────────────────────
         Instruction("dma.config.ch<N>", DmaArgs()),
         Instruction("dma.wait.ch<N>", DmaArgs()),
-        # ── Load all 4 tiles in one parallel DMA round ─────────────────
-        Instruction("dma.load.ch<N>", DmaArgs(rd=6, rs1=1, rs2=12)),            # ch0: A_K0
-        Instruction("dma.load.ch<N>", DmaArgs(rd=8, rs1=3, rs2=12, channel=1)), # ch1: B_K0
-        Instruction("dma.load.ch<N>", DmaArgs(rd=7, rs1=2, rs2=12, channel=2)), # ch2: A_K1
-        Instruction("dma.load.ch<N>", DmaArgs(rd=9, rs1=4, rs2=12, channel=3)), # ch3: B_K1
+        # ── Phase 1: load A_K0 and B_K0 in parallel ────────────────────
+        Instruction("dma.load.ch<N>", DmaArgs(rd=6, rs1=1, rs2=12)),
+        Instruction("dma.load.ch<N>", DmaArgs(rd=8, rs1=3, rs2=12, channel=1)),
         Instruction("dma.wait.ch<N>", DmaArgs()),
         Instruction("dma.wait.ch<N>", DmaArgs(channel=1)),
-        Instruction("dma.wait.ch<N>", DmaArgs(channel=2)),
-        Instruction("dma.wait.ch<N>", DmaArgs(channel=3)),
+        # ── Phase 2: load A_K1 and B_K1 in parallel ────────────────────
+        Instruction("dma.load.ch<N>", DmaArgs(rd=7, rs1=2, rs2=12)),
+        Instruction("dma.load.ch<N>", DmaArgs(rd=9, rs1=4, rs2=12, channel=1)),
+        Instruction("dma.wait.ch<N>", DmaArgs()),
+        Instruction("dma.wait.ch<N>", DmaArgs(channel=1)),
         # ── K tile 0: acc = A_K0 @ B_K0 (reset) ────────────────────────
         Instruction("vload", VectorArgs(vd=0, rs1=6)),  # mrf[0] ← A_K0
         Instruction("delay", ScalarArgs(imm=34)),
