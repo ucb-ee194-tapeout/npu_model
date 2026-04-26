@@ -112,13 +112,7 @@ EXPECTED_STACKED = torch.cat((EXPECTED[:, :16], EXPECTED[:, 16:]), dim=0)
 
 
 class SmolVLAElementwiseDivProgram(Program):
-    """Auto-generated single-file Program for the ``elementwise_div`` kernel.
-
-    ISA is lifted from the merlin kernel manifest (see
-    ``benchmarks/SaturnNPU/kernel_library/manifest.json``). This Program
-    mirrors the ``smolvla_silu.py`` template: self-contained, no cross-
-    file helpers, torch-allclose golden check via ``pytest tests/test_programs.py``.
-    """
+    """y = a / b on two 32x32 bf16 tiles (vrecip + vmul). cycles: ~336"""
 
     instructions: List[Instruction[Any]] = [
         Instruction("lui", ScalarArgs(rd=1, imm=2)),

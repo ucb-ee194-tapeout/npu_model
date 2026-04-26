@@ -95,12 +95,9 @@ EXPECTED_STACKED = torch.cat((EXPECTED[:, :16], EXPECTED[:, 16:]), dim=0)
 
 
 class SmolVLASoftmaxProgram(Program):
-    """Auto-generated single-file Program for the ``softmax`` kernel.
+    """Row-wise stable softmax on a 32x32 bf16 tile.
 
-    ISA is lifted from the merlin kernel manifest (see
-    ``benchmarks/SaturnNPU/kernel_library/manifest.json``). This Program
-    mirrors the ``smolvla_silu.py`` template: self-contained, no cross-
-    file helpers, torch-allclose golden check via ``pytest tests/test_programs.py``.
+    cycles: ~473 (vpu-bound: vredmax + vsub + vexp + vredsum + vrecip + vmul)
     """
 
     # Pair-op BF16 layout:
@@ -141,7 +138,7 @@ class SmolVLASoftmaxProgram(Program):
         Instruction("delay", ScalarArgs(imm=34)),
         # (m2, m3) = rowmax(X) broadcast
         Instruction("vredmax.row.bf16", VectorArgs(vd=2, vs1=0)),
-        Instruction("delay", ScalarArgs(imm=69)),
+        Instruction("delay", ScalarArgs(imm=34)),
         # (m4, m5) = X - rowmax
         Instruction("vsub.bf16", VectorArgs(vd=4, vs1=0, vs2=2)),
         Instruction("delay", ScalarArgs(imm=66)),
@@ -150,7 +147,7 @@ class SmolVLASoftmaxProgram(Program):
         Instruction("delay", ScalarArgs(imm=66)),
         # (m8, m9) = rowsum(exp)
         Instruction("vredsum.row.bf16", VectorArgs(vd=8, vs1=6)),
-        Instruction("delay", ScalarArgs(imm=69)),
+        Instruction("delay", ScalarArgs(imm=39)),
         # (m10, m11) = 1 / rowsum
         Instruction("vrecip.bf16", VectorArgs(vd=10, vs1=8)),
         Instruction("delay", ScalarArgs(imm=66)),

@@ -99,12 +99,9 @@ DRAM_OUT = 0xB00
 
 
 class SmolVLAMatmulProgram(Program):
-    """Auto-generated single-file Program for the ``matmul`` kernel.
+    """fp8 matmul: C = A @ B on a 32x32 tile. Uses MXU1 (inner-product unit).
 
-    ISA is lifted from the merlin kernel manifest (see
-    ``benchmarks/SaturnNPU/kernel_library/manifest.json``). This Program
-    mirrors the ``smolvla_silu.py`` template: self-contained, no cross-
-    file helpers, torch-allclose golden check via ``pytest tests/test_programs.py``.
+    cycles: ~235 (mxu1: 2×vload + vmatpush + vmatmul.mxu1 + vmatpop + 2×vstore)
     """
 
     instructions: List[Instruction[Any]] = [
@@ -131,11 +128,11 @@ class SmolVLAMatmulProgram(Program):
         Instruction("delay", ScalarArgs(imm=34)),
         Instruction("vload", VectorArgs(vd=1, rs1=5)),
         Instruction("delay", ScalarArgs(imm=34)),
-        Instruction("vmatpush.weight.mxu0", VectorArgs(vd=0,vs1=1)),
+        Instruction("vmatpush.weight.mxu1", VectorArgs(vd=0,vs1=1)),
         Instruction("delay", ScalarArgs(imm=32)),
-        Instruction("vmatmul.mxu0", MatrixArgs(vd=0, vs1=0, vs2=0)),
-        Instruction("delay", ScalarArgs(imm=96)),
-        Instruction("vmatpop.bf16.acc.mxu0", VectorArgs(vd=2)),
+        Instruction("vmatmul.mxu1", MatrixArgs(vd=0, vs1=0, vs2=0)),
+        Instruction("delay", ScalarArgs(imm=35)),
+        Instruction("vmatpop.bf16.acc.mxu1", VectorArgs(vd=2)),
         Instruction("delay", ScalarArgs(imm=32)),
         Instruction("vstore", VectorArgs(vd=2, rs1=6)),
         Instruction("delay", ScalarArgs(imm=34)),
@@ -144,7 +141,6 @@ class SmolVLAMatmulProgram(Program):
         Instruction("delay", ScalarArgs(imm=34)),
         Instruction("dma.store.ch<N>", DmaArgs(rd=3, rs1=6, rs2=8,channel=0)),
         Instruction("dma.wait.ch<N>", DmaArgs(channel=0)),
-        Instruction("ecall", ScalarArgs()),
     ]
 
     memory_regions: List[Tuple[int, torch.Tensor]] = [

@@ -92,13 +92,7 @@ DRAM_OUT = 0x0B00
 
 
 class SmolVLARopeFrequencyProgram(Program):
-    """Auto-generated single-file Program for the ``rope_frequency`` kernel.
-
-    ISA is lifted from the merlin kernel manifest (see
-    ``benchmarks/SaturnNPU/kernel_library/manifest.json``). This Program
-    mirrors the ``smolvla_silu.py`` template: self-contained, no cross-
-    file helpers, torch-allclose golden check via ``pytest tests/test_programs.py``.
-    """
+    """Per-element cosine on a 32x32 bf16 tile (RoPE frequency precompute). cycles: ~202"""
 
     instructions: List[Instruction[Any]] = [
         Instruction("lui", ScalarArgs(rd=1, imm=2)),

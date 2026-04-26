@@ -25,10 +25,11 @@ def test_registered_program_executes(
 ) -> None:
     program_cls = getattr(program_configs, program_name)
     program = program_cls()
+    effective_max_cycles = getattr(program, "kernel_max_cycles", max_cycles)
     sim = run_simulation(
         program,
         hardware_config_cls(),
-        max_cycles=max_cycles,
+        max_cycles=effective_max_cycles,
         verbose=sim_verbose,
     )
 

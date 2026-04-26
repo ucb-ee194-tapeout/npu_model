@@ -134,12 +134,10 @@ EXPECTED_STACKED = torch.cat((EXPECTED[:, :16], EXPECTED[:, 16:]), dim=0)
 
 
 class SmolVLAAttentionProgram(Program):
-    """Auto-generated single-file Program for the ``attention`` kernel.
+    """Scaled dot-product attention: softmax(Q@K * scale) @ V on fp8 32x32 tiles.
 
-    ISA is lifted from the merlin kernel manifest (see
-    ``benchmarks/SaturnNPU/kernel_library/manifest.json``). This Program
-    mirrors the ``smolvla_silu.py`` template: self-contained, no cross-
-    file helpers, torch-allclose golden check via ``pytest tests/test_programs.py``.
+    Q@K on MXU0; V weight pre-pushed to MXU1 during scale vmul; probs@V on MXU1.
+    cycles: ~966 (Q@K: 160cy MXU0; softmax: ~470cy VPU; probs@V: 99cy MXU1)
     """
 
     # Pair-op rewrite. npu_model _vmatmul computes activation @ weight
@@ -214,25 +212,27 @@ class SmolVLAAttentionProgram(Program):
         Instruction("delay", ScalarArgs(imm=34)),
         Instruction("vload", VectorArgs(vd=7, rs1=5, imm12=0)),  # scale half 1
         Instruction("delay", ScalarArgs(imm=34)),
-        # Matmul 1: scores = Q @ K  (push K as weight; activation = Q)
+        # Matmul 1: scores = Q @ K  (push K as weight; activation = Q; MXU0)
         Instruction("vmatpush.weight.mxu0", VectorArgs(vd=0, vs1=2)),
         Instruction("delay", ScalarArgs(imm=32)),
         Instruction("vmatmul.mxu0", MatrixArgs(vd=0, vs1=0, vs2=0)),
         Instruction("delay", ScalarArgs(imm=96)),
         Instruction("vmatpop.bf16.acc.mxu0", MatrixArgs(vd=10, vs1=0)),  # (m10,m11)
         Instruction("delay", ScalarArgs(imm=32)),
-        # Scale: (m12, m13) = scores * scale
+        # Scale: overlap V push to MXU1 during vmul (34+32=66 = vmul latency)
         Instruction("vmul.bf16", VectorArgs(vd=12, vs1=10, vs2=6)),
-        Instruction("delay", ScalarArgs(imm=66)),
+        Instruction("delay", ScalarArgs(imm=34)),
+        Instruction("vmatpush.weight.mxu1", VectorArgs(vd=0, vs1=4)),  # V → MXU1 WB
+        Instruction("delay", ScalarArgs(imm=32)),
         # Stable softmax
         Instruction("vredmax.row.bf16", VectorArgs(vd=14, vs1=12)),
-        Instruction("delay", ScalarArgs(imm=69)),
+        Instruction("delay", ScalarArgs(imm=34)),
         Instruction("vsub.bf16", VectorArgs(vd=16, vs1=12, vs2=14)),
         Instruction("delay", ScalarArgs(imm=66)),
         Instruction("vexp.bf16", VectorArgs(vd=18, vs1=16)),
         Instruction("delay", ScalarArgs(imm=66)),
         Instruction("vredsum.row.bf16", VectorArgs(vd=20, vs1=18)),
-        Instruction("delay", ScalarArgs(imm=69)),
+        Instruction("delay", ScalarArgs(imm=39)),
         Instruction("vrecip.bf16", VectorArgs(vd=22, vs1=20)),
         Instruction("delay", ScalarArgs(imm=66)),
         Instruction("vmul.bf16", VectorArgs(vd=24, vs1=18, vs2=22)),
@@ -241,12 +241,10 @@ class SmolVLAAttentionProgram(Program):
         Instruction("seli", ScalarArgs(rd=0, imm=1)),
         Instruction("vpack.bf16.fp8", VectorArgs(vd=26, vs1=24, es1=0)),
         Instruction("delay", ScalarArgs(imm=66)),
-        # Matmul 2: out = packed_probs @ V
-        Instruction("vmatpush.weight.mxu0", VectorArgs(vd=0, vs1=4)),
-        Instruction("delay", ScalarArgs(imm=32)),
-        Instruction("vmatmul.mxu0", MatrixArgs(vd=0, vs1=26, vs2=0)),
-        Instruction("delay", ScalarArgs(imm=96)),
-        Instruction("vmatpop.bf16.acc.mxu0", MatrixArgs(vd=28, vs1=0)),  # (m28,m29)
+        # Matmul 2: out = packed_probs @ V (MXU1, 35 cycles; weight pre-pushed above)
+        Instruction("vmatmul.mxu1", MatrixArgs(vd=0, vs1=26, vs2=0)),
+        Instruction("delay", ScalarArgs(imm=35)),
+        Instruction("vmatpop.bf16.acc.mxu1", MatrixArgs(vd=28, vs1=0)),  # (m28,m29)
         Instruction("delay", ScalarArgs(imm=32)),
         # Store out: m28 → VMEM[x6], m29 → VMEM[x7]; DMA both to DRAM.
         Instruction("vstore", VectorArgs(vd=28, rs1=6, imm12=0)),

@@ -32,6 +32,7 @@ def run_simulation(
     before_run: Callable[[Simulation], None] | None = None,
     randomize_init: bool = False,
     init_seed: int = 42,
+    record_timeline: bool = False,
 ) -> Simulation:
     simulation_hardware_config = hardware_config
     if randomize_init:
@@ -55,6 +56,7 @@ def run_simulation(
             program=program,
             verbose=verbose,
             ignore_runtime_errors=ignore_runtime_errors,
+            record_timeline=record_timeline,
         )
         _ACTIVE_SIMULATIONS.append(sim)
         if before_run is not None:

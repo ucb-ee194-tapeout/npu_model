@@ -110,12 +110,9 @@ DRAM_OUT = 0x0B00
 
 
 class SmolVLAReductionSumProgram(Program):
-    """Auto-generated single-file Program for the ``reduction_sum`` kernel.
+    """Row-wise sum of a 32x32 bf16 tile, broadcast to a 32x16 output.
 
-    ISA is lifted from the merlin kernel manifest (see
-    ``benchmarks/SaturnNPU/kernel_library/manifest.json``). This Program
-    mirrors the ``smolvla_silu.py`` template: self-contained, no cross-
-    file helpers, torch-allclose golden check via ``pytest tests/test_programs.py``.
+    cycles: ~141 (2×vload + vredsum + vstore)
     """
 
     # Pair-op BF16 layout:
@@ -163,7 +160,7 @@ class SmolVLAReductionSumProgram(Program):
         Instruction("delay", ScalarArgs(imm=34)),
         # (m4, m5) = row-sum broadcast over (m0, m1)
         Instruction("vredsum.row.bf16", VectorArgs(vd=4, vs1=0)),
-        Instruction("delay", ScalarArgs(imm=69)),
+        Instruction("delay", ScalarArgs(imm=39)),
         # Store m4 (first half) to VMEM[x2], then DMA to DRAM_OUT.
         Instruction("vstore", VectorArgs(vd=4, rs1=2, imm12=0)),
         Instruction("delay", ScalarArgs(imm=34)),

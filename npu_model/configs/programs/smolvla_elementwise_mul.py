@@ -90,7 +90,7 @@ TILE_BYTES = 2048  # 32 * 32 * 2 (bf16)
 
 
 class SmolVLAElementwiseMulProgram(Program):
-    """y = a * b on two 32x32 bf16 tiles (elementwise)."""
+    """y = a * b on two 32x32 bf16 tiles (elementwise). cycles: ~270"""
 
     instructions: List[Instruction[Any]] = [
         Instruction(mnemonic="lui", args=ScalarArgs(rd=1, imm=0x4)),

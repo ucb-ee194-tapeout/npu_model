@@ -143,72 +143,74 @@ VMEM_OUT_H1 = 0x1400  # second 32x16 half of the bf16 output tile
 
 
 class SmolVLAMatmulKChainProgram(Program):
-    """Two-tile K-chain matmul composed from the per-tile matmul kernel.
+    """Two-tile K-chain matmul (K=64 split into 2×32). Uses MXU0 with acc.
 
-    Uses dual DMA channels to parallelize A-tile and B-tile loads.
-    Chains ``vmatmul.mxu0`` (first K-tile) with ``vmatmul.acc.mxu0``
-    (second K-tile); both target the same accumulator slot so the
-    final ``vmatpop`` yields A_k0@B_k0 + A_k1@B_k1.
+    Chains vmatmul.mxu0 + vmatmul.acc.mxu0 for the two K-tiles.
+
+    DMA pipelining: A_K1 and B_K1 are issued right after K0 data is ready.
+    The K0 compute (~196cy decoder, 96cy MXU0) overlaps with the DMA engine
+    loading A_K1 (~516cy), giving MXU0+DMA concurrent execution.
     """
 
     instructions: List[Instruction[Any]] = [
-        # ── Scalar register setup: DRAM addresses ──────────────────────
+        # Scalar register setup
         Instruction("addi", ScalarArgs(rd=1, imm=DRAM_A_K0)),
-        Instruction("addi", ScalarArgs(rd=2, rs1=1, imm=1024)),  # DRAM_A_K1
-        Instruction("addi", ScalarArgs(rd=3, rs1=2, imm=1024)),  # DRAM_B_K0
-        Instruction("addi", ScalarArgs(rd=4, rs1=3, imm=1024)),  # DRAM_B_K1
-        Instruction("addi", ScalarArgs(rd=5, rs1=4, imm=1024)),  # DRAM_OUT
-        # ── VMEM addresses (mirror DRAM layout) ────────────────────────
+        Instruction("addi", ScalarArgs(rd=2, rs1=1, imm=1024)),   # DRAM_A_K1
+        Instruction("addi", ScalarArgs(rd=3, rs1=2, imm=1024)),   # DRAM_B_K0
+        Instruction("addi", ScalarArgs(rd=4, rs1=3, imm=1024)),   # DRAM_B_K1
+        Instruction("addi", ScalarArgs(rd=5, rs1=4, imm=1024)),   # DRAM_OUT
         Instruction("addi", ScalarArgs(rd=6, imm=VMEM_A_K0)),
-        Instruction("addi", ScalarArgs(rd=7, rs1=6, imm=1024)),  # VMEM_A_K1
-        Instruction("addi", ScalarArgs(rd=8, rs1=7, imm=1024)),  # VMEM_B_K0
-        Instruction("addi", ScalarArgs(rd=9, rs1=8, imm=1024)),  # VMEM_B_K1
+        Instruction("addi", ScalarArgs(rd=7, rs1=6, imm=1024)),   # VMEM_A_K1
+        Instruction("addi", ScalarArgs(rd=8, rs1=7, imm=1024)),   # VMEM_B_K0
+        Instruction("addi", ScalarArgs(rd=9, rs1=8, imm=1024)),   # VMEM_B_K1
         Instruction("addi", ScalarArgs(rd=10, rs1=9, imm=1024)),  # VMEM_OUT_H0
-        Instruction("addi", ScalarArgs(rd=11, rs1=10, imm=1024)),  # VMEM_OUT_H1
-        # ── Transfer sizes ─────────────────────────────────────────────
-        Instruction("addi", ScalarArgs(rd=12, imm=1024)),  # tile size
-        Instruction("addi", ScalarArgs(rd=13, rs1=12, imm=1024)),  # output size (2048)
-        # ── DMA channel init ───────────────────────────────────────────
+        Instruction("addi", ScalarArgs(rd=11, rs1=10, imm=1024)), # VMEM_OUT_H1
+        Instruction("addi", ScalarArgs(rd=12, imm=1024)),          # tile size
+        Instruction("addi", ScalarArgs(rd=13, rs1=12, imm=1024)), # output size (2048)
         Instruction("dma.config.ch<N>", DmaArgs()),
         Instruction("dma.wait.ch<N>", DmaArgs()),
-        # ── Phase 1: load A_K0 and B_K0 in parallel ────────────────────
+        # Load K0 tiles: A_K0 (ch0, 516cy) → B_K0 (ch1, 516cy, sequential).
         Instruction("dma.load.ch<N>", DmaArgs(rd=6, rs1=1, rs2=12)),
         Instruction("dma.load.ch<N>", DmaArgs(rd=8, rs1=3, rs2=12, channel=1)),
         Instruction("dma.wait.ch<N>", DmaArgs()),
         Instruction("dma.wait.ch<N>", DmaArgs(channel=1)),
-        # ── Phase 2: load A_K1 and B_K1 in parallel ────────────────────
+        # K0 data ready. Issue K1 loads async now so A_K1 starts immediately
+        # behind B_K0 in the DMA engine. K0 compute (~196cy) overlaps with
+        # A_K1 loading (~516cy), giving MXU0+DMA concurrent execution.
         Instruction("dma.load.ch<N>", DmaArgs(rd=7, rs1=2, rs2=12)),
         Instruction("dma.load.ch<N>", DmaArgs(rd=9, rs1=4, rs2=12, channel=1)),
+        # K tile 0: acc = A_K0 @ B_K0 (reset accumulator)
+        Instruction("vload", VectorArgs(vd=0, rs1=6)),          # mrf[0] ← A_K0
+        Instruction("delay", ScalarArgs(imm=34)),
+        Instruction("vload", VectorArgs(vd=1, rs1=8)),          # mrf[1] ← B_K0
+        Instruction("delay", ScalarArgs(imm=34)),
+        Instruction("vmatpush.weight.mxu0", VectorArgs(vs1=1)), # wb[0] ← mrf[1]
+        Instruction("delay", ScalarArgs(imm=32)),
+        Instruction("vmatmul.mxu0", MatrixArgs()),              # acc[0] = mrf[0] @ wb[0], 96cy
+        Instruction("delay", ScalarArgs(imm=96)),
+        # K1 tiles arrive during K0 compute. Wait now — should be near-instant
+        # for A_K1 (started ~1032cy ago, takes 516cy) and a short stall for B_K1.
         Instruction("dma.wait.ch<N>", DmaArgs()),
         Instruction("dma.wait.ch<N>", DmaArgs(channel=1)),
-        # ── K tile 0: acc = A_K0 @ B_K0 (reset) ────────────────────────
-        Instruction("vload", VectorArgs(vd=0, rs1=6)),  # mrf[0] ← A_K0
+        # K tile 1: acc += A_K1 @ B_K1
+        Instruction("vload", VectorArgs(vd=2, rs1=7)),          # mrf[2] ← A_K1
         Instruction("delay", ScalarArgs(imm=34)),
-        Instruction("vload", VectorArgs(vd=1, rs1=8)),  # mrf[1] ← B_K0
+        Instruction("vload", VectorArgs(vd=3, rs1=9)),          # mrf[3] ← B_K1
         Instruction("delay", ScalarArgs(imm=34)),
-        Instruction("vmatpush.weight.mxu0", VectorArgs(vs1=1)),  # wb[0]  ← mrf[1]
-        Instruction("delay", ScalarArgs(imm=34)),
-        Instruction("vmatmul.mxu0", MatrixArgs()),  # acc[0] = mrf[0] @ wb[0]
-        Instruction("delay", ScalarArgs(imm=96)),
-        # ── K tile 1: acc += A_K1 @ B_K1 ───────────────────────────────
-        Instruction("vload", VectorArgs(vd=2, rs1=7)),  # mrf[2] ← A_K1
-        Instruction("delay", ScalarArgs(imm=34)),
-        Instruction("vload", VectorArgs(vd=3, rs1=9)),  # mrf[3] ← B_K1
-        Instruction("delay", ScalarArgs(imm=34)),
-        Instruction("vmatpush.weight.mxu0", VectorArgs(vs1=3)),  # wb[0]  ← mrf[3]
+        Instruction("vmatpush.weight.mxu0", VectorArgs(vs1=3)), # wb[0] ← mrf[3]
         Instruction("delay", ScalarArgs(imm=32)),
-        Instruction("vmatmul.acc.mxu0", MatrixArgs(vs1=2)),  # acc[0] += mrf[2] @ wb[0]
+        Instruction("vmatmul.acc.mxu0", MatrixArgs(vs1=2)),     # acc[0] += mrf[2] @ wb[0]
         Instruction("delay", ScalarArgs(imm=96)),
-        # ── Pop accumulator, store halves to VMEM, DMA out ─────────────
-        Instruction("vmatpop.bf16.acc.mxu0", VectorArgs(vd=4)),  # mrf[4..5] ← acc[0]
+        # Pop accumulator and store both halves before DMA (dma.store covers
+        # the full 2048B region so both vstores must complete first).
+        Instruction("vmatpop.bf16.acc.mxu0", VectorArgs(vd=4)), # mrf[4..5] ← acc[0]
         Instruction("delay", ScalarArgs(imm=32)),
-        Instruction("vstore", VectorArgs(vd=4, rs1=10)),  # vmem[OUT_H0] ← mrf[4]
+        Instruction("vstore", VectorArgs(vd=4, rs1=10)),        # vmem[OUT_H0] ← mrf[4]
         Instruction("delay", ScalarArgs(imm=34)),
-        Instruction("vstore", VectorArgs(vd=5, rs1=11)),  # vmem[OUT_H1] ← mrf[5]
+        Instruction("vstore", VectorArgs(vd=5, rs1=11)),        # vmem[OUT_H1] ← mrf[5]
         Instruction("delay", ScalarArgs(imm=34)),
         Instruction("dma.store.ch<N>", DmaArgs(rd=5, rs1=10, rs2=13, channel=0)),
         Instruction("dma.wait.ch<N>", DmaArgs(channel=0)),
-        Instruction("ecall", ScalarArgs()),
     ]
 
     memory_regions: List[Tuple[int, torch.Tensor]] = [
