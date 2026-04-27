@@ -127,7 +127,7 @@ class SmolVLAElementwiseDivProgram(Program):
         (DRAM_B_H1, INPUT_B[:, 16:].contiguous()),
     ]
 
-    golden_result: tuple[int, torch.Tensor] = (
+    golden_result: list[tuple[int, torch.Tensor]] = [(
         DRAM_OUT_H0,
         EXPECTED_STACKED,
-    )
+    )]

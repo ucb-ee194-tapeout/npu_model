@@ -147,7 +147,7 @@ class SmolVLAFusedSiluGateProgram(Program):
         (DRAM_X_BASE, INPUT),
     ]
 
-    golden_result: tuple[int, torch.Tensor] = (
+    golden_result: list[tuple[int, torch.Tensor]] = [(
         DRAM_OUT_BASE,
         EXPECTED,
-    )
+    )]

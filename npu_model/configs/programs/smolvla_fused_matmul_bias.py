@@ -176,7 +176,7 @@ class SmolVLAFusedMatmulBiasProgram(Program):
         (DRAM_BIAS, BIAS_STACKED),
     ]
 
-    golden_result: tuple[int, torch.Tensor] = (
+    golden_result: list[tuple[int, torch.Tensor]] = [(
         DRAM_OUT,
         EXPECTED_STACKED,
-    )
+    )]

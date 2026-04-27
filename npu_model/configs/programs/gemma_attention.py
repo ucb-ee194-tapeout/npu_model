@@ -40,10 +40,10 @@ class GemmaAttentionProgram(Program):
     ]
 
     # Golden result: softmax(scores_scaled) (no max subtraction), pure torch
-    golden_result: tuple[int, torch.Tensor] = (
+    golden_result: list[tuple[int, torch.Tensor]] = [(
         DRAM_OUTPUT_BASE,
         torch.softmax(
             (QUERY_DATA.to(torch.float32) @ KEY_DATA.to(torch.float32)) * SCALE_VALUE,
             dim=1,
         ).to(torch.bfloat16),
-    )
+    )]

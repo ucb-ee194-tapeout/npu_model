@@ -35,7 +35,7 @@ class GemmaMlpProgram(Program):
         (DRAM_ACTIVATION_BASE, ACTIVATION_DATA),
     ]
 
-    golden_result: tuple[int, torch.Tensor] = (
+    golden_result: list[tuple[int, torch.Tensor]] = [(
         DRAM_OUTPUT_BASE,
         gemma_mlp_gate_up_forward(
             ACTIVATION_DATA,
@@ -43,4 +43,4 @@ class GemmaMlpProgram(Program):
             UP_PROJ_WEIGHT_DATA,
             use_gelu=False,  # matches NPU: gate * up
         ).to(torch.bfloat16).contiguous(),
-    )
+    )]

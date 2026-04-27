@@ -32,7 +32,7 @@ class VectorArithmeticProgram(Program):
         (DRAM_INPUT_BASE, INPUT),
     ]
 
-    golden_result: tuple[int, torch.Tensor] = (
+    golden_result: list[tuple[int, torch.Tensor]] = [(
         DRAM_OUTPUT_BASE,
         _bf16_arithmetic_reference(INPUT),
-    )
+    )]

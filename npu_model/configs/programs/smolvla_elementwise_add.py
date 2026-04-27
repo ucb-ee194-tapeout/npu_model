@@ -146,7 +146,7 @@ class SmolVLAElementwiseAddProgram(Program):
         (DRAM_B_BASE, INPUT_B),
     ]
 
-    golden_result: tuple[int, torch.Tensor] = (
+    golden_result: list[tuple[int, torch.Tensor]] = [(
         DRAM_OUTPUT_BASE,
         EXPECTED,
-    )
+    )]

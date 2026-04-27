@@ -111,4 +111,4 @@ class SmolVLARequantProgram(Program):
         (DRAM_X_H1, INPUT[:, 16:].contiguous()),
     ]
 
-    golden_result: tuple[int, torch.Tensor] = (DRAM_OUT, EXPECTED)
+    golden_result: list[tuple[int, torch.Tensor]] = [(DRAM_OUT, EXPECTED)]

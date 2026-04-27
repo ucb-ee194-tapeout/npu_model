@@ -111,7 +111,7 @@ class SmolVLAMatmulProgram(Program):
         (DRAM_B, INPUT_B),
     ]
 
-    golden_result: tuple[int, torch.Tensor] = (
+    golden_result: list[tuple[int, torch.Tensor]] = [(
         DRAM_OUT,
         EXPECTED_STACKED,
-    )
+    )]

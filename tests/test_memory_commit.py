@@ -10,8 +10,8 @@ from npu_model.configs.hardware.default import DefaultHardwareConfig
 from npu_model.configs.isa_definition import *  # noqa: F401, F403
 from npu_model.hardware.arch_state import ArchState
 from npu_model.hardware.dma import dma_transfer_cycles
-from npu_model.isa import Instruction
 from npu_model.software import m, x
+from npu_model.software.instruction import Instruction
 from npu_model.software.program import InstantiableProgram
 from tests.helpers import run_simulation
 
@@ -139,6 +139,7 @@ def test_memory_producers_commit_after_modeled_latency(scenario_factory) -> None
         before_run=lambda simulation: scenario.seed_state(simulation.core.arch_state),
     )
 
+    assert sim.core != None
     stale_seen = sim.core.arch_state.read_xrf(scenario.stale_reg)
     fresh_seen = sim.core.arch_state.read_xrf(scenario.fresh_reg)
     final_word = read_word(

@@ -148,9 +148,9 @@ class SmolVLAAttentionProgram(Program):
         (DRAM_SCALE, SCALE_TILE),
     ]
 
-    golden_result: tuple[int, torch.Tensor] = (
+    golden_result: list[tuple[int, torch.Tensor]] = [(
         DRAM_OUT_H0,
         EXPECTED_STACKED,
-    )
+    )]
     # fp8 quantization + softmax noise; allow looser tolerance.
     kernel_tolerance = (0.2, 0.2)

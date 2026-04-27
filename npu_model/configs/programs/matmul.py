@@ -31,7 +31,7 @@ class MatmulProgram(Program):
         (DRAM_WEIGHT_BASE, WEIGHT_DATA),
     ]
 
-    golden_result: tuple[int, torch.Tensor] = (
+    golden_result: list[tuple[int, torch.Tensor]] = [(
         DRAM_OUTPUT_BASE,
         torch.cat((MATMUL_RESULT[:, :16], MATMUL_RESULT[:, 16:]), dim=0),
-    )
+    )]

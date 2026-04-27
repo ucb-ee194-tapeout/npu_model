@@ -156,7 +156,7 @@ class SmolVLAFusedNormScaleProgram(Program):
         (DRAM_MAT_BASE, MATRIX),
     ]
 
-    golden_result: tuple[int, torch.Tensor] = (
+    golden_result: list[tuple[int, torch.Tensor]] = [(
         DRAM_OUT_BASE,
         EXPECTED,
-    )
+    )]

@@ -103,4 +103,4 @@ class SmolVLARopeFrequencyProgram(Program):
         (DRAM_X, INPUT),
     ]
 
-    golden_result: tuple[int, torch.Tensor] = (DRAM_OUT, EXPECTED)
+    golden_result: list[tuple[int, torch.Tensor]] = [(DRAM_OUT, EXPECTED)]

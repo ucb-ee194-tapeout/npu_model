@@ -403,7 +403,7 @@ class SmolVLAFusedAttentionProgram(Program):
         (DRAM_SCALE, SCALE_DATA),
     ]
 
-    golden_result: tuple[int, torch.Tensor] = (
+    golden_result: list[tuple[int, torch.Tensor]] = [(
         DRAM_OUT,
         EXPECTED,  # [128, 16] bf16 — column-blocked, matches DRAM output layout
-    )
+    )]

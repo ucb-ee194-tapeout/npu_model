@@ -6,7 +6,7 @@ import torch
 from npu_model.configs.hardware import DefaultHardwareConfig
 from npu_model.configs.isa_definition import *  # noqa: F401, F403
 from npu_model.hardware.bank_conflict import BankConflictError
-from npu_model.isa import Instruction
+from npu_model.software.instruction import Instruction
 from npu_model.software import Program, acc, m, w, x
 from tests.helpers import run_simulation
 

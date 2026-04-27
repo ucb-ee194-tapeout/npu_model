@@ -121,7 +121,7 @@ class SmolVLASoftmaxProgram(Program):
         (DRAM_X_H1, INPUT[:, 16:].contiguous()),
     ]
 
-    golden_result: tuple[int, torch.Tensor] = (
+    golden_result: list[tuple[int, torch.Tensor]] = [(
         DRAM_OUT_H0,
         EXPECTED_STACKED,
-    )
+    )]
