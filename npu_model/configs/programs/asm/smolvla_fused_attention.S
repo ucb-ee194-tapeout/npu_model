@@ -141,7 +141,7 @@ delay 66
 vredmax.row.bf16 m36, m34
 delay 34
 vmaximum.bf16 m38, m8, m36
-delay 69
+delay 66
 vsub.bf16 m36, m8, m38
 delay 66
 vexp.bf16 m36, m36
@@ -242,7 +242,7 @@ delay 66
 vredmax.row.bf16 m36, m34
 delay 34
 vmaximum.bf16 m38, m8, m36
-delay 69
+delay 66
 vsub.bf16 m36, m8, m38
 delay 66
 vexp.bf16 m36, m36

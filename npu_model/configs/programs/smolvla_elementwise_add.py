@@ -16,7 +16,7 @@ Model context:
     transformer block + bias adds + positional adds).
 
 MLIR → ISA mapping:
-    arith.addf %a %b → vadd.bf16(a_h, b_h)     (per 32x16 half)
+    arith.addf %a %b → vadd.bf16(a, b)   pair-op: (vd, vd+1) = (vs1, vs1+1) + (vs2, vs2+1)
 """
 
 import torch

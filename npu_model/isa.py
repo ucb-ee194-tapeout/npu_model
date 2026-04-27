@@ -29,7 +29,7 @@ class Instruction(ABC):
 
     def __str__(self):
         values = [str(v) for v in self.__dict__.values()]
-        return f"{self.mnemonic}: {', '.join(values)}"
+        return f"{self.mnemonic} {', '.join(values)}"
 
     @abstractmethod
     def to_bytecode(self) -> int:

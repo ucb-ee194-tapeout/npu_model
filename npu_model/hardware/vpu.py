@@ -15,16 +15,18 @@ VPU_OP_LATENCIES = {
     "vredsum.bf16": 130,
     "vredmin.bf16": 130,
     "vredmax.bf16": 130,
-    # Redusum (Latency: 69)
+    #row reductions
     "vredsum.row.bf16": 39,
     "vredmin.row.bf16": 34,
     "vredmax.row.bf16": 34,
+    
     # Vli (Latency: 65)
     # Vector Load Immediate instructions
     "vli.all": 65,
     "vli.row": 65,
     "vli.col": 65,
     "vli.one": 65,
+    
     # Everything else (Latency: 66)
     # Element-wise arithmetic, conversions, and Matrix Unit (MXU) interactions
     "vadd.bf16": 66,
@@ -83,7 +85,8 @@ class VectorExecutionUnit(ExecutionUnit):
         self._busy_cycles = 0
 
     def _execution_latency(self, uop: Uop) -> int:
-        return VPU_OP_LATENCIES.get(uop.insn.mnemonic, 66)
+        mnemonic = uop.insn.mnemonic
+        return VPU_OP_LATENCIES[mnemonic]
 
     def tick(self, idu_output: StageData[Uop | None]) -> None:
         self.cycle += 1

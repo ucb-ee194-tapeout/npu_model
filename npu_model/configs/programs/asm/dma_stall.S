@@ -28,13 +28,14 @@ vload m0, 0(x2)
 delay 34
 # Push Temporary MRF 1 -> MXU0 Weight Buffer 1
 vmatpush.weight.mxu0 w0, m0
+delay 32
 
 # --- 4. Do unnecessary loads (Overlapped with Matmul) ---
 # We do not need to reconfigure the DMA channels if the base addresses are unchanged
 # Issue DMA loads again (DRAM -> VMEM)
 dma.load.ch0 x3, x0, x1
 dma.load.ch1 x4, x1, x1
-delay 30
+delay 16
 
 # --- 5. Do matmul ---
 vmatmul.mxu0 acc0, m1, w0

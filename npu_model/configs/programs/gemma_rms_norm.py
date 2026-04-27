@@ -2,6 +2,7 @@ import torch
 from npu_model.util.converter import load_asm
 from npu_model.software.instruction import Instruction
 from npu_model.software.program import Program, ASM_FOLDER
+from npu_model.workload.gemma_blocks import gemma_rms_norm_forward
 
 INPUT_DATA = torch.randn(32, 32, dtype=torch.bfloat16)
 EPS = 1e-6
@@ -55,4 +56,7 @@ class GemmaRmsNormProgram(Program):
     # FIXME: Re-derive a standalone golden reference for the pair-register BF16
     # VPU path. The current kernel wiring is exercised by simulation, but the
     # previous float-side golden no longer matches the staged BF16 execution.
-    golden_result = None
+    golden_result: tuple[int, torch.Tensor] = (
+        DRAM_OUTPUT_BASE,
+        gemma_rms_norm_forward(INPUT_DATA).to(torch.bfloat16),
+    )

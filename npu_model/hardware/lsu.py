@@ -1,5 +1,4 @@
 from __future__ import annotations
-import math
 
 from .exu import ExecutionUnit
 from ..logging.logger import Logger, LaneType
@@ -22,6 +21,20 @@ LSU_OP_LATENCIES = {
     "seld": 2,
     "vload": 34,
     "vstore": 34,
+}
+
+LSU_OP_LATENCIES = {
+    "lb": 2,
+    "lh": 2,
+    "lw": 2,
+    "lbu": 2,
+    "lhu": 2,
+    "sb": 1,
+    "sh": 1,
+    "sw": 1,
+    "seld": 2,
+    "vload": 34,
+    "vstore": 34
 }
 
 

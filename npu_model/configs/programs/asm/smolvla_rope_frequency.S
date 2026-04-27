@@ -31,10 +31,6 @@ delay 34
 # --- cos: pair(m2,m3) = cos(pair(m0,m1)) ---
 vcos.bf16 m2, m0            # (m2, m3) = cos(X)
 delay 66
-# FIXME: pair semantics already wrote m3 = cos(m1) above; second vcos
-# overwrites m3 with cos(m1) again (same value) and writes spurious m4.
-vcos.bf16 m3, m1
-delay 66
 
 # --- MRF -> VMEM -> DRAM ---
 vstore m2, 0(x1)

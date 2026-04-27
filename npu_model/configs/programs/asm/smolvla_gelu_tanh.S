@@ -1,117 +1,120 @@
 # SmolVLA gelu_tanh kernel
 # y = 0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))
-# NOTE: Autocomp-generated. No golden_result — tabulated constants (C1-C3)
-# must be populated from the original manifest before numerical validation.
 #
-# DRAM layout (each half = 32x16 bf16 = 1024 B):
-#   x8=DRAM_X_H0=0x0000  x9=DRAM_X_H1=0x0400
-#   x10=DRAM_C1=0x0800   x11=DRAM_C2=0x0C00  x12=DRAM_C3=0x1000
-#   x14=DRAM_OUT_H0=0x1400  x15=DRAM_OUT_H1=0x1800
+# Scalar register map:
+#   x1 = VMEM_X      = 0x2000   x2 = VMEM_C044  = 0x3000
+#   x3 = VMEM_CSQRT  = 0x4000   x4 = VMEM_CHALF = 0x5000
+#   x5 = VMEM_OUT    = 0x6000
+#   x6 = DRAM_X_H0   = 0x0000   x7 = DRAM_X_H1  = 0x0400
+#   x8 = DRAM_C044   = 0x0800   x9 = DRAM_CSQRT = 0x0C00
+#   x10 = DRAM_CHALF = 0x1000   x11 = DRAM_OUT_H0 = 0x1400
+#   x12 = DRAM_OUT_H1 = 0x1800  x13 = 1024 (tile bytes)
+#   x14 = x1+1024 (VMEM x_h1)  x15 = x2+1024 (VMEM C044 pair)
+#   x16 = x3+1024 (VMEM Csqrt pair)  x17 = x4+1024 (VMEM Chalf pair)
+#   x18 = x5+1024 (VMEM OUT_H1)
 #
-# VMEM layout:
-#   x1=VMEM_X_H0=0x2000  x2=VMEM_X_H1=0x2400
-#   x3=VMEM_C1=0x2800    x4=VMEM_C2=0x2C00   x5=VMEM_C3=0x3000
-#   x6=VMEM_OUT_H0=0x3400  x7=VMEM_OUT_H1=0x3800
-#   x16=1024 (per-half transfer size)
-#
-# MRF: m0=X_H0  m1=X_H1  m2=C1(0.044715)  m3=C2(sqrt(2/pi))
-#       m4=C3(0.5?)  m5=1.0
+# MRF register map:
+#   (m0, m1) = x           (m2, m3) = 0.044715 pair
+#   (m4, m5) = sqrt(2/pi)  (m6, m7) = 0.5 pair
+#   (m8, m9) = 1.0
+#   (m10, m11) = x^2            (m12, m13) = x^3
+#   (m14, m15) = 0.044715*x^3   (m16, m17) = x + 0.044715*x^3
+#   (m18, m19) = sqrt(2/pi)*(...) (m20, m21) = tanh(...)
+#   (m22, m23) = 1 + tanh(...)   (m24, m25) = 0.5*x
+#   (m26, m27) = GELU(x)
 
 # --- Scalar setup: VMEM addresses ---
-lui x1, 0x2                 # x1 = 0x2000 VMEM_X_H0
-addi x2, x1, 1024           # x2 = 0x2400 VMEM_X_H1
-addi x3, x2, 1024           # x3 = 0x2800 VMEM_C1
-addi x4, x3, 1024           # x4 = 0x2C00 VMEM_C2
-lui x5, 0x3                 # x5 = 0x3000 VMEM_C3
-addi x6, x5, 1024           # x6 = 0x3400 VMEM_OUT_H0
-addi x7, x6, 1024           # x7 = 0x3800 VMEM_OUT_H1
+li x1, 0x2000       # VMEM_X
+li x2, 0x3000       # VMEM_C044
+li x3, 0x4000       # VMEM_CSQRT
+li x4, 0x5000       # VMEM_CHALF
+li x5, 0x6000       # VMEM_OUT
 
 # --- Scalar setup: DRAM addresses + transfer size ---
-addi x8, x0, 0              # x8  = 0x0000 DRAM_X_H0
-addi x9, x0, 1024           # x9  = 0x0400 DRAM_X_H1
-addi x10, x9, 1024          # x10 = 0x0800 DRAM_C1
-addi x11, x10, 1024         # x11 = 0x0C00 DRAM_C2
-lui x12, 0x1                # x12 = 0x1000 DRAM_C3
-lui x14, 0x1                # x14 = 0x1000
-addi x14, x14, 1024         # x14 = 0x1400 DRAM_OUT_H0
-addi x15, x14, 1024         # x15 = 0x1800 DRAM_OUT_H1
-addi x16, x0, 1024          # x16 = 1024 (per-half size)
+li x6, 0            # DRAM_X_H0
+li x7, 0x400        # DRAM_X_H1
+li x8, 0x800        # DRAM_C044
+li x9, 0xC00        # DRAM_CSQRT
+li x10, 0x1000      # DRAM_CHALF
+li x11, 0x1400      # DRAM_OUT_H0
+li x12, 0x1800      # DRAM_OUT_H1
+li x13, 1024        # tile bytes
+
+# --- Secondary VMEM offsets for second halves of each pair ---
+addi x14, x1, 1024  # x14 = 0x2400 VMEM x_h1
+addi x15, x2, 1024  # x15 = 0x3400 VMEM C044 pair
+addi x16, x3, 1024  # x16 = 0x4400 VMEM Csqrt pair
+addi x17, x4, 1024  # x17 = 0x5400 VMEM Chalf pair
 
 # --- DMA: DRAM -> VMEM ---
 dma.config.ch0 x0
 dma.wait.ch0
-dma.load.ch0 x1, x8, x16   # X_H0
-dma.load.ch1 x2, x9, x16   # X_H1
+dma.load.ch0 x1, x6, x13   # x_h0 -> VMEM[x1]
+dma.load.ch1 x14, x7, x13  # x_h1 -> VMEM[x14]
 dma.wait.ch0
 dma.wait.ch1
-dma.load.ch0 x3, x10, x16  # C1
-dma.load.ch1 x4, x11, x16  # C2
+dma.load.ch0 x2, x8, x13   # C044 -> VMEM[x2]
+dma.load.ch1 x15, x8, x13  # C044 -> VMEM[x15] (pair)
 dma.wait.ch0
 dma.wait.ch1
-dma.load.ch0 x5, x12, x16  # C3
+dma.load.ch0 x3, x9, x13   # Csqrt -> VMEM[x3]
+dma.load.ch1 x16, x9, x13  # Csqrt -> VMEM[x16] (pair)
 dma.wait.ch0
+dma.wait.ch1
+dma.load.ch0 x4, x10, x13  # Chalf -> VMEM[x4]
+dma.load.ch1 x17, x10, x13 # Chalf -> VMEM[x17] (pair)
+dma.wait.ch0
+dma.wait.ch1
 
 # --- VMEM -> MRF ---
-vload m0, 0(x1)             # X_H0
+vload m0, 0(x1)             # m0 = x_h0
 delay 34
-vload m1, 0(x2)             # X_H1
+vload m1, 32(x1)            # m1 = x_h1
 delay 34
-vload m2, 0(x3)             # C1 (0.044715)
+vload m2, 0(x2)             # m2 = 0.044715
 delay 34
-vload m3, 0(x4)             # C2 (sqrt(2/pi) ~= 0.7979)
+vload m3, 32(x2)            # m3 = 0.044715 (pair)
 delay 34
-vload m4, 0(x5)             # C3 (0.5)
+vload m4, 0(x3)             # m4 = sqrt(2/pi)
 delay 34
-vli.all m5, 1               # m5 = 1.0
+vload m5, 32(x3)            # m5 = sqrt(2/pi) (pair)
+delay 34
+vload m6, 0(x4)             # m6 = 0.5
+delay 34
+vload m7, 32(x4)            # m7 = 0.5 (pair)
+delay 34
+vli.all m8, 1               # m8 = 1.0
+delay 65
+vli.all m9, 1               # m9 = 1.0 (pair)
 delay 65
 
-# --- GELU compute: h0 (pair ops act on (m0,m1) but h0 output lands in m14) ---
-vmul.bf16 m6, m0, m0        # (m6, m7) = x^2
+# --- GELU compute (pair semantics over m0..m7) ---
+vmul.bf16 m10, m0, m0       # (m10, m11) = x^2
 delay 66
-vmul.bf16 m7, m6, m0        # (m7, m8) = x^3
+vmul.bf16 m12, m10, m0      # (m12, m13) = x^3
 delay 66
-vmul.bf16 m8, m7, m3        # (m8, m9) = 0.044715 * x^3
+vmul.bf16 m14, m12, m2      # (m14, m15) = 0.044715 * x^3
 delay 66
-vadd.bf16 m9, m0, m8        # (m9, m10) = x + 0.044715*x^3
+vadd.bf16 m16, m0, m14      # (m16, m17) = x + 0.044715*x^3
 delay 66
-vmul.bf16 m10, m9, m4       # (m10, m11) = sqrt(2/pi) * (x + 0.044715*x^3)
+vmul.bf16 m18, m16, m4      # (m18, m19) = sqrt(2/pi) * (x + 0.044715*x^3)
 delay 66
-vtanh.bf16 m11, m10         # (m11, m12) = tanh(...)
+vtanh.bf16 m20, m18         # (m20, m21) = tanh(...)
 delay 66
-vadd.bf16 m12, m5, m11      # (m12, m13) = 1 + tanh(...)
+vadd.bf16 m22, m8, m20      # (m22, m23) = 1 + tanh(...)
 delay 66
-vmul.bf16 m13, m0, m2       # (m13, m14) = 0.5 * x
+vmul.bf16 m24, m0, m6       # (m24, m25) = 0.5 * x
 delay 66
-vmul.bf16 m14, m13, m12     # (m14, m15) = 0.5 * x * (1 + tanh(...)) = GELU h0
-delay 66
-
-# --- GELU compute: h1 (explicit vs1=m1; pair ops also write neighboring regs) ---
-# FIXME: Autocomp-generated second-half pass; may be redundant given pair semantics above.
-vmul.bf16 m6, m1, m1        # (m6, m7) = x_h1^2
-delay 66
-vmul.bf16 m7, m6, m1        # (m7, m8) = x_h1^3
-delay 66
-vmul.bf16 m8, m7, m3        # (m8, m9) = 0.044715 * x_h1^3
-delay 66
-vadd.bf16 m9, m1, m8        # (m9, m10) = x_h1 + 0.044715*x_h1^3
-delay 66
-vmul.bf16 m10, m9, m4       # (m10, m11) = sqrt(2/pi) * (...)
-delay 66
-vtanh.bf16 m11, m10         # (m11, m12) = tanh(...)
-delay 66
-vadd.bf16 m12, m5, m11      # (m12, m13) = 1 + tanh(...)
-delay 66
-vmul.bf16 m13, m1, m2       # (m13, m14) = 0.5 * x_h1
-delay 66
-vmul.bf16 m15, m13, m12     # (m15, m16) = GELU h1
+vmul.bf16 m26, m24, m22     # (m26, m27) = GELU(x)
 delay 66
 
 # --- MRF -> VMEM -> DRAM ---
-vstore m14, 0(x6)
+addi x18, x5, 1024          # x18 = 0x6400 VMEM OUT_H1
+vstore m26, 0(x5)
 delay 34
-vstore m15, 0(x7)
+vstore m27, 32(x5)
 delay 34
-dma.store.ch0 x14, x6, x16
-dma.store.ch1 x15, x7, x16
+dma.store.ch0 x11, x5, x13
+dma.store.ch1 x12, x18, x13
 dma.wait.ch0
 dma.wait.ch1

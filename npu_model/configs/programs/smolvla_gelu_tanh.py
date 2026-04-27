@@ -4,11 +4,24 @@ GELU activation with the tanh approximation:
     y = 0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))
 Appears 36 times in SmolVLA (SigLIP MLPs).
 
-The handwritten ISA loads polynomial-table constants at
-``dram_in_1..dram_in_4`` (four pre-computed scalars broadcast to
-32x16 tiles). Inputs are the two split halves of x at
-``dram_in_0`` and a companion address; outputs are the two
-32x16 halves of GELU(x).
+Pair-op BF16 layout (LMUL=2):
+  (m0, m1)   = x                  (m2, m3)   = 0.044715 broadcast pair
+  (m4, m5)   = sqrt(2/pi) pair    (m6, m7)   = 0.5 pair
+  m8 = m9    = 1.0  (via vli.all)
+  (m10, m11) = x^2     (m12, m13) = x^3
+  (m14, m15) = 0.044715*x^3       (m16, m17) = x + 0.044715*x^3
+  (m18, m19) = sqrt(2/pi)*(x+0.044715*x^3)
+  (m20, m21) = tanh(...)          (m22, m23) = 1 + tanh(...)
+  (m24, m25) = 0.5*x              (m26, m27) = GELU(x) = 0.5*x*(1+tanh(...))
+
+DRAM layout (1024 B per 32x16 tile):
+  DRAM_X_H0    = 0x0000  x half 0
+  DRAM_X_H1    = 0x0400  x half 1
+  DRAM_C044    = 0x0800  0.044715 broadcast tile (loaded into m2 AND m3)
+  DRAM_CSQRT   = 0x0C00  sqrt(2/pi) broadcast tile (loaded into m4 AND m5)
+  DRAM_CHALF   = 0x1000  0.5 broadcast tile (loaded into m6 AND m7)
+  DRAM_OUT_H0  = 0x1400  output half 0
+  DRAM_OUT_H1  = 0x1800  output half 1
 """
 
 import torch
@@ -108,18 +121,18 @@ if os.environ.get("NPU_MODEL_ENABLE_IREE_CROSSCHECK", "").lower() in {
         assert _diff < 5e-2, f"MLIR vs PyTorch mismatch: {_diff}"
     except ImportError:
         pass
-# The handwritten ISA expects 5 inputs (x plus 4 tabulated constants)
-# at DRAM offsets 0x0, 0x400, 0x800, 0xc00, 0x1000. The golden fixture
-# here is a placeholder — to numerically validate this kernel, populate
-# all 5 regions with the actual polynomial-table values from the
-# original AutoComp source. For now we ship a xfail-style smoke.
 DRAM_X_H0 = 0x0000
 DRAM_X_H1 = 0x0400
-DRAM_C1 = 0x0800  # constant tables
-DRAM_C2 = 0x0C00
-DRAM_C3 = 0x1000
+DRAM_C044 = 0x0800  # 0.044715 broadcast tile
+DRAM_CSQRT = 0x0C00  # sqrt(2/pi) broadcast tile
+DRAM_CHALF = 0x1000  # 0.5 broadcast tile
 DRAM_OUT_H0 = 0x1400
 DRAM_OUT_H1 = 0x1800
+
+_c044 = torch.full((32, 16), 0.044715, dtype=torch.bfloat16)
+_csqrt = torch.full((32, 16), math.sqrt(2.0 / math.pi), dtype=torch.bfloat16)
+_chalf = torch.full((32, 16), 0.5, dtype=torch.bfloat16)
+EXPECTED_STACKED = torch.cat((EXPECTED[:, :16], EXPECTED[:, 16:]), dim=0)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -146,8 +159,9 @@ class SmolVLAGeluTanhProgram(Program):
     memory_regions: list[tuple[int, torch.Tensor]] = [
         (DRAM_X_H0, INPUT[:, :16].contiguous()),
         (DRAM_X_H1, INPUT[:, 16:].contiguous()),
+        (DRAM_C044, _c044),
+        (DRAM_CSQRT, _csqrt),
+        (DRAM_CHALF, _chalf),
     ]
 
-    # No golden_result set — kernel body depends on constants not yet
-    # provided. Define ``golden_result`` once you have them.
-    # golden_result = (DRAM_OUT_H0, EXPECTED[:, :16])
+    golden_result: tuple[int, torch.Tensor] = (DRAM_OUT_H0, EXPECTED_STACKED)

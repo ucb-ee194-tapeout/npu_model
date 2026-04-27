@@ -84,13 +84,13 @@ delay 66
 
 # --- Stable softmax ---
 vredmax.row.bf16 m14, m12
-delay 34
+delay 69
 vsub.bf16 m16, m12, m14
 delay 66
 vexp.bf16 m18, m16
 delay 66
 vredsum.row.bf16 m20, m18
-delay 39
+delay 69
 vrecip.bf16 m22, m20
 delay 66
 vmul.bf16 m24, m18, m22

@@ -46,7 +46,7 @@ delay 34
 vload m1, 0(x8)             # B_K0
 delay 34
 vmatpush.weight.mxu0 w0, m1
-delay 32
+delay 34
 vmatmul.mxu0 acc0, m0, w0
 delay 96
 

@@ -35,7 +35,7 @@ delay 34
 vload m2, 0(x2)     # eps low
 delay 34
 vload m3, 32(x2)    # eps high
-delay 34
+delay 16
 
 # --- RMS Norm Compute ---
 # x_sq = x * x

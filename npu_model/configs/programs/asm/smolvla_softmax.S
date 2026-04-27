@@ -41,13 +41,13 @@ delay 34
 
 # --- Stable softmax ---
 vredmax.row.bf16 m2, m0     # (m2, m3) = rowmax(X)
-delay 34
+delay 69
 vsub.bf16 m4, m0, m2        # (m4, m5) = X - rowmax
 delay 66
 vexp.bf16 m6, m4            # (m6, m7) = exp(X - rowmax)
 delay 66
 vredsum.row.bf16 m8, m6     # (m8, m9) = rowsum(exp)
-delay 39
+delay 69
 vrecip.bf16 m10, m8         # (m10, m11) = 1 / rowsum
 delay 66
 vmul.bf16 m12, m6, m10      # (m12, m13) = softmax(X)
