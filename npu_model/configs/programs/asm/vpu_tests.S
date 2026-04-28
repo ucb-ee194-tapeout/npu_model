@@ -41,7 +41,9 @@ vsub.bf16 m4, m2, m0        # (m4, m5) = identity(x) = (x+x) - x
 delay 66
 
 vsquare.bf16 m6, m4         # (m6, m7) = identity^2
+delay 66
 vcube.bf16 m8, m0           # (m8, m9) = x^3
+vcos.bf16 m62, m2           # random instruction to check for overlapping
 delay 66
 
 vmul.bf16 m10, m6, m8       # (m10, m11) = result
