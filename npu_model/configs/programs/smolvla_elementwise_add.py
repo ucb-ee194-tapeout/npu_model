@@ -137,7 +137,7 @@ TILE_BYTES = 2048  # 32 * 32 * 2 (bf16)
 
 
 class SmolVLAElementwiseAddProgram(Program):
-    """y = a + b on two 32x32 bf16 tiles."""
+    """y = a + b on two 32x32 bf16 tiles. cycles: ~270"""
 
     instructions: list[Instruction] = load_asm(ASM_FOLDER / 'smolvla_elementwise_add.S') 
 
