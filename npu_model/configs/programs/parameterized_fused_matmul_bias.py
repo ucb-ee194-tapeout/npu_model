@@ -27,13 +27,13 @@ MRF layout per output tile:
   (v8,  v9 ) = output = result + bias
 """
 
-from typing import Any, List, Tuple
+from typing import List, Tuple
 
 import torch
 
 from npu_model.software.program import Program, ASM_FOLDER
 from npu_model.util.converter import load_asm
-from npu_model._compat_args import DmaArgs, MatrixArgs, ScalarArgs, VectorArgs, _MockInstruction as Instruction
+from npu_model.software.instruction import Instruction
 
 TILE = 32
 BF16_BYTES = 2
@@ -46,24 +46,6 @@ VMEM_A = 0x2000
 VMEM_B = 0x2400
 VMEM_BIAS = 0x2800
 VMEM_OUT = 0x3000
-
-
-def _emit_load_imm32(rd: int, value: int, out: list[Instruction]) -> None:
-    if value == 0:
-        out.append(Instruction("addi", ScalarArgs(rd=rd, rs1=0, imm=0)))
-        return
-    upper = (value + 0x800) >> 12
-    lower = value - (upper << 12)
-    if upper:
-        out.append(Instruction("lui", ScalarArgs(rd=rd, imm=upper)))
-        if lower:
-            out.append(Instruction("addi", ScalarArgs(rd=rd, rs1=rd, imm=lower)))
-    else:
-        out.append(Instruction("addi", ScalarArgs(rd=rd, rs1=0, imm=lower)))
-
-
-def _emit_load_vmem_addr(rd: int, vmem_addr: int, out: list[Instruction]) -> None:
-    _emit_load_imm32(rd, vmem_addr, out)
 
 
 def _colblock_bf16(mat: torch.Tensor, M: int, N: int) -> torch.Tensor:
@@ -89,126 +71,6 @@ def fused_matmul_bias_reference(
     return (mm.float() + bias.float()).to(torch.bfloat16)
 
 
-def make_fused_matmul_bias_instructions(
-    M: int,
-    N: int,
-    dram_a: int,
-    dram_b: int,
-    dram_bias: int,
-    dram_out: int,
-) -> list[Instruction]:
-    """Generate instructions for fused M×32×N matmul+bias (K=32 fixed).
-
-    Uses hardware branch loops over M and N tile dimensions. K=32 means
-    a single vmatmul.mxu0 per tile (no K accumulation loop).
-
-    Scalar register map:
-        x1  VMEM_A      x2  VMEM_B      x3  VMEM_BIAS     x4  VMEM_OUT
-        x5  1024 (fp8)  x6  2048 (bf16)
-        x7  VMEM_BIAS+1024              x8  VMEM_OUT+1024
-        x9  M_tiles     x10 N_tiles
-        x11 dram_b base x12 dram_bias base  x13 dram_out base
-        x14 A_m_ptr     x15 B_n_ptr    x16 bias_ptr       x17 out_ptr
-        x18 m counter   x19 n counter
-        x20 stride_bias_m = N_tiles*2048   x21 stride_out_m = N_tiles*2048
-    """
-    assert M % TILE == 0 and N % TILE == 0
-    M_tiles = M // TILE
-    N_tiles = N // TILE
-
-    nop = Instruction("addi", ScalarArgs(rd=0, rs1=0, imm=0))
-    insns: list[Instruction] = []
-
-    _emit_load_vmem_addr(1, VMEM_A, insns)
-    _emit_load_vmem_addr(2, VMEM_B, insns)
-    _emit_load_vmem_addr(3, VMEM_BIAS, insns)
-    _emit_load_vmem_addr(4, VMEM_OUT, insns)
-    _emit_load_imm32(5, FP8_TILE_BYTES, insns)
-    _emit_load_imm32(6, BF16_TILE_BYTES, insns)
-    _emit_load_imm32(7, VMEM_BIAS + HALF_BYTES, insns)
-    _emit_load_imm32(8, VMEM_OUT + HALF_BYTES, insns)
-    _emit_load_imm32(9, M_tiles, insns)
-    _emit_load_imm32(10, N_tiles, insns)
-    _emit_load_imm32(11, dram_b, insns)
-    _emit_load_imm32(12, dram_bias, insns)
-    _emit_load_imm32(13, dram_out, insns)
-    _emit_load_imm32(14, dram_a, insns)          # A_m_ptr (initial)
-    _emit_load_imm32(20, N_tiles * BF16_TILE_BYTES, insns)  # stride for bias and out per m
-    insns.append(Instruction("addi", ScalarArgs(rd=18, rs1=0, imm=0)))  # m = 0
-
-    insns.append(Instruction("dma.config.ch<N>", DmaArgs(channel=0)))
-    insns.append(Instruction("dma.config.ch<N>", DmaArgs(channel=1)))
-    insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=0)))
-    insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=1)))
-
-    # m-loop
-    m_loop_start = len(insns)
-    # Reset n-dimension pointers to beginning of this m row
-    insns.append(Instruction("addi", ScalarArgs(rd=15, rs1=11, imm=0)))  # B_n_ptr = dram_b
-    insns.append(Instruction("addi", ScalarArgs(rd=16, rs1=12, imm=0)))  # bias_ptr = dram_bias base for m
-    insns.append(Instruction("addi", ScalarArgs(rd=17, rs1=13, imm=0)))  # out_ptr = dram_out base for m
-    insns.append(Instruction("addi", ScalarArgs(rd=19, rs1=0, imm=0)))   # n = 0
-
-    # n-loop
-    n_loop_start = len(insns)
-    # Fire A (ch0) and B (ch1). After A arrives, fire bias DMA and vload A+B
-    # in the ~1028cy bias window, hiding 68cy of vload serial time.
-    insns.append(Instruction("dma.load.ch<N>", DmaArgs(rd=1, rs1=14, rs2=5, channel=0)))
-    insns.append(Instruction("dma.load.ch<N>", DmaArgs(rd=2, rs1=15, rs2=5, channel=1)))
-    insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=0)))
-    insns.append(Instruction("dma.load.ch<N>", DmaArgs(rd=3, rs1=16, rs2=6, channel=0)))  # bias queues behind B
-    insns.append(Instruction("vload", VectorArgs(vd=0, rs1=1, imm12=0)))   # A fp8 during B+bias window
-    insns.append(Instruction("delay", ScalarArgs(imm=34)))
-    insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=1)))
-    insns.append(Instruction("vload", VectorArgs(vd=2, rs1=2, imm12=0)))   # B fp8 during bias window
-    insns.append(Instruction("delay", ScalarArgs(imm=34)))
-    insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=0)))
-    insns.append(Instruction("vload", VectorArgs(vd=4, rs1=3, imm12=0)))   # bias H0
-    insns.append(Instruction("delay", ScalarArgs(imm=34)))
-    insns.append(Instruction("vload", VectorArgs(vd=5, rs1=3, imm12=32)))  # bias H1
-    insns.append(Instruction("delay", ScalarArgs(imm=34)))
-
-    insns.append(Instruction("vmatpush.weight.mxu0", MatrixArgs(vd=0, vs1=2)))
-    insns.append(Instruction("delay", ScalarArgs(imm=32)))
-    insns.append(Instruction("vmatmul.mxu0", MatrixArgs(vd=0, vs1=0, vs2=0)))
-    insns.append(Instruction("delay", ScalarArgs(imm=96)))
-    insns.append(Instruction("vmatpop.bf16.acc.mxu0", MatrixArgs(vd=6, vs1=0)))
-    insns.append(Instruction("delay", ScalarArgs(imm=32)))
-
-    insns.append(Instruction("vadd.bf16", VectorArgs(vd=8, vs1=6, vs2=4)))
-    insns.append(Instruction("delay", ScalarArgs(imm=66)))
-
-    insns.append(Instruction("vstore", VectorArgs(vd=8, rs1=4, imm12=0)))
-    insns.append(Instruction("delay", ScalarArgs(imm=34)))
-    insns.append(Instruction("vstore", VectorArgs(vd=9, rs1=4, imm12=32)))
-    insns.append(Instruction("delay", ScalarArgs(imm=34)))
-
-    insns.append(Instruction("dma.store.ch<N>", DmaArgs(rd=17, rs1=4, rs2=6, channel=0)))
-    insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=0)))
-
-    # Advance n: B moves by FP8_TILE, bias and out move by BF16_TILE
-    insns.append(Instruction("addi", ScalarArgs(rd=15, rs1=15, imm=FP8_TILE_BYTES)))  # B_n_ptr += 1024
-    insns.append(Instruction("add", ScalarArgs(rd=16, rs1=16, rs2=6)))                # bias_ptr += 2048
-    insns.append(Instruction("add", ScalarArgs(rd=17, rs1=17, rs2=6)))                # out_ptr += 2048
-    insns.append(Instruction("addi", ScalarArgs(rd=19, rs1=19, imm=1)))
-    n_blt_idx = len(insns)
-    insns.append(Instruction("blt", ScalarArgs(rs1=19, rs2=10, imm=n_loop_start - n_blt_idx)))
-    insns.append(nop)
-    insns.append(nop)
-
-    # Advance m: A moves by FP8_TILE (one row block), bias and out by N_tiles*BF16_TILE
-    insns.append(Instruction("addi", ScalarArgs(rd=14, rs1=14, imm=FP8_TILE_BYTES)))  # A_m_ptr += 1024
-    insns.append(Instruction("add", ScalarArgs(rd=12, rs1=12, rs2=20)))  # dram_bias base += stride
-    insns.append(Instruction("add", ScalarArgs(rd=13, rs1=13, rs2=20)))  # dram_out base += stride
-    insns.append(Instruction("addi", ScalarArgs(rd=18, rs1=18, imm=1)))
-    m_blt_idx = len(insns)
-    insns.append(Instruction("blt", ScalarArgs(rs1=18, rs2=9, imm=m_loop_start - m_blt_idx)))
-    insns.append(nop)
-    insns.append(nop)
-
-    return insns
-
-
 def _make_program(M: int, N: int, seed: int):
     M_tiles = M // TILE
     N_tiles = N // TILE
@@ -225,35 +87,25 @@ def _make_program(M: int, N: int, seed: int):
     bias = torch.randn(M, N, dtype=torch.bfloat16)
     expected = fused_matmul_bias_reference(a, b, bias)
 
-    # Tile A row-blocks: for each M tile, the corresponding 32×32 fp8 block
     a_tiled = torch.cat([
         a[mt * TILE : (mt + 1) * TILE, :].contiguous()
         for mt in range(M_tiles)
     ])
-    # Tile B col-blocks: for each N tile, the corresponding 32×32 fp8 block
     b_tiled = torch.cat([
         b[:, nt * TILE : (nt + 1) * TILE].contiguous()
         for nt in range(N_tiles)
     ])
 
-    insns = make_fused_matmul_bias_instructions(
-        M=M,
-        N=N,
-        dram_a=dram_a,
-        dram_b=dram_b,
-        dram_bias=dram_bias,
-        dram_out=dram_out,
-    )
     regions = [
         (dram_a, a_tiled),
         (dram_b, b_tiled),
         (dram_bias, _colblock_bf16(bias, M, N)),
     ]
     golden = (dram_out, _colblock_bf16(expected, M, N))
-    return insns, regions, golden
+    return regions, golden
 
 
-_32_insns, _32_regions, _32_golden = _make_program(32, 32, seed=130)
+_32_regions, _32_golden = _make_program(32, 32, seed=130)
 
 
 class ParameterizedFusedMatmulBias32x32Program(Program):
@@ -264,7 +116,7 @@ class ParameterizedFusedMatmulBias32x32Program(Program):
     golden_result: tuple[int, torch.Tensor] = _32_golden
 
 
-_64_insns, _64_regions, _64_golden = _make_program(64, 64, seed=131)
+_64_regions, _64_golden = _make_program(64, 64, seed=131)
 
 
 class ParameterizedFusedMatmulBias64x64Program(Program):
@@ -275,7 +127,7 @@ class ParameterizedFusedMatmulBias64x64Program(Program):
     golden_result: tuple[int, torch.Tensor] = _64_golden
 
 
-_64x32_insns, _64x32_regions, _64x32_golden = _make_program(64, 32, seed=132)
+_64x32_regions, _64x32_golden = _make_program(64, 32, seed=132)
 
 
 class ParameterizedFusedMatmulBias64x32Program(Program):

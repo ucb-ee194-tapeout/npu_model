@@ -20,13 +20,13 @@ Scalar register map:
     x10  H1 input addr (computed per iter)
 """
 
-from typing import Any, List, Tuple
+from typing import List, Tuple
 
 import torch
 
 from npu_model.software.program import Program, ASM_FOLDER
 from npu_model.util.converter import load_asm
-from npu_model._compat_args import DmaArgs, ScalarArgs, VectorArgs, _MockInstruction as Instruction
+from npu_model.software.instruction import Instruction
 
 TILE = 32
 BF16_BYTES = 2
@@ -34,20 +34,6 @@ HALF_BYTES = TILE * (TILE // 2) * BF16_BYTES  # 1024
 
 VMEM_X = 0x2000
 VMEM_OUT = 0x3000
-
-
-def _emit_load_imm32(rd: int, value: int, out: list[Instruction]) -> None:
-    if value == 0:
-        out.append(Instruction("addi", ScalarArgs(rd=rd, rs1=0, imm=0)))
-        return
-    upper = (value + 0x800) >> 12
-    lower = value - (upper << 12)
-    if upper:
-        out.append(Instruction("lui", ScalarArgs(rd=rd, imm=upper)))
-        if lower:
-            out.append(Instruction("addi", ScalarArgs(rd=rd, rs1=rd, imm=lower)))
-    else:
-        out.append(Instruction("addi", ScalarArgs(rd=rd, rs1=0, imm=lower)))
 
 
 def _colblock_bf16(mat: torch.Tensor, M: int) -> torch.Tensor:
@@ -64,72 +50,6 @@ def reduction_sum_reference(x: torch.Tensor) -> torch.Tensor:
     return row_sum.expand(-1, TILE // 2).contiguous().to(x.dtype)
 
 
-def make_reduction_sum_instructions(
-    M: int,
-    dram_x: int,
-    dram_out: int,
-) -> list[Instruction]:
-    """Generate instructions for an M×32 row-wise reduction-sum."""
-    assert M % TILE == 0
-    M_groups = M // TILE
-    nop = Instruction("addi", ScalarArgs(rd=0, rs1=0, imm=0))
-
-    insns: list[Instruction] = []
-
-    _emit_load_imm32(1, VMEM_X, insns)
-    _emit_load_imm32(2, VMEM_OUT, insns)
-    _emit_load_imm32(3, HALF_BYTES, insns)
-    _emit_load_imm32(4, VMEM_X + HALF_BYTES, insns)
-    _emit_load_imm32(5, dram_x, insns)
-    _emit_load_imm32(6, dram_out, insns)
-    insns.append(Instruction("addi", ScalarArgs(rd=7, rs1=0, imm=0)))
-    _emit_load_imm32(8, M_groups, insns)
-    _emit_load_imm32(9, 2 * HALF_BYTES, insns)
-
-    insns.append(Instruction("dma.config.ch<N>", DmaArgs(channel=0)))
-    insns.append(Instruction("dma.config.ch<N>", DmaArgs(channel=1)))
-    insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=0)))
-    insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=1)))
-
-    loop_start = len(insns)
-
-    # H1 input addr = H0 + HALF_BYTES
-    insns.append(Instruction("add", ScalarArgs(rd=10, rs1=5, rs2=3)))
-
-    # Fire both DMA loads; vload H0 while H1 is still in flight to hide 34cy.
-    insns.append(Instruction("dma.load.ch<N>", DmaArgs(rd=1, rs1=5, rs2=3, channel=0)))
-    insns.append(Instruction("dma.load.ch<N>", DmaArgs(rd=4, rs1=10, rs2=3, channel=1)))
-    insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=0)))
-    insns.append(Instruction("vload", VectorArgs(vd=0, rs1=1, imm12=0)))
-    insns.append(Instruction("delay", ScalarArgs(imm=34)))
-    insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=1)))
-    insns.append(Instruction("vload", VectorArgs(vd=1, rs1=1, imm12=32)))
-    insns.append(Instruction("delay", ScalarArgs(imm=34)))
-
-    # (v4, v5) = rowsum(X) broadcast
-    insns.append(Instruction("vredsum.row.bf16", VectorArgs(vd=4, vs1=0)))
-    insns.append(Instruction("delay", ScalarArgs(imm=39)))
-
-    # Store v4 (H0 of result) -> VMEM_OUT
-    insns.append(Instruction("vstore", VectorArgs(vd=4, rs1=2, imm12=0)))
-    insns.append(Instruction("delay", ScalarArgs(imm=34)))
-
-    insns.append(Instruction("dma.store.ch<N>", DmaArgs(rd=6, rs1=2, rs2=3, channel=0)))
-    insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=0)))
-
-    # Advance pointers: input by 2*HALF_BYTES, output by HALF_BYTES
-    insns.append(Instruction("add", ScalarArgs(rd=5, rs1=5, rs2=9)))
-    insns.append(Instruction("add", ScalarArgs(rd=6, rs1=6, rs2=3)))
-    insns.append(Instruction("addi", ScalarArgs(rd=7, rs1=7, imm=1)))
-
-    blt_idx = len(insns)
-    insns.append(Instruction("blt", ScalarArgs(rs1=7, rs2=8, imm=loop_start - blt_idx)))
-    insns.append(nop)
-    insns.append(nop)
-
-    return insns
-
-
 def _make_program(M: int, seed: int):
     M_groups = M // TILE
     dram_x = 0x0000
@@ -139,13 +59,12 @@ def _make_program(M: int, seed: int):
     x = torch.randn(M, TILE, dtype=torch.bfloat16)
     expected = reduction_sum_reference(x)
 
-    insns = make_reduction_sum_instructions(M=M, dram_x=dram_x, dram_out=dram_out)
     regions = [(dram_x, _colblock_bf16(x, M))]
     golden = (dram_out, expected)
-    return insns, regions, golden
+    return regions, golden
 
 
-_32_insns, _32_regions, _32_golden = _make_program(32, seed=110)
+_32_regions, _32_golden = _make_program(32, seed=110)
 
 
 class ParameterizedReductionSum32x32Program(Program):
@@ -156,7 +75,7 @@ class ParameterizedReductionSum32x32Program(Program):
     golden_result: tuple[int, torch.Tensor] = _32_golden
 
 
-_64_insns, _64_regions, _64_golden = _make_program(64, seed=111)
+_64_regions, _64_golden = _make_program(64, seed=111)
 
 
 class ParameterizedReductionSum64x32Program(Program):
@@ -167,7 +86,7 @@ class ParameterizedReductionSum64x32Program(Program):
     golden_result: tuple[int, torch.Tensor] = _64_golden
 
 
-_96_insns, _96_regions, _96_golden = _make_program(96, seed=112)
+_96_regions, _96_golden = _make_program(96, seed=112)
 
 
 class ParameterizedReductionSum96x32Program(Program):

@@ -53,77 +53,17 @@ Scalar register map:
 """
 
 import math
-from typing import Any, List, Tuple
+from typing import List, Tuple
 
 import torch
 
 from npu_model.software.program import Program, ASM_FOLDER
 from npu_model.util.converter import load_asm
-from npu_model._compat_args import DmaArgs, MatrixArgs, ScalarArgs, VectorArgs, _MockInstruction as Instruction
+from npu_model.software.instruction import Instruction
 
 TILE = 32
 BF16 = 2
 SCALE_BYTES = TILE * (TILE // 2) * BF16  # [32,16] bf16 = 1024, constant
-
-
-# ── register helpers ──────────────────────────────────────────────────────────
-
-
-def _even(n: int) -> int:
-    return n if n % 2 == 0 else n + 1
-
-
-def _reg_layout() -> dict:
-    """MRF register base indices for HEAD_DIM=64 (H=2)."""
-    # H=2: Q_fp8 in v0..v1, scale/m/l/O in v2..v11, scratch from v12
-    Q_FP8_BASE = 0   # v0, v1
-    SCALE_BASE = 2   # v2, v3
-    M_BASE     = 4   # v4, v5
-    L_BASE     = 6   # v6, v7
-    O_BASE     = 8   # v8..v11 (2 pairs for H=2)
-    S          = 12  # scratch base (even, after v8..v11)
-    assert S + 25 < 64, "MRF overflow"
-    return dict(
-        Q_FP8_BASE=Q_FP8_BASE,
-        SCALE_BASE=SCALE_BASE,
-        M_BASE=M_BASE,
-        L_BASE=L_BASE,
-        O_BASE=O_BASE,
-        KT_BF16=S,
-        KT_FP8=S + 2,
-        VT_BF16=S + 4,
-        VT_FP8=S + 6,
-        T_SCORES=S + 8,
-        T_SCALED=S + 10,
-        T_TMAX=S + 12,
-        T_MNEW=S + 14,
-        T_EXPS=S + 16,
-        T_EXPSFP8=S + 18,
-        T_VC=S + 20,
-        T_LDECAY=S + 22,
-        T_LSUM=S + 24,
-    )
-
-
-# ── ISA helpers ───────────────────────────────────────────────────────────────
-
-
-def _emit_load_imm32(rd: int, value: int, out: list) -> None:
-    """lui + addi to materialise a 32-bit value in scalar register rd."""
-    if value == 0:
-        out.append(Instruction("addi", ScalarArgs(rd=rd, rs1=0, imm=0)))
-        return
-    upper = (value + 0x800) >> 12
-    lower = value - (upper << 12)
-    if upper:
-        out.append(Instruction("lui", ScalarArgs(rd=rd, imm=upper)))
-        if lower:
-            out.append(Instruction("addi", ScalarArgs(rd=rd, rs1=rd, imm=lower)))
-    else:
-        out.append(Instruction("addi", ScalarArgs(rd=rd, rs1=0, imm=lower)))
-
-
-# ── data layout helpers ───────────────────────────────────────────────────────
 
 
 def _col_block(t: torch.Tensor) -> torch.Tensor:
@@ -142,274 +82,6 @@ def _col_block(t: torch.Tensor) -> torch.Tensor:
         for c in range(0, cols, 16):
             parts.append(t[r : r + TILE, c : c + 16].contiguous())
     return torch.cat(parts, dim=0)
-
-
-# ── ISA generator ─────────────────────────────────────────────────────────────
-
-
-def make_fused_attention_instructions(
-    Q_ROWS: int,
-    K_SEQ: int,
-    dram_q: int,
-    dram_kt_base: int,
-    dram_vt_base: int,
-    dram_scale: int,
-    dram_out: int,
-) -> list:
-    """Generate flash-attention ISA instructions for HEAD_DIM=64 (H=2).
-
-    The Q-block and K-tile loops use hardware branch instructions.
-    Inner loops over H (head-dim segments) remain Python-unrolled since
-    they reference different MRF register indices per iteration.
-
-    Scalar register map:
-        x1=VMEM_Q  x2=VMEM_KT  x3=VMEM_VT  x4=VMEM_SCALE  x5=VMEM_OUT
-        x6=dram_q_ptr (Q-block, advances by TILE_BYTES per qb)
-        x7=dram_scale  x8=dram_out_ptr (Q-block, advances by TILE_BYTES per qb)
-        x9=TILE_BYTES  x10=SCALE_BYTES
-        x11=dram_kt_ptr (K-tile, advances by TILE_BYTES per k; reset per qb)
-        x12=dram_vt_ptr (K-tile, advances by TILE_BYTES per k; reset per qb)
-        x13=dram_kt_base (constant, used to reset x11 per qb)
-        x14=dram_vt_base (constant, used to reset x12 per qb)
-        x15=Q_BLOCKS  x16=qb counter
-        x17=K_TILES   x18=k counter
-    """
-    assert Q_ROWS % TILE == 0, f"Q_ROWS={Q_ROWS} must be multiple of {TILE}"
-    assert K_SEQ % TILE == 0, f"K_SEQ={K_SEQ} must be multiple of {TILE}"
-
-    HEAD_DIM = 64
-    H = 2  # HEAD_DIM // TILE
-    K_TILES = K_SEQ // TILE
-    Q_BLOCKS = Q_ROWS // TILE
-    TILE_BYTES = TILE * HEAD_DIM * BF16
-
-    R = _reg_layout()
-    Q_FP8_BASE = R["Q_FP8_BASE"]
-    SCALE_BASE = R["SCALE_BASE"]
-    M_BASE = R["M_BASE"]
-    L_BASE = R["L_BASE"]
-    O_BASE = R["O_BASE"]
-    KT_BF16 = R["KT_BF16"]
-    KT_FP8 = R["KT_FP8"]
-    VT_BF16 = R["VT_BF16"]
-    VT_FP8 = R["VT_FP8"]
-    T_SCORES = R["T_SCORES"]
-    T_SCALED = R["T_SCALED"]
-    T_TMAX = R["T_TMAX"]
-    T_MNEW = R["T_MNEW"]
-    T_EXPS = R["T_EXPS"]
-    T_EXPSFP8 = R["T_EXPSFP8"]
-    T_VC = R["T_VC"]
-    T_LDECAY = R["T_LDECAY"]
-    T_LSUM = R["T_LSUM"]
-
-    VMEM_Q = 0
-    VMEM_KT = VMEM_Q + TILE_BYTES
-    VMEM_VT = VMEM_KT + TILE_BYTES
-    VMEM_SCALE = VMEM_VT + TILE_BYTES
-    VMEM_OUT = VMEM_SCALE + SCALE_BYTES
-
-    nop = Instruction("addi", ScalarArgs(rd=0, rs1=0, imm=0))
-    insns: list = []
-
-    # Prologue: VMEM addresses, constants, loop limits
-    _emit_load_imm32(1, VMEM_Q, insns)
-    _emit_load_imm32(2, VMEM_KT, insns)
-    _emit_load_imm32(3, VMEM_VT, insns)
-    _emit_load_imm32(4, VMEM_SCALE, insns)
-    _emit_load_imm32(5, VMEM_OUT, insns)
-    _emit_load_imm32(6, dram_q, insns)       # dram_q_ptr (initial)
-    _emit_load_imm32(7, dram_scale, insns)
-    _emit_load_imm32(8, dram_out, insns)     # dram_out_ptr (initial)
-    _emit_load_imm32(9, TILE_BYTES, insns)
-    insns.append(Instruction("addi", ScalarArgs(rd=10, rs1=0, imm=SCALE_BYTES)))
-    _emit_load_imm32(13, dram_kt_base, insns)
-    _emit_load_imm32(14, dram_vt_base, insns)
-    _emit_load_imm32(15, Q_BLOCKS, insns)
-    _emit_load_imm32(17, K_TILES, insns)
-    insns.append(Instruction("addi", ScalarArgs(rd=16, rs1=0, imm=0)))  # qb = 0
-
-    insns.append(Instruction("dma.config.ch<N>", DmaArgs(channel=0)))
-    insns.append(Instruction("dma.config.ch<N>", DmaArgs(channel=1)))
-    insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=0)))
-    insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=1)))
-
-    # Load scale once: DRAM → VMEM_SCALE → MRF
-    insns.append(Instruction("dma.load.ch<N>", DmaArgs(rd=4, rs1=7, rs2=10, channel=0)))
-    insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=0)))
-    insns.append(Instruction("vload", VectorArgs(vd=SCALE_BASE, rs1=4, imm12=0)))
-    insns.append(Instruction("delay", ScalarArgs(imm=34)))
-    insns.append(Instruction("vload", VectorArgs(vd=SCALE_BASE + 1, rs1=4, imm12=0)))
-    insns.append(Instruction("delay", ScalarArgs(imm=34)))
-
-    # qb-loop
-    qb_loop_start = len(insns)
-    # Load Q[qb] from DRAM → VMEM_Q
-    insns.append(Instruction("dma.load.ch<N>", DmaArgs(rd=1, rs1=6, rs2=9, channel=0)))
-    insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=0)))
-
-    # Quantize Q segments (H iterations, Python-unrolled — different MRF regs per i)
-    for i in range(H):
-        insns.append(Instruction("vload", VectorArgs(vd=KT_BF16, rs1=1, imm12=i * 64)))
-        insns.append(Instruction("delay", ScalarArgs(imm=34)))
-        insns.append(Instruction("vload", VectorArgs(vd=KT_BF16 + 1, rs1=1, imm12=i * 64 + 32)))
-        insns.append(Instruction("delay", ScalarArgs(imm=34)))
-        insns.append(Instruction("vmatpush.acc.bf16.mxu0", MatrixArgs(vd=1, vs1=KT_BF16)))
-        insns.append(Instruction("delay", ScalarArgs(imm=32)))
-        insns.append(Instruction("vmatpop.fp8.acc.mxu0", MatrixArgs(vd=Q_FP8_BASE + i, vs1=1)))
-        insns.append(Instruction("delay", ScalarArgs(imm=32)))
-
-    # Initialize online-softmax state (fresh per Q-block)
-    for vd in [M_BASE, M_BASE + 1]:
-        insns.append(Instruction("vli.all", VectorArgs(vd=vd, imm=-100)))
-        insns.append(Instruction("delay", ScalarArgs(imm=65)))
-    for vd in [L_BASE, L_BASE + 1]:
-        insns.append(Instruction("vli.all", VectorArgs(vd=vd, imm=0)))
-        insns.append(Instruction("delay", ScalarArgs(imm=65)))
-    for j in range(H):
-        for vd in [O_BASE + 2 * j, O_BASE + 2 * j + 1]:
-            insns.append(Instruction("vli.all", VectorArgs(vd=vd, imm=0)))
-            insns.append(Instruction("delay", ScalarArgs(imm=65)))
-
-    # Reset K-tile pointers to base addresses for this Q-block
-    insns.append(Instruction("addi", ScalarArgs(rd=11, rs1=13, imm=0)))  # dram_kt_ptr = kt_base
-    insns.append(Instruction("addi", ScalarArgs(rd=12, rs1=14, imm=0)))  # dram_vt_ptr = vt_base
-    insns.append(Instruction("addi", ScalarArgs(rd=18, rs1=0, imm=0)))   # k = 0
-
-    # k-loop
-    k_loop_start = len(insns)
-    insns.append(Instruction("dma.load.ch<N>", DmaArgs(rd=2, rs1=11, rs2=9, channel=0)))
-    insns.append(Instruction("dma.load.ch<N>", DmaArgs(rd=3, rs1=12, rs2=9, channel=1)))
-    insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=0)))
-    insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=1)))
-
-    # Q @ K^T: H iterations (Python-unrolled — different Q_fp8 and MRF regs per i)
-    for i in range(H):
-        insns.append(Instruction("vload", VectorArgs(vd=KT_BF16, rs1=2, imm12=i * 64)))
-        insns.append(Instruction("delay", ScalarArgs(imm=34)))
-        insns.append(Instruction("vload", VectorArgs(vd=KT_BF16 + 1, rs1=2, imm12=i * 64 + 32)))
-        insns.append(Instruction("delay", ScalarArgs(imm=34)))
-        insns.append(Instruction("vmatpush.acc.bf16.mxu0", MatrixArgs(vd=1, vs1=KT_BF16)))
-        insns.append(Instruction("delay", ScalarArgs(imm=32)))
-        insns.append(Instruction("vmatpop.fp8.acc.mxu0", MatrixArgs(vd=KT_FP8, vs1=1)))
-        insns.append(Instruction("delay", ScalarArgs(imm=32)))
-        insns.append(Instruction("vmatpush.weight.mxu0", MatrixArgs(vd=0, vs1=KT_FP8)))
-        insns.append(Instruction("delay", ScalarArgs(imm=32)))
-        if i == 0:
-            insns.append(Instruction("vmatmul.mxu0", MatrixArgs(vd=0, vs1=Q_FP8_BASE, vs2=0)))
-        else:
-            insns.append(Instruction("vmatmul.acc.mxu0", MatrixArgs(vd=0, vs1=Q_FP8_BASE + i, vs2=0)))
-        insns.append(Instruction("delay", ScalarArgs(imm=96)))
-
-    insns.append(Instruction("vmatpop.bf16.acc.mxu0", MatrixArgs(vd=T_SCORES, vs1=0)))
-    insns.append(Instruction("delay", ScalarArgs(imm=32)))
-
-    # scaled = scores * scale
-    insns.append(Instruction("vmul.bf16", VectorArgs(vd=T_SCALED, vs1=T_SCORES, vs2=SCALE_BASE)))
-    insns.append(Instruction("delay", ScalarArgs(imm=66)))
-
-    # tile_max = rowmax(scaled)
-    insns.append(Instruction("vredmax.row.bf16", VectorArgs(vd=T_TMAX, vs1=T_SCALED)))
-    insns.append(Instruction("delay", ScalarArgs(imm=34)))
-
-    # m_new = max(m_prev, tile_max)
-    insns.append(Instruction("vmaximum.bf16", VectorArgs(vd=T_MNEW, vs1=M_BASE, vs2=T_TMAX)))
-    insns.append(Instruction("delay", ScalarArgs(imm=66)))
-
-    # exp_diff = exp(m_prev - m_new), reuse T_TMAX
-    insns.append(Instruction("vsub.bf16", VectorArgs(vd=T_TMAX, vs1=M_BASE, vs2=T_MNEW)))
-    insns.append(Instruction("delay", ScalarArgs(imm=66)))
-    insns.append(Instruction("vexp.bf16", VectorArgs(vd=T_TMAX, vs1=T_TMAX)))
-    insns.append(Instruction("delay", ScalarArgs(imm=66)))
-
-    # O[j] *= exp_diff (Python-unrolled over H output col-blocks)
-    for j in range(H):
-        insns.append(Instruction("vmul.bf16", VectorArgs(vd=O_BASE + 2 * j, vs1=O_BASE + 2 * j, vs2=T_TMAX)))
-        insns.append(Instruction("delay", ScalarArgs(imm=66)))
-
-    # exp_s = exp(scaled - m_new)
-    insns.append(Instruction("vsub.bf16", VectorArgs(vd=T_EXPS, vs1=T_SCALED, vs2=T_MNEW)))
-    insns.append(Instruction("delay", ScalarArgs(imm=66)))
-    insns.append(Instruction("vexp.bf16", VectorArgs(vd=T_EXPS, vs1=T_EXPS)))
-    insns.append(Instruction("delay", ScalarArgs(imm=66)))
-
-    # Quantize exp_s → fp8
-    insns.append(Instruction("vmatpush.acc.bf16.mxu0", MatrixArgs(vd=1, vs1=T_EXPS)))
-    insns.append(Instruction("delay", ScalarArgs(imm=32)))
-    insns.append(Instruction("vmatpop.fp8.acc.mxu0", MatrixArgs(vd=T_EXPSFP8, vs1=1)))
-    insns.append(Instruction("delay", ScalarArgs(imm=32)))
-
-    # exp_s @ V (Python-unrolled over H V col-blocks — different O regs per j)
-    for j in range(H):
-        insns.append(Instruction("vload", VectorArgs(vd=VT_BF16, rs1=3, imm12=j * 64)))
-        insns.append(Instruction("delay", ScalarArgs(imm=34)))
-        insns.append(Instruction("vload", VectorArgs(vd=VT_BF16 + 1, rs1=3, imm12=j * 64 + 32)))
-        insns.append(Instruction("delay", ScalarArgs(imm=34)))
-        insns.append(Instruction("vmatpush.acc.bf16.mxu0", MatrixArgs(vd=1, vs1=VT_BF16)))
-        insns.append(Instruction("delay", ScalarArgs(imm=32)))
-        insns.append(Instruction("vmatpop.fp8.acc.mxu0", MatrixArgs(vd=VT_FP8, vs1=1)))
-        insns.append(Instruction("delay", ScalarArgs(imm=32)))
-        insns.append(Instruction("vmatpush.weight.mxu0", MatrixArgs(vd=0, vs1=VT_FP8)))
-        insns.append(Instruction("delay", ScalarArgs(imm=32)))
-        insns.append(Instruction("vmatmul.mxu0", MatrixArgs(vd=0, vs1=T_EXPSFP8, vs2=0)))
-        insns.append(Instruction("delay", ScalarArgs(imm=96)))
-        insns.append(Instruction("vmatpop.bf16.acc.mxu0", MatrixArgs(vd=T_VC, vs1=0)))
-        insns.append(Instruction("delay", ScalarArgs(imm=32)))
-        insns.append(Instruction("vadd.bf16", VectorArgs(vd=O_BASE + 2 * j, vs1=O_BASE + 2 * j, vs2=T_VC)))
-        insns.append(Instruction("delay", ScalarArgs(imm=66)))
-
-    # l = exp_diff * l + rowsum(exp_s)
-    insns.append(Instruction("vmul.bf16", VectorArgs(vd=T_LDECAY, vs1=T_TMAX, vs2=L_BASE)))
-    insns.append(Instruction("delay", ScalarArgs(imm=66)))
-    insns.append(Instruction("vredsum.row.bf16", VectorArgs(vd=T_LSUM, vs1=T_EXPS)))
-    insns.append(Instruction("delay", ScalarArgs(imm=39)))
-    insns.append(Instruction("vadd.bf16", VectorArgs(vd=L_BASE, vs1=T_LDECAY, vs2=T_LSUM)))
-    insns.append(Instruction("delay", ScalarArgs(imm=66)))
-
-    # m_prev = m_new
-    insns.append(Instruction("vmov", VectorArgs(vd=M_BASE, vs1=T_MNEW)))
-    insns.append(Instruction("delay", ScalarArgs(imm=66)))
-    insns.append(Instruction("vmov", VectorArgs(vd=M_BASE + 1, vs1=T_MNEW + 1)))
-    insns.append(Instruction("delay", ScalarArgs(imm=66)))
-
-    # Advance k pointers and counter
-    insns.append(Instruction("add", ScalarArgs(rd=11, rs1=11, rs2=9)))   # dram_kt_ptr += TILE_BYTES
-    insns.append(Instruction("add", ScalarArgs(rd=12, rs1=12, rs2=9)))   # dram_vt_ptr += TILE_BYTES
-    insns.append(Instruction("addi", ScalarArgs(rd=18, rs1=18, imm=1)))
-    k_blt_idx = len(insns)
-    insns.append(Instruction("blt", ScalarArgs(rs1=18, rs2=17, imm=k_loop_start - k_blt_idx)))
-    insns.append(nop)
-    insns.append(nop)
-
-    # Normalize: O /= l (Python-unrolled over H)
-    insns.append(Instruction("vrecip.bf16", VectorArgs(vd=T_LDECAY, vs1=L_BASE)))
-    insns.append(Instruction("delay", ScalarArgs(imm=66)))
-    for j in range(H):
-        insns.append(Instruction("vmul.bf16", VectorArgs(vd=O_BASE + 2 * j, vs1=O_BASE + 2 * j, vs2=T_LDECAY)))
-        insns.append(Instruction("delay", ScalarArgs(imm=66)))
-
-    # Store output O pairs → VMEM_OUT → DRAM (Python-unrolled over H)
-    for j in range(H):
-        insns.append(Instruction("vstore", VectorArgs(vd=O_BASE + 2 * j, rs1=5, imm12=j * 64)))
-        insns.append(Instruction("delay", ScalarArgs(imm=34)))
-        insns.append(Instruction("vstore", VectorArgs(vd=O_BASE + 2 * j + 1, rs1=5, imm12=j * 64 + 32)))
-        insns.append(Instruction("delay", ScalarArgs(imm=34)))
-    insns.append(Instruction("dma.store.ch<N>", DmaArgs(rd=8, rs1=5, rs2=9, channel=0)))
-    insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=0)))
-
-    # Advance qb pointers and counter
-    insns.append(Instruction("add", ScalarArgs(rd=6, rs1=6, rs2=9)))    # dram_q_ptr += TILE_BYTES
-    insns.append(Instruction("add", ScalarArgs(rd=8, rs1=8, rs2=9)))    # dram_out_ptr += TILE_BYTES
-    insns.append(Instruction("addi", ScalarArgs(rd=16, rs1=16, imm=1)))
-    qb_blt_idx = len(insns)
-    insns.append(Instruction("blt", ScalarArgs(rs1=16, rs2=15, imm=qb_loop_start - qb_blt_idx)))
-    insns.append(nop)
-    insns.append(nop)
-
-    return insns
-
-
-# ── ISA-exact golden reference ────────────────────────────────────────────────
 
 
 def fused_attention_golden(
@@ -502,9 +174,6 @@ def fused_attention_golden(
     return torch.cat(out_parts, dim=0)
 
 
-# ── program factory ───────────────────────────────────────────────────────────
-
-
 def _make_attn_program(Q_ROWS: int, K_SEQ: int, seed: int):
     HEAD_DIM = 64
     K_TILES = K_SEQ // TILE
@@ -537,19 +206,8 @@ def _make_attn_program(Q_ROWS: int, K_SEQ: int, seed: int):
 
     expected = fused_attention_golden(Q_raw, Ks_raw, Vs_mlir, scale_val)
 
-    insns = make_fused_attention_instructions(
-        Q_ROWS=Q_ROWS,
-        K_SEQ=K_SEQ,
-        dram_q=dram_q,
-        dram_kt_base=dram_kt_base,
-        dram_vt_base=dram_vt_base,
-        dram_scale=dram_scale,
-        dram_out=dram_out,
-    )
-    return insns, regions, (dram_out, expected)
+    return regions, (dram_out, expected)
 
-
-# ── Program classes ───────────────────────────────────────────────────────────
 
 _fa_q32_k64  = _make_attn_program(Q_ROWS=32, K_SEQ=64,  seed=10)
 _fa_q32_k96  = _make_attn_program(Q_ROWS=32, K_SEQ=96,  seed=11)
@@ -562,8 +220,8 @@ class ParameterizedFusedAttentionQ32K64Program(Program):
     """Flash attention: Q_ROWS=32, K_SEQ=64, HEAD_DIM=64."""
 
     instructions: list[Instruction] = load_asm(ASM_FOLDER / 'parameterized_fused_attention_q32_k64.S')
-    memory_regions: List[Tuple[int, torch.Tensor]] = _fa_q32_k64[1]
-    golden_result: tuple[int, torch.Tensor] = _fa_q32_k64[2]
+    memory_regions: List[Tuple[int, torch.Tensor]] = _fa_q32_k64[0]
+    golden_result: tuple[int, torch.Tensor] = _fa_q32_k64[1]
     kernel_tolerance: tuple[float, float] = (5e-2, 5e-2)
 
 
@@ -571,8 +229,8 @@ class ParameterizedFusedAttentionQ32K96Program(Program):
     """Flash attention: Q_ROWS=32, K_SEQ=96, HEAD_DIM=64 (3 K-tiles)."""
 
     instructions: list[Instruction] = load_asm(ASM_FOLDER / 'parameterized_fused_attention_q32_k96.S')
-    memory_regions: List[Tuple[int, torch.Tensor]] = _fa_q32_k96[1]
-    golden_result: tuple[int, torch.Tensor] = _fa_q32_k96[2]
+    memory_regions: List[Tuple[int, torch.Tensor]] = _fa_q32_k96[0]
+    golden_result: tuple[int, torch.Tensor] = _fa_q32_k96[1]
     kernel_tolerance: tuple[float, float] = (5e-2, 5e-2)
 
 
@@ -580,8 +238,8 @@ class ParameterizedFusedAttentionQ32K128Program(Program):
     """Flash attention: Q_ROWS=32, K_SEQ=128, HEAD_DIM=64 (4 K-tiles)."""
 
     instructions: list[Instruction] = load_asm(ASM_FOLDER / 'parameterized_fused_attention_q32_k128.S')
-    memory_regions: List[Tuple[int, torch.Tensor]] = _fa_q32_k128[1]
-    golden_result: tuple[int, torch.Tensor] = _fa_q32_k128[2]
+    memory_regions: List[Tuple[int, torch.Tensor]] = _fa_q32_k128[0]
+    golden_result: tuple[int, torch.Tensor] = _fa_q32_k128[1]
     kernel_tolerance: tuple[float, float] = (5e-2, 5e-2)
 
 
@@ -589,8 +247,8 @@ class ParameterizedFusedAttentionQ64K64Program(Program):
     """Flash attention: Q_ROWS=64, K_SEQ=64, HEAD_DIM=64 (2 Q-blocks)."""
 
     instructions: list[Instruction] = load_asm(ASM_FOLDER / 'parameterized_fused_attention_q64_k64.S')
-    memory_regions: List[Tuple[int, torch.Tensor]] = _fa_q64_k64[1]
-    golden_result: tuple[int, torch.Tensor] = _fa_q64_k64[2]
+    memory_regions: List[Tuple[int, torch.Tensor]] = _fa_q64_k64[0]
+    golden_result: tuple[int, torch.Tensor] = _fa_q64_k64[1]
     kernel_tolerance: tuple[float, float] = (5e-2, 5e-2)
 
 
@@ -598,6 +256,6 @@ class ParameterizedFusedAttentionQ64K96Program(Program):
     """Flash attention: Q_ROWS=64, K_SEQ=96, HEAD_DIM=64 (2 Q-blocks, 3 K-tiles)."""
 
     instructions: list[Instruction] = load_asm(ASM_FOLDER / 'parameterized_fused_attention_q64_k96.S')
-    memory_regions: List[Tuple[int, torch.Tensor]] = _fa_q64_k96[1]
-    golden_result: tuple[int, torch.Tensor] = _fa_q64_k96[2]
+    memory_regions: List[Tuple[int, torch.Tensor]] = _fa_q64_k96[0]
+    golden_result: tuple[int, torch.Tensor] = _fa_q64_k96[1]
     kernel_tolerance: tuple[float, float] = (5e-2, 5e-2)

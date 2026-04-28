@@ -16,13 +16,13 @@ VMEM slots:
   0x3000  VMEM_OUT   1 KB — fp8 tile (32×32 × 1 B)
 """
 
-from typing import Any, List, Tuple
+from typing import List, Tuple
 
 import torch
 
 from npu_model.software.program import Program, ASM_FOLDER
 from npu_model.util.converter import load_asm
-from npu_model._compat_args import DmaArgs, ScalarArgs, VectorArgs, _MockInstruction as Instruction
+from npu_model.software.instruction import Instruction
 
 TILE = 32
 BF16_BYTES = 2
@@ -33,24 +33,6 @@ FP8_TILE_BYTES = TILE * TILE * FP8_BYTES       # 1024  (32×32 fp8)
 VMEM_X_H0 = 0x2000
 VMEM_X_H1 = 0x2400
 VMEM_OUT = 0x3000
-
-
-def _emit_load_imm32(rd: int, value: int, out: list[Instruction]) -> None:
-    if value == 0:
-        out.append(Instruction("addi", ScalarArgs(rd=rd, rs1=0, imm=0)))
-        return
-    upper = (value + 0x800) >> 12
-    lower = value - (upper << 12)
-    if upper:
-        out.append(Instruction("lui", ScalarArgs(rd=rd, imm=upper)))
-        if lower:
-            out.append(Instruction("addi", ScalarArgs(rd=rd, rs1=rd, imm=lower)))
-    else:
-        out.append(Instruction("addi", ScalarArgs(rd=rd, rs1=0, imm=lower)))
-
-
-def _emit_load_vmem_addr(rd: int, vmem_addr: int, out: list[Instruction]) -> None:
-    _emit_load_imm32(rd, vmem_addr, out)
 
 
 def _tile_fp8(mat: torch.Tensor, M: int, N: int) -> torch.Tensor:
@@ -87,89 +69,6 @@ def requant_reference(x: torch.Tensor) -> torch.Tensor:
     return x.to(torch.float8_e4m3fn)
 
 
-def make_requant_instructions(
-    M: int,
-    N: int,
-    dram_x: int,
-    dram_out: int,
-) -> list[Instruction]:
-    """Generate instructions for an M×N bf16→fp8 requantization.
-
-    Scalar register map:
-        x1  VMEM_X_H0     x2  VMEM_X_H1     x3  VMEM_OUT
-        x4  1024 (HALF_BYTES = FP8_TILE_BYTES)
-        x5  dram_x ptr (H0, advances by 2048 per tile)
-        x6  dram_out ptr (advances by 1024 per tile)
-        x7  tile counter  x8  total_tiles    x9  2048 (input tile stride)
-        x10 H1 input addr (computed per iter)
-    ERF: seli rd=0, imm=1  → scale register 0 = 1.0 (unit scale)
-    """
-    assert M % TILE == 0 and N % TILE == 0
-    M_tiles = M // TILE
-    N_tiles = N // TILE
-    total_tiles = M_tiles * N_tiles
-    nop = Instruction("addi", ScalarArgs(rd=0, rs1=0, imm=0))
-
-    insns: list[Instruction] = []
-
-    _emit_load_imm32(1, VMEM_X_H0, insns)
-    _emit_load_imm32(2, VMEM_X_H1, insns)
-    _emit_load_imm32(3, VMEM_OUT, insns)
-    _emit_load_imm32(4, HALF_BYTES, insns)
-    _emit_load_imm32(5, dram_x, insns)
-    _emit_load_imm32(6, dram_out, insns)
-    insns.append(Instruction("addi", ScalarArgs(rd=7, rs1=0, imm=0)))
-    _emit_load_imm32(8, total_tiles, insns)
-    _emit_load_imm32(9, 2 * HALF_BYTES, insns)
-
-    # Set unit scale in ERF register 0 once
-    insns.append(Instruction("seli", ScalarArgs(rd=0, imm=1)))
-
-    insns.append(Instruction("dma.config.ch<N>", DmaArgs(channel=0)))
-    insns.append(Instruction("dma.config.ch<N>", DmaArgs(channel=1)))
-    insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=0)))
-    insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=1)))
-
-    loop_start = len(insns)
-
-    # x10 = H1 input addr = x5 + x4
-    insns.append(Instruction("add", ScalarArgs(rd=10, rs1=5, rs2=4)))
-
-    # Fire both DMA loads; vload H0 while H1 is still in flight to hide 34cy.
-    insns.append(Instruction("dma.load.ch<N>", DmaArgs(rd=1, rs1=5, rs2=4, channel=0)))
-    insns.append(Instruction("dma.load.ch<N>", DmaArgs(rd=2, rs1=10, rs2=4, channel=1)))
-    insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=0)))
-    insns.append(Instruction("vload", VectorArgs(vd=0, rs1=1, imm12=0)))
-    insns.append(Instruction("delay", ScalarArgs(imm=34)))
-    insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=1)))
-    insns.append(Instruction("vload", VectorArgs(vd=1, rs1=2, imm12=0)))
-    insns.append(Instruction("delay", ScalarArgs(imm=34)))
-
-    # Pack (v0, v1) bf16 pair → v2 fp8 tile using scale ERF[0]=1
-    insns.append(Instruction("vpack.bf16.fp8", VectorArgs(vd=2, vs1=0, es1=0)))
-    insns.append(Instruction("delay", ScalarArgs(imm=66)))
-
-    # vstore v2 → VMEM_OUT (fp8, 1024 B)
-    insns.append(Instruction("vstore", VectorArgs(vd=2, rs1=3, imm12=0)))
-    insns.append(Instruction("delay", ScalarArgs(imm=34)))
-
-    # DMA store fp8 tile → DRAM
-    insns.append(Instruction("dma.store.ch<N>", DmaArgs(rd=6, rs1=3, rs2=4, channel=0)))
-    insns.append(Instruction("dma.wait.ch<N>", DmaArgs(channel=0)))
-
-    # Advance pointers and counter
-    insns.append(Instruction("add", ScalarArgs(rd=5, rs1=5, rs2=9)))   # x5 += 2048
-    insns.append(Instruction("add", ScalarArgs(rd=6, rs1=6, rs2=4)))   # x6 += 1024
-    insns.append(Instruction("addi", ScalarArgs(rd=7, rs1=7, imm=1)))  # counter++
-
-    blt_idx = len(insns)
-    insns.append(Instruction("blt", ScalarArgs(rs1=7, rs2=8, imm=loop_start - blt_idx)))
-    insns.append(nop)
-    insns.append(nop)
-
-    return insns
-
-
 def _make_program(M: int, N: int, seed: int):
     M_tiles = M // TILE
     N_tiles = N // TILE
@@ -183,13 +82,12 @@ def _make_program(M: int, N: int, seed: int):
     x = torch.randn(M, N, dtype=torch.bfloat16) * 0.5
     expected = requant_reference(x)
 
-    insns = make_requant_instructions(M=M, N=N, dram_x=dram_x, dram_out=dram_out)
     regions = [(dram_x, _colblock_bf16(x, M, N))]
     golden = (dram_out, _tile_fp8(expected, M, N))
-    return insns, regions, golden
+    return regions, golden
 
 
-_32_insns, _32_regions, _32_golden = _make_program(32, 32, seed=120)
+_32_regions, _32_golden = _make_program(32, 32, seed=120)
 
 
 class ParameterizedRequant32x32Program(Program):
@@ -200,7 +98,7 @@ class ParameterizedRequant32x32Program(Program):
     golden_result: tuple[int, torch.Tensor] = _32_golden
 
 
-_64_insns, _64_regions, _64_golden = _make_program(64, 64, seed=121)
+_64_regions, _64_golden = _make_program(64, 64, seed=121)
 
 
 class ParameterizedRequant64x64Program(Program):
@@ -211,7 +109,7 @@ class ParameterizedRequant64x64Program(Program):
     golden_result: tuple[int, torch.Tensor] = _64_golden
 
 
-_64x32_insns, _64x32_regions, _64x32_golden = _make_program(64, 32, seed=122)
+_64x32_regions, _64x32_golden = _make_program(64, 32, seed=122)
 
 
 class ParameterizedRequant64x32Program(Program):
