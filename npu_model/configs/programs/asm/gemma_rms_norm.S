@@ -46,21 +46,26 @@ vredsum.row.bf16 m6, m4
 delay 39
 # mean_sq = sum_sq * (1/ROW_SIZE)
 vli.all m8, 0x4200
-delay 65
+delay 64
 vli.all m9, 0x4200
 delay 65
+
 vrecip.bf16 m10, m8
 delay 66
+
 vmul.bf16 m12, m6, m10
 delay 66
+
 # var_eps = mean_sq + eps
 vadd.bf16 m14, m12, m2
 delay 66
+
 # rsqrt = 1 / sqrt(var_eps)
 vsqrt.bf16 m16, m14
 delay 66
 vrecip.bf16 m18, m16
 delay 66
+
 # output = x * rsqrt
 vmul.bf16 m20, m0, m18
 delay 66
