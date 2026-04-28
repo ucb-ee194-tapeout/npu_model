@@ -5,11 +5,13 @@ NPU Performance Model - Kernel Profiler
 Usage:
     uv run scripts/profile_kernel.py [program] [options]
 
+    program  can be a Python program class name (e.g. SmolVLAGeluTanhProgram)
+             or a path to an assembly file (e.g. npu_model/configs/programs/asm/smolvla_gelu_tanh.S)
+
 Options:
-    program          Program class name (omit to list all)
     --max-cycles     Maximum cycles to simulate
     --hardware       HardwareConfig class name
-    --list           List all available programs and exit
+    --list           List all available Python programs and exit
 """
 
 import argparse
@@ -23,11 +25,13 @@ import npu_model.configs.hardware as hw_configs
 from npu_model.logging import LoggerConfig
 from npu_model.simulation import Simulation
 from npu_model.profiling import print_stats
+from npu_model.util.converter import load_asm
+from npu_model.software.program import InstantiableProgram
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Profile an NPU kernel.")
-    parser.add_argument("program", nargs="?", help="Program class name")
+    parser.add_argument("program", nargs="?", help="Program class name or .S file path")
     parser.add_argument("--max-cycles", type=int, default=200000)
     parser.add_argument("--hardware", default="DefaultHardwareConfig",
                         help="HardwareConfig class name")
@@ -42,29 +46,39 @@ def main() -> None:
             print(f"  {n}")
         return
 
-    prog_cls = getattr(programs, args.program, None)
-    if prog_cls is None:
-        print(f"Unknown program '{args.program}'. Run with --list to see options.")
-        raise SystemExit(1)
-
     hw_cls = getattr(hw_configs, args.hardware, None)
     if hw_cls is None:
         print(f"Unknown hardware config '{args.hardware}'.")
         raise SystemExit(1)
+
+    asm_path = Path(args.program)
+    if asm_path.suffix == ".S":
+        if not asm_path.exists():
+            print(f"Assembly file not found: {asm_path}")
+            raise SystemExit(1)
+        prog = InstantiableProgram(load_asm(asm_path))
+        label = str(asm_path)
+    else:
+        prog_cls = getattr(programs, args.program, None)
+        if prog_cls is None:
+            print(f"Unknown program '{args.program}'. Run with --list to see options.")
+            raise SystemExit(1)
+        prog = prog_cls()
+        label = args.program
 
     with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
         trace_path = f.name
 
     sim = None
     try:
-        print(f"Program : {args.program}")
+        print(f"Program : {label}")
         print(f"Hardware: {args.hardware}")
         print()
 
         sim = Simulation(
             hardware_config=hw_cls(),
             logger_config=LoggerConfig(filename=trace_path),
-            program=prog_cls(),
+            program=prog,
             verbose=False,
             record_timeline=True,
         )
