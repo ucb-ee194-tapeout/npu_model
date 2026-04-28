@@ -6,13 +6,10 @@ tiles. The kernel pops the bf16 accumulator as two 32x16 halves
 DRAM_OUTPUT + 0x400.
 """
 
-from typing import Any, List, Tuple
-
 import torch
-
-from ...software import Instruction, Program
-from npu_model.isa import DmaArgs, MatrixArgs, ScalarArgs, VectorArgs
-
+from npu_model.util.converter import load_asm
+from npu_model.software.instruction import Instruction
+from npu_model.software.program import Program, ASM_FOLDER
 
 # ═══════════════════════════════════════════════════════════════════════════
 # 1. MLIR definition. Modeled after
@@ -107,47 +104,9 @@ class SmolVLAMatmulProgram(Program):
     file helpers, torch-allclose golden check via ``pytest tests/test_programs.py``.
     """
 
-    instructions: List[Instruction[Any]] = [
-        Instruction("addi", ScalarArgs(rd=1)),
-        Instruction("addi", ScalarArgs(rd=2, imm=1280)),
-        Instruction("lui", ScalarArgs(rd=3, imm=1)),
-        Instruction("addi", ScalarArgs(rd=3, rs1=3, imm=-1280)),
-        Instruction("lui", ScalarArgs(rd=4, imm=2)),
-        Instruction("addi", ScalarArgs(rd=4, rs1=4)),
-        Instruction("addi", ScalarArgs(rd=5, rs1=4, imm=1024)),
-        Instruction("addi", ScalarArgs(rd=6, rs1=5, imm=1024)),
-        Instruction("addi", ScalarArgs(rd=7, imm=1024)),
-        Instruction("lui", ScalarArgs(rd=8, imm=1)),
-        Instruction("addi", ScalarArgs(rd=8, rs1=8, imm=-2048)),
-        Instruction("dma.config.ch<N>", DmaArgs(channel=0)),
-        Instruction(
-            "dma.wait.ch<N>", DmaArgs(channel=0)
-        ),  # let config settle before issuing loads
-        Instruction("dma.load.ch<N>", DmaArgs(rd=4, rs1=1, rs2=7, channel=0)),
-        Instruction("dma.load.ch<N>", DmaArgs(rd=5, rs1=2, rs2=7, channel=1)),
-        Instruction("dma.wait.ch<N>", DmaArgs(channel=0)),
-        Instruction("dma.wait.ch<N>", DmaArgs(channel=1)),
-        Instruction("vload", VectorArgs(rs1=4)),
-        Instruction("delay", ScalarArgs(imm=34)),
-        Instruction("vload", VectorArgs(vd=1, rs1=5)),
-        Instruction("delay", ScalarArgs(imm=34)),
-        Instruction("vmatpush.weight.mxu0", VectorArgs(vd=0,vs1=1)),
-        Instruction("delay", ScalarArgs(imm=32)),
-        Instruction("vmatmul.mxu0", MatrixArgs(vd=0, vs1=0, vs2=0)),
-        Instruction("delay", ScalarArgs(imm=96)),
-        Instruction("vmatpop.bf16.acc.mxu0", VectorArgs(vd=2)),
-        Instruction("delay", ScalarArgs(imm=32)),
-        Instruction("vstore", VectorArgs(vd=2, rs1=6)),
-        Instruction("delay", ScalarArgs(imm=34)),
-        Instruction("addi", ScalarArgs(rd=9, rs1=6, imm=1024)),
-        Instruction("vstore", VectorArgs(vd=3, rs1=9)),
-        Instruction("delay", ScalarArgs(imm=34)),
-        Instruction("dma.store.ch<N>", DmaArgs(rd=3, rs1=6, rs2=8,channel=0)),
-        Instruction("dma.wait.ch<N>", DmaArgs(channel=0)),
-        Instruction("ecall", ScalarArgs()),
-    ]
+    instructions: list[Instruction] = load_asm(ASM_FOLDER / 'smolvla_matmul.S')
 
-    memory_regions: List[Tuple[int, torch.Tensor]] = [
+    memory_regions: list[tuple[int, torch.Tensor]] = [
         (DRAM_A, INPUT_A),
         (DRAM_B, INPUT_B),
     ]

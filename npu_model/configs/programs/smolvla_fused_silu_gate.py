@@ -20,13 +20,10 @@ this program exercises the op-graph on a tile-sized slice.
 """
 
 import os
-
-from typing import Any, List, Tuple
-
 import torch
-
-from ...software import Instruction, Program
-from npu_model.isa import DmaArgs, ScalarArgs, VectorArgs
+from npu_model.util.converter import load_asm
+from npu_model.software.instruction import Instruction
+from npu_model.software.program import Program, ASM_FOLDER
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -144,71 +141,9 @@ TILE_BYTES = 2048
 class SmolVLAFusedSiluGateProgram(Program):
     """fused_silu_gate: silu(x) = x * sigmoid(x) on a 32x32 bf16 tile."""
 
-    instructions: List[Instruction[Any]] = [
-        # Scalar setup
-        Instruction(mnemonic="lui", args=ScalarArgs(rd=1, imm=0x2)),  # 0x2000
-        Instruction(mnemonic="lui", args=ScalarArgs(rd=2, imm=0x3)),  # 0x3000
-        Instruction(mnemonic="addi", args=ScalarArgs(rd=3, rs1=0, imm=DRAM_X_BASE)),
-        Instruction(mnemonic="lui", args=ScalarArgs(rd=4, imm=0x1)),  # 0x1000
-        Instruction(mnemonic="addi", args=ScalarArgs(rd=4, rs1=4, imm=-2048)),  # 0x0800
-        # Transfer size = 2048 via lui + addi (exceeds signed 12-bit immediate).
-        Instruction(mnemonic="lui", args=ScalarArgs(rd=5, imm=0x1)),
-        Instruction(mnemonic="addi", args=ScalarArgs(rd=5, rs1=5, imm=-2048)),
-        # DMA: DRAM → VMEM
-        Instruction(mnemonic="dma.config.ch<N>", args=DmaArgs(rs1=0, channel=0)),
-        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
-        Instruction(
-            mnemonic="dma.load.ch<N>", args=DmaArgs(rd=1, rs1=3, rs2=5, channel=0)
-        ),
-        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
-        # Load both halves of x into (m0, m1)
-        Instruction(mnemonic="vload", args=VectorArgs(vd=0, rs1=1, imm12=0)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
-        Instruction(mnemonic="vload", args=VectorArgs(vd=1, rs1=1, imm12=32)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
-        # Broadcast constants (vli.all is per-register, so two each)
-        Instruction(mnemonic="vli.all", args=VectorArgs(vd=2, imm=-1)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=65)),
-        Instruction(mnemonic="vli.all", args=VectorArgs(vd=3, imm=-1)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=65)),
-        Instruction(mnemonic="vli.all", args=VectorArgs(vd=4, imm=1)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=65)),
-        Instruction(mnemonic="vli.all", args=VectorArgs(vd=5, imm=1)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=65)),
-        # op_a: sigmoid(x) = 1 / (1 + exp(-x))
-        Instruction(
-            mnemonic="vmul.bf16", args=VectorArgs(vd=6, vs1=0, vs2=2)
-        ),  # (m6, m7) = -x
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
-        Instruction(
-            mnemonic="vexp.bf16", args=VectorArgs(vd=8, vs1=6)
-        ),  # (m8, m9) = exp(-x)
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
-        Instruction(
-            mnemonic="vadd.bf16", args=VectorArgs(vd=10, vs1=8, vs2=4)
-        ),  # (m10, m11) = 1 + exp(-x)
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
-        Instruction(
-            mnemonic="vrecip.bf16", args=VectorArgs(vd=12, vs1=10)
-        ),  # (m12, m13) = sigmoid(x)
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
-        # op_b: silu(x) = sigmoid(x) * x
-        Instruction(
-            mnemonic="vmul.bf16", args=VectorArgs(vd=14, vs1=12, vs2=0)
-        ),  # (m14, m15) = silu(x)
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
-        # Store both halves
-        Instruction(mnemonic="vstore", args=VectorArgs(vd=14, rs1=2, imm12=0)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
-        Instruction(mnemonic="vstore", args=VectorArgs(vd=15, rs1=2, imm12=32)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
-        Instruction(
-            mnemonic="dma.store.ch<N>", args=DmaArgs(rd=4, rs1=2, rs2=5, channel=0)
-        ),
-        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
-    ]
+    instructions: list[Instruction] = load_asm(ASM_FOLDER / 'smolvla_fused_silu_gate.S')
 
-    memory_regions: List[Tuple[int, torch.Tensor]] = [
+    memory_regions: list[tuple[int, torch.Tensor]] = [
         (DRAM_X_BASE, INPUT),
     ]
 

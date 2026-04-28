@@ -1,0 +1,75 @@
+{
+  "name": "npu-asm",
+  "displayName": "NPU Assembly",
+  "description": "LSP-based linter for NPU assembly (.S) files",
+  "version": "0.1.0",
+  "publisher": "npu-model",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters"
+  ],
+  "activationEvents": [
+    "onLanguage:npu-asm"
+  ],
+  "main": "./src/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "npu-asm.restartServer",
+        "title": "NPU Assembly: Restart NPU LSP Server"
+      }
+    ],
+    "languages": [
+      {
+        "id": "npu-asm",
+        "aliases": [
+          "NPU Assembly",
+          "npu-asm"
+        ],
+        "extensions": [
+          ".S",
+          ".s",
+          ".asm"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "npu-asm",
+        "scopeName": "source.npu-asm",
+        "path": "./syntaxes/npu-asm.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "title": "NPU Assembly",
+      "properties": {
+        "npu-asm.pythonPath": {
+          "type": "string",
+          "default": "",
+          "description": "Explicit path to the Python interpreter to use for the LSP server. Leave empty to use 'uv run' from the workspace root (recommended)."
+        },
+        "npu-asm.serverArgs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Extra arguments forwarded to the LSP server process."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "echo 'No build step required'"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.75.0"
+  }
+}

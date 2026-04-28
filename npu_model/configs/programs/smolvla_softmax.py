@@ -7,12 +7,10 @@ shape variants.
 Writes output as two 32x16 halves at dram_out_0 / dram_out_1.
 """
 
-from typing import Any, List, Tuple
-
 import torch
-
-from ...software import Instruction, Program
-from npu_model.isa import DmaArgs, MatrixArgs, ScalarArgs, VectorArgs
+from npu_model.util.converter import load_asm
+from npu_model.software.instruction import Instruction
+from npu_model.software.program import Program, ASM_FOLDER
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -116,62 +114,9 @@ class SmolVLASoftmaxProgram(Program):
     #   x5 = DRAM OUT_H0 (m12 lands here, m13 lands at +1024 == OUT_H1)
     #   x6 = 1024  (per-half transfer size)
     #   x7 = x1 + 1024  (second-half VMEM addr for DMA.LOAD)
-    instructions: List[Instruction[Any]] = [
-        Instruction("lui", ScalarArgs(rd=1, imm=0x2)),  # x1 = 0x2000 VMEM X base
-        Instruction("lui", ScalarArgs(rd=2, imm=0x3)),  # x2 = 0x3000 VMEM OUT base
-        Instruction("addi", ScalarArgs(rd=3, rs1=0, imm=DRAM_X_H0)),  # x3 = 0x0000
-        Instruction("addi", ScalarArgs(rd=4, rs1=3, imm=1024)),  # x4 = 0x0400
-        Instruction("lui", ScalarArgs(rd=5, imm=0x1)),  # x5 = 0x1000
-        Instruction(
-            "addi", ScalarArgs(rd=5, rs1=5, imm=-1280)
-        ),  # x5 = 0x0B00 DRAM_OUT_H0
-        Instruction("addi", ScalarArgs(rd=6, rs1=0, imm=1024)),  # x6 = 1024
-        Instruction("addi", ScalarArgs(rd=7, rs1=1, imm=1024)),  # x7 = x1 + 1024
-        # DMA X → VMEM: two halves back-to-back (m0 at +0, m1 at +1024)
-        Instruction("dma.config.ch<N>", DmaArgs(rs1=0, channel=0)),
-        Instruction("dma.config.ch<N>", DmaArgs(rs1=0, channel=1)),
-        Instruction("dma.load.ch<N>", DmaArgs(rd=1, rs1=3, rs2=6, channel=0)),
-        Instruction("dma.load.ch<N>", DmaArgs(rd=7, rs1=4, rs2=6, channel=1)),
-        Instruction("dma.wait.ch<N>", DmaArgs(channel=0)),
-        Instruction("dma.wait.ch<N>", DmaArgs(channel=1)),
-        # Load X pair
-        Instruction("vload", VectorArgs(vd=0, rs1=1, imm12=0)),
-        Instruction("delay", ScalarArgs(imm=34)),
-        Instruction("vload", VectorArgs(vd=1, rs1=1, imm12=32)),
-        Instruction("delay", ScalarArgs(imm=34)),
-        # (m2, m3) = rowmax(X) broadcast
-        Instruction("vredmax.row.bf16", VectorArgs(vd=2, vs1=0)),
-        Instruction("delay", ScalarArgs(imm=69)),
-        # (m4, m5) = X - rowmax
-        Instruction("vsub.bf16", VectorArgs(vd=4, vs1=0, vs2=2)),
-        Instruction("delay", ScalarArgs(imm=66)),
-        # (m6, m7) = exp(X - rowmax)
-        Instruction("vexp.bf16", VectorArgs(vd=6, vs1=4)),
-        Instruction("delay", ScalarArgs(imm=66)),
-        # (m8, m9) = rowsum(exp)
-        Instruction("vredsum.row.bf16", VectorArgs(vd=8, vs1=6)),
-        Instruction("delay", ScalarArgs(imm=69)),
-        # (m10, m11) = 1 / rowsum
-        Instruction("vrecip.bf16", VectorArgs(vd=10, vs1=8)),
-        Instruction("delay", ScalarArgs(imm=66)),
-        # (m12, m13) = exp * inv_rowsum
-        Instruction("vmul.bf16", VectorArgs(vd=12, vs1=6, vs2=10)),
-        Instruction("delay", ScalarArgs(imm=66)),
-        # Store m12 and m13 back-to-back in VMEM, DMA both 1024-B halves.
-        Instruction("vstore", VectorArgs(vd=12, rs1=2, imm12=0)),
-        Instruction("delay", ScalarArgs(imm=34)),
-        Instruction("vstore", VectorArgs(vd=13, rs1=2, imm12=32)),
-        Instruction("delay", ScalarArgs(imm=34)),
-        # Two DMA stores of 1024 bytes each (m12 → OUT_H0, m13 → OUT_H1).
-        Instruction("addi", ScalarArgs(rd=8, rs1=5, imm=1024)),  # x8 = DRAM_OUT_H1
-        Instruction("addi", ScalarArgs(rd=9, rs1=2, imm=1024)),  # x9 = VMEM m13 addr
-        Instruction("dma.store.ch<N>", DmaArgs(rd=5, rs1=2, rs2=6, channel=0)),
-        Instruction("dma.store.ch<N>", DmaArgs(rd=8, rs1=9, rs2=6, channel=1)),
-        Instruction("dma.wait.ch<N>", DmaArgs(channel=0)),
-        Instruction("dma.wait.ch<N>", DmaArgs(channel=1)),
-    ]
+    instructions: list[Instruction] = load_asm(ASM_FOLDER / 'smolvla_softmax.S')
 
-    memory_regions: List[Tuple[int, torch.Tensor]] = [
+    memory_regions: list[tuple[int, torch.Tensor]] = [
         (DRAM_X_H0, INPUT[:, :16].contiguous()),
         (DRAM_X_H1, INPUT[:, 16:].contiguous()),
     ]

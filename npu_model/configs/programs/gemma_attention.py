@@ -1,9 +1,8 @@
-from typing import List, Tuple, Any
 import math
 import torch
-from ...software import Instruction, Program
-from npu_model.isa import DmaArgs, MatrixArgs, VectorArgs, ScalarArgs
-
+from npu_model.util.converter import load_asm
+from npu_model.software.instruction import Instruction
+from npu_model.software.program import Program, ASM_FOLDER
 
 SEQ_LEN = 32
 HEAD_DIM = 32
@@ -21,12 +20,6 @@ DRAM_KEY_BASE = 0x0400
 DRAM_SCALE_BASE = 0x0800
 DRAM_OUTPUT_BASE = 0x1000
 
-# VMEM layout
-VMEM_QUERY_BASE = 0x2000
-VMEM_KEY_BASE = 0x2400
-VMEM_SCALE_BASE = 0x2800
-VMEM_OUTPUT_BASE = 0x3000
-
 
 class GemmaAttentionProgram(Program):
     """
@@ -38,99 +31,9 @@ class GemmaAttentionProgram(Program):
       - `vexp`, `vreduce.sum`, `vrcp`, and `vmul` to implement softmax.
     """
 
-    instructions: List[Instruction[Any]] = [
-        # Register setup (VMEM) (use LUI+ADDI so immediates stay 12-bit clean)
-        # 0x2000
-        Instruction(mnemonic="lui", args=ScalarArgs(rd=1, imm=0x2)),
-        # 0x2400
-        Instruction(mnemonic="lui", args=ScalarArgs(rd=2, imm=0x2)),
-        Instruction(mnemonic="addi", args=ScalarArgs(rd=2, rs1=2, imm=0x400)),
-        # 0x2800 = 0x3000 - 0x800
-        Instruction(mnemonic="lui", args=ScalarArgs(rd=4, imm=0x3)),
-        Instruction(mnemonic="addi", args=ScalarArgs(rd=4, rs1=4, imm=-2048)),
-        # 0x3000
-        Instruction(mnemonic="lui", args=ScalarArgs(rd=5, imm=0x3)),
-        # Register setup (DRAM)
-        Instruction(mnemonic="addi", args=ScalarArgs(rd=6, rs1=0, imm=DRAM_QUERY_BASE)),
-        Instruction(mnemonic="addi", args=ScalarArgs(rd=7, rs1=0, imm=DRAM_KEY_BASE)),
-        # DRAM_SCALE_BASE = 0x0800 = 0x1000 - 0x800
-        Instruction(mnemonic="lui", args=ScalarArgs(rd=9, imm=0x1)),
-        Instruction(mnemonic="addi", args=ScalarArgs(rd=9, rs1=9, imm=-2048)),
-        # DRAM_OUTPUT_BASE = 0x1000
-        Instruction(mnemonic="lui", args=ScalarArgs(rd=10, imm=0x1)),
-        # Byte lengths: fp8 tile (1024) and bf16 tile (2048)
-        Instruction(mnemonic="addi", args=ScalarArgs(rd=11, rs1=0, imm=1024)),
-        Instruction(mnemonic="lui", args=ScalarArgs(rd=12, imm=0x1)),
-        Instruction(mnemonic="addi", args=ScalarArgs(rd=12, rs1=12, imm=-2048)),
-        # DRAM -> VMEM
-        Instruction(mnemonic="dma.config.ch<N>", args=DmaArgs(rs1=0, channel=0)),
-        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
-        Instruction(
-            mnemonic="dma.load.ch<N>", args=DmaArgs(rd=1, rs1=6, rs2=11, channel=0)
-        ),  # Q tile
-        Instruction(
-            mnemonic="dma.load.ch<N>", args=DmaArgs(rd=2, rs1=7, rs2=11, channel=1)
-        ),  # K tile
-        Instruction(
-            mnemonic="dma.load.ch<N>", args=DmaArgs(rd=4, rs1=9, rs2=12, channel=2)
-        ),  # scale (bf16 tile)
-        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
-        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=1)),
-        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=2)),
-        # VMEM -> MRF
-        Instruction(
-            mnemonic="vload", args=VectorArgs(vd=0, rs1=1, imm12=0)
-        ),  # Q (fp8 tile)
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
-        Instruction(
-            mnemonic="vload", args=VectorArgs(vd=1, rs1=2, imm12=0)
-        ),  # K (fp8 tile)
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
-        Instruction(
-            mnemonic="vload", args=VectorArgs(vd=2, rs1=4, imm12=0)
-        ),  # scale low half
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
-        Instruction(
-            mnemonic="vload", args=VectorArgs(vd=3, rs1=4, imm12=32)
-        ),  # scale high half
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
-        # Push K to WB slot 0, compute scores = Q @ K, pop bf16
-        Instruction(mnemonic="vmatpush.weight.mxu0", args=VectorArgs(vd=0, vs1=1)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
-        Instruction(mnemonic="vmatmul.mxu0", args=MatrixArgs(vd=0, vs1=0, vs2=0)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=96)),
-        Instruction(
-            mnemonic="vmatpop.bf16.acc.mxu0", args=VectorArgs(vd=4, vs1=0)
-        ),  # scores -> m4/m5
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=32)),
-        # scores_scaled = scores * scale
-        Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=6, vs1=4, vs2=2)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
-        # Softmax (unnormalized variant: no max subtraction)
-        # exp_scores = exp(scores_scaled)
-        Instruction(mnemonic="vexp.bf16", args=VectorArgs(vd=8, vs1=6)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
-        # row_sum = sum(exp_scores) broadcast across columns
-        Instruction(mnemonic="vredsum.row.bf16", args=VectorArgs(vd=10, vs1=8)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=39)),
-        # inv_row_sum = 1 / row_sum
-        Instruction(mnemonic="vrecip.bf16", args=VectorArgs(vd=12, vs1=10)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
-        # softmax_scores = exp_scores * inv_row_sum
-        Instruction(mnemonic="vmul.bf16", args=VectorArgs(vd=14, vs1=8, vs2=12)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=66)),
-        # Store softmax scores (bf16 tile)
-        Instruction(mnemonic="vstore", args=VectorArgs(vd=14, rs1=5, imm12=0)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
-        Instruction(mnemonic="vstore", args=VectorArgs(vd=15, rs1=5, imm12=32)),
-        Instruction(mnemonic="delay", args=ScalarArgs(imm=34)),
-        Instruction(
-            mnemonic="dma.store.ch<N>", args=DmaArgs(rd=10, rs1=5, rs2=12, channel=0)
-        ),
-        Instruction(mnemonic="dma.wait.ch<N>", args=DmaArgs(channel=0)),
-    ]
+    instructions: list[Instruction] = load_asm(ASM_FOLDER / 'gemma_attention.S')
 
-    memory_regions: List[Tuple[int, torch.Tensor]] = [
+    memory_regions: list[tuple[int, torch.Tensor]] = [
         (DRAM_QUERY_BASE, QUERY_DATA),
         (DRAM_KEY_BASE, KEY_DATA),
         (DRAM_SCALE_BASE, SCALE_DATA),

@@ -12,6 +12,7 @@ wheels/
 
 # logs
 *.json
+!npu_model/lsp/**/*.json
 
 # generated scala
 *.scala

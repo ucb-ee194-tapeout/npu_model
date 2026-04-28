@@ -3,7 +3,6 @@ from ..logging.logger import Logger
 from .config import ArchStateConfig
 from .bank_conflict import BankConflictChecker
 
-
 class ArchState:
     def __init__(
         self,
@@ -26,8 +25,8 @@ class ArchState:
             torch.zeros(self.cfg.mrf_depth * self.cfg.mrf_width, dtype=torch.uint8)
             for _ in range(self.cfg.num_m_registers)
         ]
-        # FIXME: This is not a real data type, but I think the only wany to do this
-        # is with JaxTyping. Not really sure.
+        # FIXME: Someone should make this a list[torch.Tensor] but I
+        # don't want to think about how to intialize this.
         self.erf: list[torch.uint8] = [0] * self.cfg.num_e_registers
         self.wb: dict[str, list[torch.Tensor]] = {}
         self.wb["mxu0"] = [
@@ -127,26 +126,36 @@ class ArchState:
     ) -> list[int]:
         if count == 0:
             return []
-        return torch.randint(
+        output: list[int] | int  = torch.randint(
             0,
             1 << 31,
             (count,),
             dtype=torch.int64,
             generator=generator,
-        ).tolist()
+        ).detach().cpu().numpy().tolist()
+
+        if isinstance(output, int):
+            return [output]
+        else:
+            return output
 
     def _random_byte_list(
         self, count: int, generator: torch.Generator
     ) -> list[int]:
         if count == 0:
             return []
-        return torch.randint(
+        output: list[int] | int = torch.randint(
             0,
             256,
             (count,),
             dtype=torch.int64,
             generator=generator,
-        ).tolist()
+        ).detach().cpu().numpy().tolist()
+
+        if isinstance(output, int):
+            return [output]
+        else:
+            return output
 
     def set_npc(self, value: int) -> None:
         self.npc = value
@@ -371,4 +380,4 @@ class ArchState:
         self.flags[flag] = False
 
     def check_flag(self, flag: int) -> bool:
-        return self.flags[flag]
+        return self.flags[flag] 

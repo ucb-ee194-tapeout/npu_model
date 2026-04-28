@@ -1,9 +1,6 @@
-from typing import TypeVar, Generic, TypeGuard, Any
+from typing import TypeGuard, Any
 
-T = TypeVar("T")
-
-
-class StageData(Generic[T]):
+class StageData[T]():
     """
     Stage data container with claim-based handshaking.
 

@@ -5,13 +5,10 @@ block for RoPE (rotary position embeddings); pair with a
 sin kernel to form the full rotary transform.
 """
 
-from typing import Any, List, Tuple
-
 import torch
-
-from ...software import Instruction, Program
-from npu_model.isa import DmaArgs, MatrixArgs, ScalarArgs, VectorArgs
-
+from npu_model.util.converter import load_asm
+from npu_model.software.instruction import Instruction
+from npu_model.software.program import Program, ASM_FOLDER
 
 # ═══════════════════════════════════════════════════════════════════════════
 # 2. PyTorch reference.
@@ -100,33 +97,9 @@ class SmolVLARopeFrequencyProgram(Program):
     file helpers, torch-allclose golden check via ``pytest tests/test_programs.py``.
     """
 
-    instructions: List[Instruction[Any]] = [
-        Instruction("lui", ScalarArgs(rd=1, imm=2)),
-        Instruction("addi", ScalarArgs(rd=1, rs1=1)),
-        Instruction("addi", ScalarArgs(rd=4)),
-        Instruction("lui", ScalarArgs(rd=5, imm=1)),
-        Instruction("addi", ScalarArgs(rd=5, rs1=5, imm=-1280)),
-        Instruction("lui", ScalarArgs(rd=6, imm=1)),
-        Instruction("addi", ScalarArgs(rd=6, rs1=6, imm=-2048)),
-        Instruction("dma.config.ch<N>", DmaArgs()),
-        Instruction("dma.wait.ch<N>", DmaArgs()),
-        Instruction("dma.load.ch<N>", DmaArgs(rd=1, rs1=4, rs2=6)),
-        Instruction("dma.wait.ch<N>", DmaArgs()),
-        Instruction("vload", VectorArgs(rs1=1)),
-        Instruction("delay", ScalarArgs(imm=34)),
-        Instruction("vload", VectorArgs(vd=1, rs1=1, imm12=32)),
-        Instruction("delay", ScalarArgs(imm=34)),
-        Instruction("vcos.bf16", VectorArgs(vd=2)),  # (v2, v3) = cos(v0, v1)
-        Instruction("delay", ScalarArgs(imm=66)),
-        Instruction("vstore", VectorArgs(vd=2, rs1=1)),
-        Instruction("delay", ScalarArgs(imm=34)),
-        Instruction("vstore", VectorArgs(vd=3, rs1=1, imm12=32)),
-        Instruction("delay", ScalarArgs(imm=34)),
-        Instruction("dma.store.ch<N>", DmaArgs(rd=5, rs1=1, rs2=6)),
-        Instruction("dma.wait.ch<N>", DmaArgs(rs2=6)),
-    ]
+    instructions: list[Instruction] = load_asm(ASM_FOLDER / 'smolvla_rope_frequency.S')
 
-    memory_regions: List[Tuple[int, torch.Tensor]] = [
+    memory_regions: list[tuple[int, torch.Tensor]] = [
         (DRAM_X, INPUT),
     ]
 

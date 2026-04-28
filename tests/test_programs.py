@@ -16,6 +16,8 @@ def test_program_registry_is_not_empty() -> None:
         "This would cause the parametrized program execution test to collect zero cases, "
         "which can hide import or registration failures."
     )
+
+
 @pytest.mark.parametrize("program_name", PROGRAM_NAMES)
 def test_registered_program_executes(
     program_name: str,

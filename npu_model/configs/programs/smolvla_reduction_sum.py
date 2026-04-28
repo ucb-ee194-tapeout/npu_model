@@ -6,13 +6,10 @@ The kernel adds the two 32x16 halves elementwise first, then
 reduces rows. Match that accumulation order in the reference.
 """
 
-from typing import Any, List, Tuple
-
 import torch
-
-from ...software import Instruction, Program
-from npu_model.isa import DmaArgs, MatrixArgs, ScalarArgs, VectorArgs
-
+from npu_model.util.converter import load_asm
+from npu_model.software.instruction import Instruction
+from npu_model.software.program import Program, ASM_FOLDER
 
 # ═══════════════════════════════════════════════════════════════════════════
 # 2. PyTorch reference.
@@ -133,45 +130,9 @@ class SmolVLAReductionSumProgram(Program):
     #   x4  = DRAM X_H1 = 0x0400
     #   x5  = DRAM OUT  = 0x0B00
     #   x6  = 1024 (transfer size per half)
-    instructions: List[Instruction[Any]] = [
-        # VMEM addresses
-        Instruction(
-            "lui", ScalarArgs(rd=1, imm=0x2)
-        ),  # x1 = 0x2000 (VMEM X pair, 2048 B)
-        Instruction("lui", ScalarArgs(rd=2, imm=0x3)),  # x2 = 0x3000 (VMEM OUT base)
-        # DRAM addresses
-        Instruction("addi", ScalarArgs(rd=3, rs1=0, imm=DRAM_X_H0)),  # x3 = 0x0000
-        Instruction("addi", ScalarArgs(rd=4, rs1=3, imm=1024)),  # x4 = 0x0400
-        Instruction("lui", ScalarArgs(rd=5, imm=0x1)),  # x5 = 0x1000? we want 0x0B00
-        Instruction(
-            "addi", ScalarArgs(rd=5, rs1=5, imm=-1280)
-        ),  # x5 = 0x1000 - 0x500 = 0x0B00
-        Instruction("addi", ScalarArgs(rd=6, rs1=0, imm=1024)),  # x6 = 1024
-        # DMA loads: X_H0 → VMEM[x1]; X_H1 → VMEM[x1 + 1024]
-        Instruction("dma.config.ch<N>", DmaArgs(rs1=0, channel=0)),
-        Instruction("dma.config.ch<N>", DmaArgs(rs1=0, channel=1)),
-        Instruction("dma.load.ch<N>", DmaArgs(rd=1, rs1=3, rs2=6, channel=0)),
-        # Second DMA lands at x1 + 1024. Build that address in x7.
-        Instruction("addi", ScalarArgs(rd=7, rs1=1, imm=1024)),
-        Instruction("dma.load.ch<N>", DmaArgs(rd=7, rs1=4, rs2=6, channel=1)),
-        Instruction("dma.wait.ch<N>", DmaArgs(channel=0)),
-        Instruction("dma.wait.ch<N>", DmaArgs(channel=1)),
-        # Load X pair into (m0, m1)
-        Instruction("vload", VectorArgs(vd=0, rs1=1, imm12=0)),
-        Instruction("delay", ScalarArgs(imm=34)),
-        Instruction("vload", VectorArgs(vd=1, rs1=1, imm12=32)),
-        Instruction("delay", ScalarArgs(imm=34)),
-        # (m4, m5) = row-sum broadcast over (m0, m1)
-        Instruction("vredsum.row.bf16", VectorArgs(vd=4, vs1=0)),
-        Instruction("delay", ScalarArgs(imm=69)),
-        # Store m4 (first half) to VMEM[x2], then DMA to DRAM_OUT.
-        Instruction("vstore", VectorArgs(vd=4, rs1=2, imm12=0)),
-        Instruction("delay", ScalarArgs(imm=34)),
-        Instruction("dma.store.ch<N>", DmaArgs(rd=5, rs1=2, rs2=6, channel=0)),
-        Instruction("dma.wait.ch<N>", DmaArgs(channel=0)),
-    ]
+    instructions: list[Instruction] = load_asm(ASM_FOLDER / 'smolvla_reduction_sum.S')
 
-    memory_regions: List[Tuple[int, torch.Tensor]] = [
+    memory_regions: list[tuple[int, torch.Tensor]] = [
         (DRAM_X_H0, INPUT[:, :16].contiguous()),
         (DRAM_X_H1, INPUT[:, 16:].contiguous()),
     ]

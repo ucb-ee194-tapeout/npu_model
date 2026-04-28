@@ -1,0 +1,169 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "NPU Assembly",
+  "scopeName": "source.npu-asm",
+  "patterns": [
+    {
+      "include": "#comment"
+    },
+    {
+      "include": "#label"
+    },
+    {
+      "include": "#mnemonic"
+    },
+    {
+      "include": "#register"
+    },
+    {
+      "include": "#offset_operand"
+    },
+    {
+      "include": "#number"
+    },
+    {
+      "include": "#label_ref"
+    }
+  ],
+  "repository": {
+    "comment": {
+      "name": "comment.line.number-sign.npu-asm",
+      "match": "#.*$"
+    },
+    "label": {
+      "match": "^\\s*([A-Za-z_][A-Za-z0-9_.]*)\\s*:",
+      "captures": {
+        "1": {
+          "name": "entity.name.label.npu-asm"
+        }
+      }
+    },
+    "mnemonic": {
+      "patterns": [
+        {
+          "name": "keyword.control.mnemonic.memory.npu-asm",
+          "match": "(?i)\\b(lb|lh|lw|lbu|lhu|sb|sh|sw|seld|seli|vload|vstore|fence)\\b"
+        },
+        {
+          "name": "keyword.control.mnemonic.alu-imm.npu-asm",
+          "match": "(?i)\\b(addi|slti|sltiu|xori|ori|andi|slli|srli|srai)\\b"
+        },
+        {
+          "name": "keyword.control.mnemonic.alu-reg.npu-asm",
+          "match": "(?i)\\b(add|sub|sll|slt|sltu|xor|srl|sra|or|and)\\b"
+        },
+        {
+          "name": "keyword.control.mnemonic.jump.npu-asm",
+          "match": "(?i)\\b(lui|auipc|jal|jalr)\\b"
+        },
+        {
+          "name": "keyword.control.mnemonic.branch.npu-asm",
+          "match": "(?i)\\b(beq|bne|blt|bge|bltu|bgeu)\\b"
+        },
+        {
+          "name": "keyword.control.mnemonic.csr.npu-asm",
+          "match": "(?i)\\b(csrrw|csrrs|csrrc|csrrwi|csrrsi|csrrci)\\b"
+        },
+        {
+          "name": "keyword.control.mnemonic.system.npu-asm",
+          "match": "(?i)\\b(ecall|ebreak|delay)\\b"
+        },
+        {
+          "name": "keyword.control.mnemonic.vector.npu-asm",
+          "match": "(?i)\\b(vadd\\.bf16|vsub\\.bf16|vmul\\.bf16|vmov|vrecip\\.bf16|vexp\\.bf16|vexp2\\.bf16|vrelu\\.bf16|vsin\\.bf16|vcos\\.bf16|vtanh\\.bf16|vlog2\\.bf16|vsqrt\\.bf16)\\b"
+        },
+        {
+          "name": "keyword.control.mnemonic.vector.reduce.npu-asm",
+          "match": "(?i)\\b(vredsum\\.bf16|vredmin\\.bf16|vredmax\\.bf16|vminimum\\.bf16|vmaximum\\.bf16|vredsum\\.row\\.bf16|vredmin\\.row\\.bf16|vredmax\\.row\\.bf16)\\b"
+        },
+        {
+          "name": "keyword.control.mnemonic.vector.convert.npu-asm",
+          "match": "(?i)\\b(vpack\\.bf16\\.fp8|vunpack\\.fp8\\.bf16|vtrpose\\.xlu)\\b"
+        },
+        {
+          "name": "keyword.control.mnemonic.vector.imm.npu-asm",
+          "match": "(?i)\\b(vli\\.all|vli\\.row|vli\\.col|vli\\.one)\\b"
+        },
+        {
+          "name": "keyword.control.mnemonic.mxu.npu-asm",
+          "match": "(?i)\\b(vmatpush\\.weight\\.mxu[01]|vmatpush\\.acc\\.fp8\\.mxu[01]|vmatpush\\.acc\\.bf16\\.mxu[01]|vmatpop\\.fp8\\.acc\\.mxu[01]|vmatpop\\.bf16\\.acc\\.mxu[01])\\b"
+        },
+        {
+          "name": "keyword.control.mnemonic.mxu.matmul.npu-asm",
+          "match": "(?i)\\b(vmatmul\\.mxu[01]|vmatmul\\.acc\\.mxu[01])\\b"
+        },
+        {
+          "name": "keyword.control.mnemonic.dma.npu-asm",
+          "match": "(?i)\\b(dma\\.load\\.ch[0-7]|dma\\.store\\.ch[0-7]|dma\\.config\\.ch[0-7]|dma\\.wait\\.ch[0-7])\\b"
+        },
+        {
+          "name": "keyword.control.mnemonic.pseudo.npu-asm",
+          "match": "(?i)\\b(nop|li)\\b"
+        }
+      ]
+    },
+    "register": {
+      "patterns": [
+        {
+          "name": "variable.other.register.scalar.abi.npu-asm",
+          "match": "(?i)\\b(zero|ra|sp|gp|tp|t[0-6]|fp|s[0-9]|s1[0-1]|a[0-7])\\b"
+        },
+        {
+          "name": "variable.other.register.scalar.npu-asm",
+          "match": "(?i)\\bx([12]?[0-9]|3[01]|[0-9])\\b"
+        },
+        {
+          "name": "variable.other.register.exponent.npu-asm",
+          "match": "(?i)\\be([12]?[0-9]|3[01]|[0-9])\\b"
+        },
+        {
+          "name": "variable.other.register.matrix.npu-asm",
+          "match": "(?i)\\bm([1-5]?[0-9]|6[0-3]|[0-9])\\b"
+        },
+        {
+          "name": "variable.other.register.accumulator.npu-asm",
+          "match": "(?i)\\bacc[01]\\b"
+        },
+        {
+          "name": "variable.other.register.weight.npu-asm",
+          "match": "(?i)\\bw[01]\\b"
+        }
+      ]
+    },
+    "offset_operand": {
+      "match": "(-?(?:0[xX][0-9a-fA-F]+|0[bB][01]+|0[oO][0-7]+|\\d+))\\(([xemaw]\\d+)\\)",
+      "captures": {
+        "1": {
+          "name": "constant.numeric.offset.npu-asm"
+        },
+        "2": {
+          "name": "variable.other.register.npu-asm"
+        }
+      }
+    },
+    "number": {
+      "patterns": [
+        {
+          "name": "constant.numeric.hex.npu-asm",
+          "match": "-?0[xX][0-9a-fA-F]+"
+        },
+        {
+          "name": "constant.numeric.binary.npu-asm",
+          "match": "-?0[bB][01]+"
+        },
+        {
+          "name": "constant.numeric.octal.npu-asm",
+          "match": "-?0[oO][0-7]+"
+        },
+        {
+          "name": "constant.numeric.decimal.npu-asm",
+          "match": "-?\\d+"
+        }
+      ]
+    },
+    "label_ref": {
+      "name": "entity.name.label.ref.npu-asm",
+      "match": "(?<![\\w.])([A-Za-z_][A-Za-z0-9_.]*)(?![:\\w])"
+    }
+  }
+}

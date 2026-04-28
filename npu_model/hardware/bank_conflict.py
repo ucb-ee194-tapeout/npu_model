@@ -11,12 +11,15 @@ Bank mappings used by this checker:
   - VMEM: 32-byte banks aligned to the DMA / tensor-transfer granularity.
 """
 
-from __future__ import annotations
-
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
+from npu_model.isa import VRType
+from ..isa_types import MatrixReg, WeightBuffer, Accumulator
+from npu_model.isa_patterns import TensorBaseOffset, TensorComputeBinary, TensorComputeUnary, DirectImm, MXUAccumulatorPop, MXUWeightPush, MXUAccumulatorPopE1, MXUAccumulatorPush, MXUMatMul, ScalarComputeReg
+from npu_model.configs.isa_definition import VMOV, VPACK_BF16_FP8, VUNPACK_FP8_BF16
 
 if TYPE_CHECKING:
     from .arch_state import ArchState
+    from ..isa import Instruction
 
 
 # ---------------------------------------------------------------------------
@@ -42,51 +45,11 @@ def _vmem_range_to_banks(base: int, length: int) -> frozenset[int]:
 
 
 def _pair(reg: int) -> frozenset[int]:
+    if isinstance(reg, MatrixReg):
+        return frozenset({reg, MatrixReg(reg + 1)})
     return frozenset({reg, reg + 1})
 
-
-# ---------------------------------------------------------------------------
-# Resource-access queries
-# ---------------------------------------------------------------------------
-
-#: Instructions whose MRF operand set is ``{vs1, vs2, vd}`` (both sources + dest).
-_VR_TWO_SRC = frozenset(
-    {
-        "vadd.bf16",
-        "vsub.bf16",
-        "vmul.bf16",
-        "vminimum.bf16",
-        "vmaximum.bf16",
-    }
-)
-
-#: Instructions whose MRF operand set is ``{vs1, vd}`` (one source + dest).
-_VR_ONE_SRC = frozenset(
-    {
-        "vredsum.bf16",
-        "vredmin.bf16",
-        "vredmax.bf16",
-        "vredsum.row.bf16",
-        "vredmin.row.bf16",
-        "vredmax.row.bf16",
-        "vmov",
-        "vrecip.bf16",
-        "vexp.bf16",
-        "vexp2.bf16",
-        "vrelu.bf16",
-        "vsquare.bf16",
-        "vcube.bf16",
-        "vsin.bf16",
-        "vcos.bf16",
-        "vtanh.bf16",
-        "vlog2.bf16",
-        "vsqrt.bf16",
-        "vtrpose.xlu",
-    }
-)
-
-
-def mrf_accesses(mnemonic: str, args: Any) -> frozenset[int]:
+def mrf_accesses(insn: Instruction) -> frozenset[int]:
     """
     Return the set of MRF register indices accessed by an instruction.
 
@@ -94,123 +57,91 @@ def mrf_accesses(mnemonic: str, args: Any) -> frozenset[int]:
     instructions that share any index in their access sets constitute a
     bank conflict.
     """
-    from ..isa import VectorArgs, MatrixArgs
 
-    if isinstance(args, VectorArgs):
-        vd, vs1, vs2 = args.vd, args.vs1, args.vs2
+    # vload, vstore, vli.* all only interact with vd
+    if isinstance(insn, (TensorBaseOffset, DirectImm)):
+        return frozenset({insn.vd})
 
-        # VLS ------------------------------------------------------------------
-        if mnemonic in {"vload", "vstore"}:
-            return frozenset({vd})
+    # all instructions that only use vd, vs1
+    if isinstance(insn, TensorComputeUnary):
+        if isinstance(insn, VMOV):
+            return frozenset({insn.vs1, insn.vd})
+        return _pair(insn.vs1) | _pair(insn.vd)
+        
+    # all instructions that use vd, vs1, vs2
+    if isinstance(insn, TensorComputeBinary):
+        return _pair(insn.vs1) | _pair(insn.vs2) | _pair(insn.vd)
+    
+    # vmatpush: reads one or two MRF registers into weight/acc buffer
+    if isinstance(insn, MXUWeightPush):
+        return frozenset({insn.vs1})
+    
+    if isinstance(insn, MXUAccumulatorPush):
+        if insn.mnemonic.startswith("vmatpush.acc.bf16"):
+            return _pair(insn.vs1)
+        return frozenset({insn.vs1})
 
-        # vmatpush: reads one or two MRF registers into weight/acc buffer ------
-        if mnemonic in {
-            "vmatpush.weight.mxu0",
-            "vmatpush.weight.mxu1",
-            "vmatpush.acc.fp8.mxu0",
-            "vmatpush.acc.fp8.mxu1",
-        }:
-            return frozenset({vs1})
+    if isinstance(insn, MXUAccumulatorPopE1):
+        return frozenset({insn.vd})
+    
+    if isinstance(insn, MXUAccumulatorPop):
+        return _pair(insn.vd)
 
-        if mnemonic in {
-            "vmatpush.acc.bf16.mxu0",
-            "vmatpush.acc.bf16.mxu1",
-        }:
-            # bf16 tile occupies two consecutive registers
-            return frozenset({vs1, vs1 + 1})
+    if isinstance(insn, MXUMatMul):
+        return frozenset({insn.vs1})
 
-        # vmatpop: writes acc buffer into one or two MRF registers -------------
-        if mnemonic in {
-            "vmatpop.fp8.acc.mxu0",
-            "vmatpop.fp8.acc.mxu1",
-        }:
-            return frozenset({vd})
+    # Two-register read (bf16 pack): reads vs2 and vs2+1, writes vd -------
+    if isinstance(insn, VPACK_BF16_FP8):
+        return _pair(insn.vs2) | frozenset({insn.vd})
 
-        if mnemonic in {
-            "vmatpop.bf16.acc.mxu0",
-            "vmatpop.bf16.acc.mxu1",
-        }:
-            return frozenset({vd, vd + 1})
+    # Two-register write (fp8 unpack): reads vs2, writes vd and vd+1 ------
+    if isinstance(insn, VUNPACK_FP8_BF16):
+        return frozenset({insn.vs2}) | _pair(insn.vd)
 
-        # Two-register read (bf16 pack): reads vs1 and vs1+1, writes vd -------
-        if mnemonic == "vpack.bf16.fp8":
-            return frozenset({vs1, vs1 + 1, vd})
-
-        # Two-register write (fp8 unpack): reads vs1, writes vd and vd+1 ------
-        if mnemonic == "vunpack.fp8.bf16":
-            return frozenset({vs1, vd, vd + 1})
-
-        # VI (immediate load): only writes vd, no MRF source reads -------------
-        if mnemonic in {"vli.all", "vli.row", "vli.col", "vli.one"}:
-            return frozenset({vd})
-
-        # Two-source VR instructions -------------------------------------------
-        if mnemonic in _VR_TWO_SRC:
-            return _pair(vs1) | _pair(vs2) | _pair(vd)
-
-        # One-source VR instructions (default) --------------------------------
-        if mnemonic in _VR_ONE_SRC:
-            if mnemonic == "vmov":
-                return frozenset({vs1, vd})
-            return _pair(vs1) | _pair(vd)
-
-        # Fall-through: unknown VR – include all three fields conservatively
-        return frozenset({vs1, vs2, vd}) if vs2 else frozenset({vs1, vd})
-
-    if isinstance(args, MatrixArgs):
-        # vmatmul.*: reads activation from MRF[vs1]; result goes to local acc
-        return frozenset({args.vs1})
-
+    if isinstance(insn, VRType):
+        # Unknown VR type, raise an error
+        raise ValueError(f"Unknown VR instruction passed to bank checker: {insn.mnemonic}")
+    
     return frozenset()
 
 
-def vmem_accesses(mnemonic: str, args: Any, arch_state: ArchState) -> frozenset[int]:
+def vmem_accesses(insn: Instruction, arch_state: ArchState) -> frozenset[int]:
     """
     Return the set of VMEM bank indices accessed by an instruction.
 
     Bank indices are computed from the byte address and length at dispatch
     time by reading the current scalar register file.
     """
-    from ..isa import VectorArgs, DmaArgs
 
-    if isinstance(args, VectorArgs):
-        if mnemonic in {"vload", "vstore"}:
-            addr = arch_state.read_xrf(args.rs1) + (args.imm12 << 5)
-            length = arch_state.cfg.mrf_depth * arch_state.cfg.mrf_width
-            return _vmem_range_to_banks(addr, length)
+    if isinstance(insn, TensorBaseOffset):
+        addr = arch_state.read_xrf(insn.rs1) + (insn.imm << 5)
+        length = arch_state.cfg.mrf_depth * arch_state.cfg.mrf_width
+        return _vmem_range_to_banks(addr, length)
 
-    if isinstance(args, DmaArgs):
-        if mnemonic == "dma.load.ch<N>":
-            vmem_addr = arch_state.read_xrf(args.rd)
-            length = arch_state.read_xrf(args.rs2)
+    if isinstance(insn, ScalarComputeReg):
+        if insn.mnemonic.startswith("dma.load.ch"):
+            vmem_addr = arch_state.read_xrf(insn.rd)
+            length = arch_state.read_xrf(insn.rs2)
             return _vmem_range_to_banks(vmem_addr, length)
-        if mnemonic == "dma.store.ch<N>":
-            vmem_addr = arch_state.read_xrf(args.rs1)
-            length = arch_state.read_xrf(args.rs2)
+        if insn.mnemonic.startswith("dma.store.ch"):
+            vmem_addr = arch_state.read_xrf(insn.rs1)
+            length = arch_state.read_xrf(insn.rs2)
             return _vmem_range_to_banks(vmem_addr, length)
 
     return frozenset()
 
 
-def weight_buffer_accesses(mnemonic: str) -> frozenset[int]:
+def weight_buffer_accesses(insn: Instruction) -> frozenset[int]:
     """Return the set of MXU IDs whose weight buffer is accessed."""
-    if "weight.mxu0" in mnemonic or "matmul.mxu0" in mnemonic:
-        return frozenset({0})
-    if "weight.mxu1" in mnemonic or "matmul.mxu1" in mnemonic:
-        return frozenset({1})
+    if isinstance(insn, (MXUWeightPush, MXUMatMul)):
+        return frozenset({WeightBuffer(int(insn.mnemonic[-1]))})
     return frozenset()
 
 
-def acc_buffer_accesses(mnemonic: str) -> frozenset[int]:
+def acc_buffer_accesses(insn: Instruction) -> frozenset[int]:
     """Return the set of MXU IDs whose accumulation buffer is accessed."""
-    if ".acc." in mnemonic and "mxu0" in mnemonic:
-        return frozenset({0})
-    if ".acc." in mnemonic and "mxu1" in mnemonic:
-        return frozenset({1})
-    if "matmul.mxu0" in mnemonic:
-        return frozenset({0})
-    if "matmul.mxu1" in mnemonic:
-        return frozenset({1})
+    if isinstance(insn, MXUMatMul):
+        return frozenset({Accumulator(int(insn.mnemonic[-1]))})
     return frozenset()
 
 

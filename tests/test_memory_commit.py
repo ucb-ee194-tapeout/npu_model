@@ -10,8 +10,8 @@ from npu_model.configs.hardware.default import DefaultHardwareConfig
 from npu_model.configs.isa_definition import *  # noqa: F401, F403
 from npu_model.hardware.arch_state import ArchState
 from npu_model.hardware.dma import dma_transfer_cycles
-from npu_model.isa import DmaArgs, ScalarArgs, VectorArgs
-from npu_model.software.instruction import Instruction
+from npu_model.isa import Instruction
+from npu_model.software import m, x
 from npu_model.software.program import InstantiableProgram
 from tests.helpers import run_simulation
 
@@ -50,23 +50,25 @@ def read_word(data: torch.Tensor) -> int:
 
 
 def make_dma_load_visibility_scenario(cfg: DefaultHardwareConfig) -> Scenario:
+
     latency_cycles = dma_transfer_cycles(cfg, TRANSFER_BYTES)
     stale_tile = repeated_word_bytes(STALE_WORD, TRANSFER_BYTES)
     fresh_tile = repeated_word_bytes(FRESH_WORD, TRANSFER_BYTES)
 
-    program = InstantiableProgram(
-        [
-            Instruction("addi", ScalarArgs(rd=1, rs1=0, imm=VMEM_DST_BASE)),
-            Instruction("addi", ScalarArgs(rd=2, rs1=0, imm=DRAM_SRC_BASE)),
-            Instruction("addi", ScalarArgs(rd=3, rs1=0, imm=TRANSFER_BYTES)),
-            Instruction("dma.config.ch<N>", DmaArgs(rs1=0, channel=0)),
-            Instruction("delay", ScalarArgs(imm=1)),
-            Instruction("dma.load.ch<N>", DmaArgs(rd=1, rs1=2, rs2=3, channel=0)),
-            Instruction("lw", ScalarArgs(rd=10, rs1=1, imm=0)),
-            Instruction("delay", ScalarArgs(imm=latency_cycles)),
-            Instruction("lw", ScalarArgs(rd=11, rs1=1, imm=0)),
-        ]
-    )
+    instrs: list[Instruction] = [
+            ADDI(rd=x(1), rs1=x(0), imm=VMEM_DST_BASE),
+            ADDI(rd=x(2), rs1=x(0), imm=DRAM_SRC_BASE),
+            ADDI(rd=x(3), rs1=x(0), imm=TRANSFER_BYTES),
+            DMA_CONFIG_CH0(rs1=x(0)),
+            DMA_WAIT_CH0(),
+            DELAY(imm=1),
+            DMA_LOAD_CH0(rd=x(1), rs1=x(2), rs2=x(3)),
+            LW(rd=x(10), imm=0, rs1=x(1)),
+            DELAY(imm=latency_cycles),
+            LW(rd=x(11), imm=0, rs1=x(1)),
+    ]
+    
+    program = InstantiableProgram(instrs)
     program.memory_regions = [(DRAM_SRC_BASE, fresh_tile.clone())]
 
     def seed_state(state: ArchState) -> None:
@@ -90,19 +92,18 @@ def make_vstore_visibility_scenario(cfg: DefaultHardwareConfig) -> Scenario:
     stale_tile = repeated_word_bytes(STALE_WORD, TRANSFER_BYTES)
     fresh_tile = repeated_word_bytes(FRESH_WORD, TRANSFER_BYTES)
 
-    program = InstantiableProgram(
-        [
-            Instruction("addi", ScalarArgs(rd=1, rs1=0, imm=VMEM_SRC_BASE)),
-            Instruction("addi", ScalarArgs(rd=2, rs1=0, imm=VMEM_DST_BASE)),
-            Instruction("addi", ScalarArgs(rd=10, rs1=0, imm=0)),
-            Instruction("vload", VectorArgs(vd=0, rs1=1, imm12=0)),
-            Instruction("delay", ScalarArgs(imm=latency_cycles)),
-            Instruction("vstore", VectorArgs(vd=0, rs1=2, imm12=0)),
-            Instruction("lw", ScalarArgs(rd=10, rs1=2, imm=0)),
-            Instruction("delay", ScalarArgs(imm=latency_cycles)),
-            Instruction("lw", ScalarArgs(rd=11, rs1=2, imm=0)),
-        ]
-    )
+    instrs: list[Instruction] = [
+        ADDI(rd=x(1), rs1=x(0), imm=VMEM_SRC_BASE),
+        ADDI(rd=x(2), rs1=x(0), imm=VMEM_DST_BASE),
+        ADDI(rd=x(10), rs1=x(0), imm=0),
+        VLOAD(vd=m(0), imm=0, rs1=x(1)),
+        DELAY(imm=latency_cycles),
+        VSTORE(vd=m(0), imm=0, rs1=x(2)),
+        LW(rd=x(10), imm=0, rs1=x(2)),
+        DELAY(imm=latency_cycles),
+        LW(rd=x(11), imm=0, rs1=x(2)),
+    ]
+    program = InstantiableProgram(instrs)
 
     def seed_state(state: ArchState) -> None:
         state.write_vmem(VMEM_SRC_BASE, 0, fresh_tile.clone())

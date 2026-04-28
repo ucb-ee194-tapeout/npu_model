@@ -333,8 +333,8 @@ Rows are ordered by hex value.
 | `vrecip.bf16`            | `VR`     | `1010111` |                         | `1000001`        | `57/41`    | Vector Reciprocal                 | `{m[vd], m[vd+1]} = 1.f / {m[vs1], m[vs1+1]};` |
 | `vexp.bf16`              | `VR`     | `1010111` |                         | `1000010`        | `57/42`    | Vector Exponential                | `{m[vd], m[vd+1]} = bf16_exp({m[vs1], m[vs1+1]});` |
 | `vexp2.bf16`             | `VR`     | `1010111` |                         | `1000011`        | `57/43`    | Vector Base 2 Exponential         | `{m[vd], m[vd+1]} = bf16_exp2({m[vs1], m[vs1+1]});` |
-| `vpack.bf16.fp8`         | `VR`     | `1010111` |                         | `1000100`        | `57/44`    | Vector Packing                    | `m[vd] = quantize(m[vs1], m[vs1+1], e[es1]);` |
-| `vunpack.fp8.bf16`       | `VR`     | `1010111` |                         | `1000101`        | `57/45`    | Vector Unpacking                  | `m[vd], m[vd+1] = dequantize(m[vs1], e[es1]);` |
+| `vpack.bf16.fp8`         | `VR`     | `1010111` |                         | `1000100`        | `57/44`    | Vector Packing                    | `m[vd] = quantize(m[vs2], m[vs2+1], e[es1]);` |
+| `vunpack.fp8.bf16`       | `VR`     | `1010111` |                         | `1000101`        | `57/45`    | Vector Unpacking                  | `m[vd], m[vd+1] = dequantize(m[vs2], e[es1]);` |
 | `vrelu.bf16`             | `VR`     | `1010111` |                         | `1001000`        | `57/48`    | Vector ReLU                       | `{m[vd], m[vd+1]} = bf16_relu({m[vs1], m[vs1+1]});` |
 | `vsin.bf16`              | `VR`     | `1010111` |                         | `1001001`        | `57/49`    | Vector Sin                        | `{m[vd], m[vd+1]} = bf16_sin({m[vs1], m[vs1+1]});` |
 | `vcos.bf16`              | `VR`     | `1010111` |                         | `1001010`        | `57/4A`    | Vector Cos                        | `{m[vd], m[vd+1]} = bf16_cos({m[vs1], m[vs1+1]});` |
@@ -375,8 +375,8 @@ Rows are ordered by hex value.
 | `vmatmul.acc.mxu1`       | `VR`     | `1110111` |                         | `0001101`        | `77/13`    | MXU1 Matmul Accumulate            | `mxu1.acc[vd[0]] = mxu1.acc[vd[0]] + m[vs1] @ mxu1.w[vs2[0]];` |
 | `dma.load.ch<N>`         | `R`      | `1111011` | `000 ~ 111`             | `0000000`        | `7B/00`    | DMA Load                          | `issue_dma_load(channel=N, vmem_addr=x[rd], dram_addr={base, x[rs1]}, size=x[rs2]);` |
 | `dma.store.ch<N>`        | `R`      | `1111011` | `000 ~ 111`             | `0000001`        | `7B/01`    | DMA Store                         | `issue_dma_store(channel=N, vmem_addr=x[rs1], dram_addr={base, x[rd]}, size=x[rs2]);` |
-| `dma.config.ch<N>`       | `I`      | `1111111` | `000 ~ 111`             | `0000000`        | `7F/00`    | DMA Load                          | `dma.base = x[rs1]` |
-| `dma.wait.ch<N>`         | `I`      | `1111111` | `000 ~ 111`             | `0000001`        | `7F/01`    | DMA Wait                          | `wait_until_dma_channel_idle(channel=N);` |
+| `dma.config.ch<N>`       | `R`      | `1111111` | `000 ~ 111`             | `0000000`        | `7F/00`    | DMA Load                          | `dma.base = x[rs1]` |
+| `dma.wait.ch<N>`         | `R`      | `1111111` | `000 ~ 111`             | `0000001`        | `7F/01`    | DMA Wait                          | `wait_until_dma_channel_idle(channel=N);` |
 
 
 ## 4. Architectural Design Parameters
