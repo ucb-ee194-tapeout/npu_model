@@ -203,14 +203,18 @@ class InstructionDecode(Module):
             else:
                 self._stalled = False
                 return False
+
         target_exu = self.exu_map[uop.insn.exu]
-        if self.outputs[target_exu].should_stall():
-            # Don't end D stage - keep it active to show instruction is waiting
-            # The D stage will end when we actually dispatch
+
+        if hasattr(target_exu, "can_accept") and not target_exu.can_accept(uop):
             raise RuntimeError(
                 f"Backpressure detected in IDU when running uop {uop.id} {str(uop.insn)} on cycle {self.cycle}"
             )
 
-        # Backpressure cleared - if we were stalled, the D stage continues:
+        if self.outputs[target_exu].should_stall():
+            raise RuntimeError(
+                f"Backpressure detected in IDU when running uop {uop.id} {str(uop.insn)} on cycle {self.cycle}"
+            )
+
         self._stalled = False
         return False
