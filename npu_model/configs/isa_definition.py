@@ -234,7 +234,8 @@ class SRAI(ScalarComputeShamt, IType, exu=EXU.SCALAR, opcode=0b0010011, funct3=0
     UPPER_IMM = 0b0100000
 
     def exec(self, state: ArchState) -> None:
-        state.write_xrf(self.rd, state.xrf[self.rs1] >> (self.imm & 0x3F))
+        src = _sign_extend(state.xrf[self.rs1] & 0xFFFFFFFF, 32)
+        state.write_xrf(self.rd, (src >> (self.imm & 0x1F)) & 0xFFFFFFFF)
 
 
 class ORI(ScalarComputeImm, IType, exu=EXU.SCALAR, opcode=0b0010011, funct3=0b110):
@@ -383,7 +384,8 @@ class SRA(
     funct7=0b0100000,
 ):
     def exec(self, state: ArchState) -> None:
-        state.write_xrf(self.rd, state.xrf[self.rs1] >> state.xrf[self.rs2])
+        src = _sign_extend(state.xrf[self.rs1] & 0xFFFFFFFF, 32)
+        state.write_xrf(self.rd, (src >> (state.xrf[self.rs2] & 0x1F)) & 0xFFFFFFFF)
 
 
 class OR(
