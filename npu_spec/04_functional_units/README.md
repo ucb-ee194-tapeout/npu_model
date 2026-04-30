@@ -138,12 +138,12 @@ Shared requirements:
 
 - internal `32 x 32` systolic fabric
 - architectural `32 x 32` matmul implemented directly by that fabric
-- deterministic launch latency class of `32` cycles
+- deterministic launch latency class of `96` cycles
 
 `mxu1` requirements:
 
 - internal `32 x 32` reduction-tree or equivalent throughput-matched fabric
-- deterministic launch latency class of `32` cycles
+- deterministic launch latency class of `35` cycles
 
 ## Vector Processing Unit
 
@@ -173,9 +173,15 @@ Architectural BF16 operand model:
 
 Timing requirements:
 
-- pipelineable BF16 operations use the `4`-cycle latency class
-- non-pipelineable BF16 operations such as `vexp` and `vrecip.bf16` use the
-  `16`-cycle latency class
+- pipelineable BF16 operations (binary, unary, transcendentals, `vmov`,
+  `vpack` / `vunpack`) use the `66`-cycle latency class
+- non-pipelineable BF16 column-reduction operations (`vredsum.bf16`,
+  `vredmin.bf16`, `vredmax.bf16`) use the `130`-cycle latency class
+- BF16 row-reduction operations use the row latency classes:
+  `vredsum.row.bf16` is `39` cycles, `vredmin.row.bf16` and
+  `vredmax.row.bf16` are `34` cycles
+- BF16 vector load-immediate operations (`vli.all`, `vli.row`,
+  `vli.col`, `vli.one`) use the `65`-cycle latency class
 - the baseline lane count is `16 BF16` lanes
 - the `16`-lane datapath completes one BF16 VPU instruction as two internal
   half-tile passes over the architectural `32 x 32 BF16` tile
@@ -188,7 +194,7 @@ The XLU baseline implements:
 
 Timing requirement:
 
-- each XLU operation uses the `4`-cycle latency class
+- each XLU operation uses the `66`-cycle latency class
 
 ## Structural-Conflict Handling
 
