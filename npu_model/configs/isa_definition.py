@@ -819,14 +819,14 @@ class ECALL(Nullary, IType, exu=EXU.SCALAR, opcode=0b1110011, funct3=0b000):
     imm: Imm12 = Imm12(0)
 
     def exec(self, state: ArchState) -> None:
-        pass
+        state.halted = True
 
 
 class EBREAK(Nullary, IType, exu=EXU.SCALAR, opcode=0b1110011, funct3=0b000):
     imm: Imm12 = Imm12(1)
 
     def exec(self, state: ArchState) -> None:
-        pass
+        state.halted = True
 
 
 class VMATPUSH_WEIGHT_MXU0(
