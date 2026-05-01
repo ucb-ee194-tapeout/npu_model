@@ -145,6 +145,8 @@ class Core(Module):
 
     def is_finished(self) -> bool:
         """Check if execution is complete."""
+        if self.arch_state.halted:
+            return True
         if not self.ifu.is_finished():
             return False
         if not self.idu.is_finished():
