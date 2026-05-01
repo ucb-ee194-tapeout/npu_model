@@ -389,10 +389,10 @@ Rows are ordered by hex value.
 | Scalar registers | `32` |
 | Tensor registers | `64` |
 | Scale registers | `32` |
-| Tensor register storage | `64 rows x 64 bytes = 4096 bytes` |
+| Tensor register storage | `32 rows x 32 bytes = 1024 bytes` |
 | MXU count | `2` |
 | MXU weight slots per MXU | `2` |
-| MXU accumulator storage | `64 x 64 BF16` |
+| MXU accumulator storage | `32 x 32 BF16` |
 | DMA channels | `8` |
 | `IMEM` | `0x0002_0000` ~ `0x0004_0000` |
 | `VMEM` | `0x2000_0000` ~ `0x2004_0000` |

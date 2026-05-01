@@ -28,7 +28,7 @@
 | `DMA_CHANNELS` | `8` | Architected DMA channels |
 | `DMA_ALIGN` | `32` bytes | DMA alignment and granularity |
 | `IMEM_BASE` | `0x0002_0000` | IMEM base address |
-| `IMEM_SIZE` | `64 KiB` | IMEM capacity |
+| `IMEM_SIZE` | `128 KiB` | IMEM capacity |
 | `VMEM_BASE` | `0x2000_0000` | VMEM base address |
 | `VMEM_SIZE` | `1 MiB` | VMEM capacity |
 | `DRAM_BASE` | `0x8000_0000` | DRAM base address |
@@ -38,15 +38,18 @@
 
 | Parameter | Value | Meaning |
 |---|---:|---|
-| `MXU0_MATMUL_LATENCY_CYCLES` | `32` | One `mxu0` matmul launch latency class |
-| `MXU1_MATMUL_LATENCY_CYCLES` | `32` | One `mxu1` matmul launch latency class |
-| `VPU_SIMPLE_OP_LATENCY_CYCLES` | `4` | Pipelineable BF16 VPU latency class |
-| `VPU_NON_PIPELINEABLE_OP_LATENCY_CYCLES` | `16` | Non-pipelineable BF16 VPU latency class |
-| `XLU_TRANSFORM_LATENCY_CYCLES` | `4` | XLU latency class |
+| `MXU0_MATMUL_LATENCY_CYCLES` | `96` | One `mxu0` matmul launch latency class |
+| `MXU1_MATMUL_LATENCY_CYCLES` | `35` | One `mxu1` matmul launch latency class |
+| `VPU_SIMPLE_OP_LATENCY_CYCLES` | `66` | Pipelineable BF16 VPU latency class (binary, unary, transcendental, `vmov`, `vpack` / `vunpack`) |
+| `VPU_NON_PIPELINEABLE_OP_LATENCY_CYCLES` | `130` | Non-pipelineable BF16 VPU latency class (column reductions: `vredsum`, `vredmin`, `vredmax`) |
+| `VPU_ROW_REDSUM_LATENCY_CYCLES` | `39` | Row sum reduction latency class (`vredsum.row.bf16`) |
+| `VPU_ROW_REDMINMAX_LATENCY_CYCLES` | `34` | Row min/max reduction latency class (`vredmin.row.bf16`, `vredmax.row.bf16`) |
+| `VPU_VLI_LATENCY_CYCLES` | `65` | Vector load-immediate latency class (`vli.*`) |
+| `XLU_TRANSFORM_LATENCY_CYCLES` | `66` | XLU latency class |
 | `OFFCHIP_LINK_WIDTH_BITS` | `32` | DRAM-link beat width |
 | `OFFCHIP_LINK_CORE_CYCLES_PER_BEAT` | `2` | Off-chip serialized beat time |
 | `DMA_OFFCHIP_COMMAND_WORDS` | `2` | DRAM-side DMA command overhead |
-| `VMEM_BUS_WIDTH_BITS` | `512` | VMEM beat width |
+| `VMEM_BUS_WIDTH_BITS` | `256` | VMEM beat width |
 | `VMEM_BUS_CORE_CYCLES_PER_BEAT` | `1` | VMEM beat time |
 | `VMEM_TENSOR_ALIGN` | `32` bytes | VMEM alignment for tensor-facing transfers |
 | `TRACE_TICKS_PER_CYCLE` | `1` | Trace timestamp granularity |
@@ -55,7 +58,7 @@
 
 | Parameter | Value | Meaning |
 |---|---:|---|
-| `INIT_SEED` | `0x50E11234` | Deterministic pseudo-random initialization seed |
+| `INIT_SEED` | `42` | Deterministic pseudo-random initialization seed |
 | `RANDOMIZE_DRAM` | `true` | Randomize DRAM at power-on in the Python model |
 | `RANDOMIZE_VMEM` | `true` | Randomize VMEM at power-on in the Python model |
 | `RANDOMIZE_SCALAR_REGISTERS` | `true` | Randomize scalar registers except `x0` |
@@ -85,7 +88,7 @@ The frozen MXU-local views are:
 At the normalized performance-model level:
 
 - DRAM roof: `2 B/cycle`
-- VMEM roof: `64 B/cycle`
-- `mxu0` peak: `32 * 32 * 32 * 2 / 32 = 2048 FLOPs/cycle`
-- `mxu1` peak: `32 * 32 * 32 * 2 / 32 = 2048 FLOPs/cycle`
-- total MXU peak: `4096 FLOPs/cycle`
+- VMEM roof: `32 B/cycle`
+- `mxu0` peak: `32 * 32 * 32 * 2 / 96 ≈ 683 FLOPs/cycle`
+- `mxu1` peak: `32 * 32 * 32 * 2 / 35 ≈ 1872 FLOPs/cycle`
+- total MXU peak: `≈ 2555 FLOPs/cycle`

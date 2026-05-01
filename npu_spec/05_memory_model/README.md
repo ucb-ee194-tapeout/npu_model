@@ -93,7 +93,7 @@ DMA rules:
 Definitions:
 
 - `OFFCHIP_BYTES_PER_BEAT = OFFCHIP_LINK_WIDTH_BITS / 8 = 4`
-- `VMEM_BYTES_PER_BEAT = VMEM_BUS_WIDTH_BITS / 8 = 64`
+- `VMEM_BYTES_PER_BEAT = VMEM_BUS_WIDTH_BITS / 8 = 32`
 
 Required formulas:
 
@@ -105,9 +105,9 @@ For the frozen baseline values:
 
 - one off-chip beat costs `2` core cycles
 - one VMEM beat costs `1` core cycle
-- one `vload` or `vstore` of a `1024`-byte tensor register takes `16` cycles
+- one `vload` or `vstore` of a `1024`-byte tensor register takes `34` cycles
 - one `vmatpush.acc.fp8.*` or `vmatpop.fp8.acc.*` of a `1024`-byte `FP8` tile takes
-  `16` cycles
+  `32` cycles
 - one `vmatpush.acc.bf16.*` or `vmatpop.bf16.acc.*` of a `2048`-byte `BF16` tile takes
   `32` cycles
 
