@@ -13,13 +13,13 @@ Bank mappings used by this checker:
 
 from typing import TYPE_CHECKING
 from npu_model.isa import VRType
+from npu_model.software.instruction import Instruction
 from ..isa_types import MatrixReg, WeightBuffer, Accumulator
 from npu_model.isa_patterns import TensorBaseOffset, TensorComputeBinary, TensorComputeUnary, DirectImm, MXUAccumulatorPop, MXUWeightPush, MXUAccumulatorPopE1, MXUAccumulatorPush, MXUMatMul, ScalarComputeReg
 from npu_model.configs.isa_definition import VMOV, VPACK_BF16_FP8, VUNPACK_FP8_BF16
 
 if TYPE_CHECKING:
     from .arch_state import ArchState
-    from ..isa import Instruction
 
 
 # ---------------------------------------------------------------------------

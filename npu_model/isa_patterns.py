@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Callable, ClassVar, Self, Any, get_type_hints
 
 from .isa import UJType, SBType
-from .isa_types import Named, Bundled, AsmError, BoundedInt, ScalarReg, ExponentReg, MatrixReg, WeightBuffer, Accumulator, Shamt, Imm12, SBImm12, Imm16, Imm20
+from .isa_types import Named, Bundled, AsmError, BoundedInt, ScalarReg, ExponentReg, MatrixReg, WeightBuffer, Accumulator, Shamt, Imm12, SBImm12, Imm16, Imm20, RegBase
 
 # - Named Args ----------------------------------------------
 # Used to significantly clean up linting and assembling code
@@ -57,6 +57,7 @@ class InstructionPatternMeta(ABCMeta):
     Metaclass that checks that from_asm will produce a valid output.
     Errors if params don't expand out into the args necessary for __init__.
     """
+    params: ClassVar[list[Named]]
     
     def __new__(mcs,name: str,bases: tuple[type, ...],namespace: dict[str, Any],**kwargs: Any) -> type:
         params: list[Named] = namespace.get('params', [])
@@ -185,6 +186,28 @@ class InstructionPattern(ABC, metaclass=InstructionPatternMeta):
             exceptions.extend(cls.params[i-1].lint(tokens[i], labels, tok_idx=i, allow_label=issubclass(cls, (UJType, SBType))))
 
         return exceptions
+    
+    def _unbundle(self, val: list[Named]) -> list[Named]:
+        out: list[Named] = []
+        for param in val:
+            if isinstance(param, Bundled):
+                out.extend([param.reg, param.imm])
+            else:
+                out.append(param)
+        
+        return out
+
+    def _fmt_param(self, param: Named, val: BoundedInt, for_python: bool = False)-> str:        
+        if issubclass(param.inner, RegBase):
+            return f'{f'{param.repr}=' if for_python else ''}{param.inner.fmt}{'(' + str(val) + ')' if for_python else str(val)}'
+        
+        return f'{f'{param.repr}=' if for_python else ''}{str(val)}'
+
+    def __str__(self):
+        return f'{self.mnemonic} {', '.join([self._fmt_param(param, param_val, False) for param in self._unbundle(self.params) if (param_val:=self.__dict__[param.repr]) != None])}'
+
+    def serialize(self):
+        return f"{self.__class__.__name__}({', '.join([self._fmt_param(param, param_val, True) for param in self._unbundle(self.params) if (param_val:=self.__dict__[param.repr]) != None])})"
 
 @dataclass(init=False)
 class ScalarOffsetLoad(InstructionPattern):
@@ -202,7 +225,7 @@ class ScalarOffsetLoad(InstructionPattern):
     rd: ScalarReg
     imm: Imm12
     rs1: ScalarReg
-    params = [x_rd, x_rs1_imm12]
+    params: ClassVar[list[Named]] = [x_rd, x_rs1_imm12]
 
     def __init__(self, rd: ScalarReg, imm: int, rs1: ScalarReg):
         self.rd = rd
@@ -225,7 +248,7 @@ class ExponentOffsetLoad(InstructionPattern):
     rd: ExponentReg
     imm: Imm12
     rs1: ScalarReg
-    params = [e_rd, x_rs1_imm12]
+    params: ClassVar[list[Named]] = [e_rd, x_rs1_imm12]
 
     def __init__(self, rd: ExponentReg, imm: int, rs1: ScalarReg):
         self.rd = rd
@@ -248,7 +271,7 @@ class ScalarBaseOffsetStore(InstructionPattern):
     rs2: ScalarReg
     imm: Imm12
     rs1: ScalarReg
-    params = [x_rs2, x_rs1_imm12]
+    params: ClassVar[list[Named]] = [x_rs2, x_rs1_imm12]
 
     def __init__(self, rs2: ScalarReg, imm: int, rs1: ScalarReg):
         self.rs2 = rs2
@@ -271,7 +294,7 @@ class TensorBaseOffset(InstructionPattern):
     vd: MatrixReg
     imm: Imm12
     rs1: ScalarReg
-    params = [m_vd, x_rs1_imm12]
+    params: ClassVar[list[Named]] = [m_vd, x_rs1_imm12]
 
     def __init__(self, vd: MatrixReg, imm: int, rs1: ScalarReg):
         self.vd = vd
@@ -292,7 +315,7 @@ class ScalarImm(InstructionPattern):
     """
     rd: ScalarReg
     imm: Imm20
-    params = [x_rd, imm20_lb]
+    params: ClassVar[list[Named]] = [x_rd, imm20_lb]
 
     def __init__(self, rd: ScalarReg, imm: int):
         self.rd = rd
@@ -312,7 +335,7 @@ class ExponentImm(InstructionPattern):
     """
     rd: ExponentReg
     imm: Imm12
-    params = [e_rd, imm12]
+    params: ClassVar[list[Named]] = [e_rd, imm12]
 
     def __init__(self, rd: ExponentReg, imm: int):
         self.rd = rd
@@ -334,7 +357,7 @@ class ScalarComputeImm(InstructionPattern):
     rd: ScalarReg
     rs1: ScalarReg
     imm: Imm12
-    params = [x_rd, x_rs1, imm12]
+    params: ClassVar[list[Named]] = [x_rd, x_rs1, imm12]
 
     def __init__(self, rd: ScalarReg, rs1: ScalarReg, imm: int):
         self.rd = rd
@@ -357,7 +380,7 @@ class JalrPattern(InstructionPattern):
     rd: ScalarReg
     rs1: ScalarReg
     imm: SBImm12
-    params = [x_rd, x_rs1, sbimm12]
+    params: ClassVar[list[Named]] = [x_rd, x_rs1, sbimm12]
 
     def __init__(self, rd: ScalarReg, rs1: ScalarReg, imm: int):
         self.rd = rd
@@ -380,7 +403,7 @@ class ScalarComputeShamt(InstructionPattern):
     rd: ScalarReg
     rs1: ScalarReg
     imm: Imm12
-    params = [x_rd, x_rs1, shamt]
+    params: ClassVar[list[Named]] = [x_rd, x_rs1, shamt]
     
     def __init__(self, rd: ScalarReg, rs1: ScalarReg, imm: int):
         self.rd = rd
@@ -404,7 +427,7 @@ class ScalarBranchImm(InstructionPattern):
     rs1: ScalarReg
     rs2: ScalarReg
     imm: SBImm12
-    params = [x_rs1,x_rs2,sbimm12]
+    params: ClassVar[list[Named]] = [x_rs1,x_rs2,sbimm12]
 
     def __init__(self, rs1: ScalarReg, rs2: ScalarReg, imm: int):
         self.rs1 = rs1
@@ -425,7 +448,7 @@ class DirectImm(InstructionPattern):
     """
     vd: MatrixReg
     imm: Imm16
-    params = [m_vd, imm16]
+    params: ClassVar[list[Named]] = [m_vd, imm16]
 
     def __init__(self, vd: MatrixReg, imm: int):
         self.vd = vd
@@ -447,7 +470,7 @@ class ScalarComputeReg(InstructionPattern):
     rd: ScalarReg
     rs1: ScalarReg
     rs2: ScalarReg
-    params = [x_rd, x_rs1, x_rs2]
+    params: ClassVar[list[Named]] = [x_rd, x_rs1, x_rs2]
 
 @dataclass()
 class TensorComputeUnary(InstructionPattern):
@@ -463,7 +486,7 @@ class TensorComputeUnary(InstructionPattern):
     """
     vd: MatrixReg
     vs1: MatrixReg
-    params = [m_vd, m_vs1]
+    params: ClassVar[list[Named]] = [m_vd, m_vs1]
 
 @dataclass()
 class TensorComputeBinary(InstructionPattern):
@@ -481,7 +504,7 @@ class TensorComputeBinary(InstructionPattern):
     vd: MatrixReg
     vs1: MatrixReg
     vs2: MatrixReg
-    params = [m_vd, m_vs1, m_vs2]
+    params: ClassVar[list[Named]] = [m_vd, m_vs1, m_vs2]
 
 @dataclass()
 class TensorComputeMixed(InstructionPattern):
@@ -500,7 +523,7 @@ class TensorComputeMixed(InstructionPattern):
     vd: MatrixReg
     vs2: MatrixReg
     es1: ExponentReg
-    params = [m_vd, m_vs2, e_es1]
+    params: ClassVar[list[Named]] = [m_vd, m_vs2, e_es1]
 
 @dataclass()
 class MXUWeightPush(InstructionPattern):
@@ -516,7 +539,7 @@ class MXUWeightPush(InstructionPattern):
     """
     vd: WeightBuffer
     vs1: MatrixReg
-    params = [w_vd, m_vs1]
+    params: ClassVar[list[Named]] = [w_vd, m_vs1]
 
 @dataclass()
 class MXUAccumulatorPush(InstructionPattern):
@@ -532,7 +555,7 @@ class MXUAccumulatorPush(InstructionPattern):
     """
     vd: Accumulator
     vs1: MatrixReg
-    params = [acc_vd, m_vs1]
+    params: ClassVar[list[Named]] = [acc_vd, m_vs1]
 
 @dataclass()
 class MXUAccumulatorPopE1(InstructionPattern):
@@ -549,7 +572,7 @@ class MXUAccumulatorPopE1(InstructionPattern):
     vd: MatrixReg
     es1: ExponentReg
     vs2: Accumulator
-    params = [m_vd, acc_vs2, e_es1]
+    params: ClassVar[list[Named]] = [m_vd, acc_vs2, e_es1]
 
 @dataclass()
 class MXUAccumulatorPop(InstructionPattern):
@@ -566,7 +589,7 @@ class MXUAccumulatorPop(InstructionPattern):
 
     vd: MatrixReg
     vs2: Accumulator
-    params = [m_vd, acc_vs2]
+    params: ClassVar[list[Named]] = [m_vd, acc_vs2]
 
 @dataclass()
 class MXUMatMul(InstructionPattern):
@@ -584,7 +607,7 @@ class MXUMatMul(InstructionPattern):
     vd: Accumulator
     vs1: MatrixReg
     vs2: WeightBuffer
-    params = [acc_vd, m_vs1, w_vs2]
+    params: ClassVar[list[Named]] = [acc_vd, m_vs1, w_vs2]
 
 @dataclass()
 class DMARegUnary(InstructionPattern):
@@ -592,14 +615,14 @@ class DMARegUnary(InstructionPattern):
     Instruction pattern for DMA instructions with one scalar register operand.
 
     Matches assembly patterns of the form `instr x(rs1)`. This pattern is
-    used for `dma.config.N`.
+    used for `dma.config`.
 
     Attributes:
         rs1: The source scalar register.
     """
 
     rs1: ScalarReg
-    params = [x_rs1]
+    params: ClassVar[list[Named]] = [x_rs1]
 
     @classmethod
     def from_asm(
@@ -622,7 +645,7 @@ class Nullary(InstructionPattern):
     Matches assembly patterns of the form `instr`. This pattern is
     used for instructions with no arguments.
     """
-    params = []
+    params: ClassVar[list[Named]] = []
 
 @dataclass(init=False)
 class UnaryImm(InstructionPattern):
@@ -636,7 +659,7 @@ class UnaryImm(InstructionPattern):
         imm: A 12-bit immediate
     """
     imm: Imm12
-    params = [imm12]
+    params: ClassVar[list[Named]] = [imm12]
     
     def __init__(self, imm: int):
         self.imm = Imm12(imm)

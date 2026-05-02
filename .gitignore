@@ -11,8 +11,7 @@ wheels/
 .venv
 
 # logs
-*.json
-!npu_model/lsp/**/*.json
+# *.json
 
 # generated scala
 *.scala

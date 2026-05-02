@@ -79,8 +79,8 @@ if os.environ.get("NPU_MODEL_ENABLE_IREE_CROSSCHECK", "").lower() in {
     except ImportError:
         pass
 
-DRAM_X = 0x0000
-DRAM_OUT = 0x0B00
+DRAM_X = 0x80000000
+DRAM_OUT = 0x80000B00
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -103,4 +103,4 @@ class SmolVLARopeFrequencyProgram(Program):
         (DRAM_X, INPUT),
     ]
 
-    golden_result: tuple[int, torch.Tensor] = (DRAM_OUT, EXPECTED)
+    golden_result: list[tuple[int, torch.Tensor]] = [(DRAM_OUT, EXPECTED)]

@@ -307,21 +307,21 @@ if os.environ.get("NPU_MODEL_ENABLE_IREE_CROSSCHECK", "").lower() in {
 TILE_BYTES = Q_ROWS * HEAD_DIM * 2  # 4096 — one [32,64] bf16 tile
 SCALE_BYTES = Q_ROWS * (HEAD_DIM // 4) * 2  # 1024 — one [32,16] bf16 register
 
-DRAM_Q = 0x0000
-DRAM_KT0 = 0x1000
-DRAM_KT1 = 0x2000
-DRAM_VT0 = 0x3000
-DRAM_VT1 = 0x4000
-DRAM_SCALE = 0x5000
-DRAM_OUT = 0x6000
+DRAM_Q = 0x80000000
+DRAM_KT0 = 0x80001000
+DRAM_KT1 = 0x80002000
+DRAM_VT0 = 0x80003000
+DRAM_VT1 = 0x80004000
+DRAM_SCALE = 0x80005000
+DRAM_OUT = 0x80006000
 
-VMEM_Q = 0x8000
-VMEM_KT0 = 0x9000
-VMEM_KT1 = 0xA000
-VMEM_VT0 = 0xB000
-VMEM_VT1 = 0xC000
-VMEM_SCALE = 0xD000
-VMEM_OUT = 0xE000
+VMEM_Q = 0x20008000
+VMEM_KT0 = 0x20009000
+VMEM_KT1 = 0x2000A000
+VMEM_VT0 = 0x2000B000
+VMEM_VT1 = 0x2000C000
+VMEM_SCALE = 0x2000D000
+VMEM_OUT = 0x2000E000
 
 
 class SmolVLAFusedAttentionProgram(Program):
@@ -403,7 +403,7 @@ class SmolVLAFusedAttentionProgram(Program):
         (DRAM_SCALE, SCALE_DATA),
     ]
 
-    golden_result: tuple[int, torch.Tensor] = (
+    golden_result: list[tuple[int, torch.Tensor]] = [(
         DRAM_OUT,
         EXPECTED,  # [128, 16] bf16 — column-blocked, matches DRAM output layout
-    )
+    )]

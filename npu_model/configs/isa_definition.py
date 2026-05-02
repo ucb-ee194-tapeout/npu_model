@@ -1107,98 +1107,18 @@ class DMA_STORE_CH7(
     pass
 
 
-class _DMA_CONFIG_CHN(DMARegUnary):
-    def exec(self, state: ArchState) -> None:
-        state.base = state.read_xrf(self.rs1)
-
-
-class DMA_CONFIG_CH0(
-    _DMA_CONFIG_CHN,
+class DMA_CONFIG(
+    DMARegUnary,
     RType,
-    exu=EXU.DMA,
+    exu=EXU.SCALAR,
     opcode=0b1111111,
     funct3=0b000,
-    funct7=0b0000001,
-):
-    pass
+    funct7=0b0000001):
+    def exec(self, state: ArchState) -> None:
+        for flag in state.flags:
+            assert state.check_flag(flag) == False, f"DMA.CONFIG ran while flag {flag} was still set"
 
-
-class DMA_CONFIG_CH1(
-    _DMA_CONFIG_CHN,
-    RType,
-    exu=EXU.DMA,
-    opcode=0b1111111,
-    funct3=0b001,
-    funct7=0b0000001,
-):
-    pass
-
-
-class DMA_CONFIG_CH2(
-    _DMA_CONFIG_CHN,
-    RType,
-    exu=EXU.DMA,
-    opcode=0b1111111,
-    funct3=0b010,
-    funct7=0b0000001,
-):
-    pass
-
-
-class DMA_CONFIG_CH3(
-    _DMA_CONFIG_CHN,
-    RType,
-    exu=EXU.DMA,
-    opcode=0b1111111,
-    funct3=0b011,
-    funct7=0b0000001,
-):
-    pass
-
-
-class DMA_CONFIG_CH4(
-    _DMA_CONFIG_CHN,
-    RType,
-    exu=EXU.DMA,
-    opcode=0b1111111,
-    funct3=0b100,
-    funct7=0b0000001,
-):
-    pass
-
-
-class DMA_CONFIG_CH5(
-    _DMA_CONFIG_CHN,
-    RType,
-    exu=EXU.DMA,
-    opcode=0b1111111,
-    funct3=0b101,
-    funct7=0b0000001,
-):
-    pass
-
-
-class DMA_CONFIG_CH6(
-    _DMA_CONFIG_CHN,
-    RType,
-    exu=EXU.DMA,
-    opcode=0b1111111,
-    funct3=0b110,
-    funct7=0b0000001,
-):
-    pass
-
-
-class DMA_CONFIG_CH7(
-    _DMA_CONFIG_CHN,
-    RType,
-    exu=EXU.DMA,
-    opcode=0b1111111,
-    funct3=0b111,
-    funct7=0b0000001,
-):
-    pass
-
+        state.base = state.read_xrf(self.rs1)
 
 class _DMA_WAIT_CHN(Nullary):
     imm = 1

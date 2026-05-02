@@ -167,20 +167,20 @@ if os.environ.get("NPU_MODEL_ENABLE_IREE_CROSSCHECK", "").lower() in {
 # and ``eps`` constants as 32x16 bf16 tiles (1024 B each).
 # ═══════════════════════════════════════════════════════════════════════════
 
-DRAM_X_H0 = 0x0000  # x's first half (cols 0-15), 1024 B
-DRAM_X_H1 = 0x0400  # x's second half (cols 16-31), 1024 B
-DRAM_INV_DIM = 0x0800  # broadcast 1/dim, 1024 B
-DRAM_EPS = 0x0C00  # broadcast eps, 1024 B
-DRAM_OUT_H0 = 0x1000  # y's first half, 1024 B
-DRAM_OUT_H1 = 0x1400  # y's second half, 1024 B
+DRAM_X_H0 = 0x80000000  # x's first half (cols 0-15), 1024 B
+DRAM_X_H1 = 0x80000400  # x's second half (cols 16-31), 1024 B
+DRAM_INV_DIM = 0x80000800  # broadcast 1/dim, 1024 B
+DRAM_EPS = 0x80000C00  # broadcast eps, 1024 B
+DRAM_OUT_H0 = 0x80001000  # y's first half, 1024 B
+DRAM_OUT_H1 = 0x80001400  # y's second half, 1024 B
 EXPECTED_STACKED = torch.cat((EXPECTED[:, :16], EXPECTED[:, 16:]), dim=0)
 
-VMEM_X_H0 = 0x2000
-VMEM_X_H1 = 0x2400
-VMEM_INV_DIM = 0x2800
-VMEM_EPS = 0x2C00
-VMEM_OUT_H0 = 0x3000
-VMEM_OUT_H1 = 0x3400
+VMEM_X_H0 = 0x20002000
+VMEM_X_H1 = 0x20002400
+VMEM_INV_DIM = 0x20002800
+VMEM_EPS = 0x20002C00
+VMEM_OUT_H0 = 0x20003000
+VMEM_OUT_H1 = 0x20003400
 TILE_BYTES = 1024  # 32 * 16 * 2 (bf16 half)
 
 _x_h0, _x_h1 = INPUT[:, :16].contiguous(), INPUT[:, 16:].contiguous()
@@ -235,7 +235,7 @@ class SmolVLARmsNormProgram(Program):
         (DRAM_EPS, _eps),
     ]
 
-    golden_result: tuple[int, torch.Tensor] = (
+    golden_result: list[tuple[int, torch.Tensor]] = [(
         DRAM_OUT_H0,
         EXPECTED_STACKED,
-    )
+    )]

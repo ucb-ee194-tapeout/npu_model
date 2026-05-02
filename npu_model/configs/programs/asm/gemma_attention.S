@@ -16,23 +16,22 @@
 #   x12 = 2048  (bf16 tile bytes)
 
 # --- Register Setup (VMEM addresses) ---
-li x1, 0x2000           # VMEM_QUERY_BASE
-li x2, 0x2400           # VMEM_KEY_BASE
-li x4, 0x2800           # VMEM_SCALE_BASE
-li x5, 0x3000           # VMEM_OUTPUT_BASE
+lui x1, 0x20002         # VMEM_QUERY_BASE = 0x20002000
+addi x2, x1, 1024       # VMEM_KEY_BASE = 0x20002400
+addi x4, x2, 1024       # VMEM_SCALE_BASE = 0x20002800
+lui x5, 0x20003         # VMEM_OUTPUT_BASE = 0x20003000
 
 # --- Register Setup (DRAM addresses) ---
-addi x6, x0, 0          # DRAM_QUERY_BASE = 0x0000
-addi x7, x0, 1024       # DRAM_KEY_BASE = 0x0400
-li x9, 0x0800           # DRAM_SCALE_BASE
-li x10, 0x1000          # DRAM_OUTPUT_BASE
+lui x6, 0x80000         # DRAM_QUERY_BASE = 0x80000000
+addi x7, x6, 1024       # DRAM_KEY_BASE = 0x80000400
+addi x9, x7, 1024       # DRAM_SCALE_BASE = 0x80000800
+lui x10, 0x80001        # DRAM_OUTPUT_BASE = 0x80001000
 # Byte lengths: fp8 tile (1024) and bf16 tile (2048)
 addi x11, x0, 1024
 li x12, 2048
 
 # --- DRAM -> VMEM ---
-dma.config.ch0 x0
-dma.wait.ch0
+dma.config x0
 dma.load.ch0 x1, x6, x11   # Q tile
 dma.load.ch1 x2, x7, x11   # K tile
 dma.load.ch2 x4, x9, x12   # scale (bf16 tile)

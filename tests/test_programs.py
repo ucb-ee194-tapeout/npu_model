@@ -37,13 +37,12 @@ def test_registered_program_executes(
     if not getattr(program, "golden_result", None):
         return
 
-    output_base, golden_tensor = program.golden_result
-    actual = read_dram_tensor(sim, output_base, golden_tensor)
     rtol, atol = getattr(program, "kernel_tolerance", (1e-2, 1e-2))
-
-    if not torch.allclose(actual.float(), golden_tensor.float(), rtol=rtol, atol=atol):
-        diff = (actual.float() - golden_tensor.float()).abs().max()
-        pytest.fail(
-            f"{program_name} golden check failed: max diff = {diff:.6f}.\n"
-            f"Result = {actual.float()}\nExpected = {golden_tensor}"
-        )
+    for output_base, golden_tensor in program.golden_result:
+        actual = read_dram_tensor(sim, output_base, golden_tensor)
+        if not torch.allclose(actual.float(), golden_tensor.float(), rtol=rtol, atol=atol):
+            diff = (actual.float() - golden_tensor.float()).abs().max()
+            pytest.fail(
+                f"{program_name} golden check failed: max diff = {diff:.6f}.\n"
+                f"Result = {actual.float()}\nExpected = {golden_tensor}"
+            )

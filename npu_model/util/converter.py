@@ -1,11 +1,11 @@
+import torch
 import re
-from typing import TextIO, List, cast
+from typing import TextIO, List
 from pathlib import Path
 
 from ..software.instruction import Instruction, x
 from ..software.program import InstantiableProgram
 from ..isa import IsaSpec
-from ..isa_patterns import InstructionPattern
 from ..configs.isa_definition import ADDI, LUI
 from ..isa_types import ScalarReg
 
@@ -106,12 +106,12 @@ def stream_to_instrs(source: TextIO) -> list[Instruction]:
             try:
                 # mnemonic should be lowercase
                 tokens[0] = tokens[0].lower()
-                instr = cast(InstructionPattern, IsaSpec.operations[mnemonic])
+                instr = IsaSpec.operations[mnemonic]
 
                 if len(err := instr.lint(tokens, labels=list(labels.keys()))) != 0:
                     raise ExceptionGroup(f"Error assembling isntr: {", ".join(tokens)}", err)
 
-                instructions.append(cast(Instruction, instr.from_asm(tokens, resolve)))
+                instructions.append(instr.from_asm(tokens, resolve))
                 pc += 1
             except KeyError:
                 raise ValueError(f"Invalid mnemonic provided: {line}")
@@ -122,5 +122,5 @@ def load_asm(source: Path):
     with open(source) as f:
         return stream_to_instrs(f)
 
-def input_to_program(source: TextIO):
-    return InstantiableProgram(stream_to_instrs(source))
+def input_to_program(source: TextIO, memory_regions: list[tuple[int, torch.Tensor]] = [], golden_result: list[tuple[int, torch.Tensor]] = [], timeout: int | None = 10000):
+    return InstantiableProgram(stream_to_instrs(source), memory_regions, golden_result, timeout)

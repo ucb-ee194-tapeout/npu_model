@@ -14,23 +14,22 @@
 #   x10 = 2048  (bf16 tile bytes)
 
 # --- Register Setup (VMEM addresses) ---
-li x1, 0x2000           # VMEM_GATE_WEIGHT_BASE
-li x2, 0x2400           # VMEM_UP_WEIGHT_BASE
-li x3, 0x2800           # VMEM_ACTIVATION_BASE
-li x4, 0x2C00           # VMEM_OUTPUT_BASE
+lui x1, 0x20002         # VMEM_GATE_WEIGHT_BASE = 0x20002000
+addi x2, x1, 1024       # VMEM_UP_WEIGHT_BASE = 0x20002400
+addi x3, x2, 1024       # VMEM_ACTIVATION_BASE = 0x20002800
+addi x4, x3, 1024       # VMEM_OUTPUT_BASE = 0x20002C00
 
 # --- Register Setup (DRAM addresses) ---
-addi x5, x0, 0          # DRAM_GATE_WEIGHT_BASE = 0x0000
-addi x6, x0, 1024       # DRAM_UP_WEIGHT_BASE   = 0x0400
-li x7, 0x800            # DRAM_ACTIVATION_BASE  = 0x0800
-li x8, 0xC00            # DRAM_OUTPUT_BASE      = 0x0C00
+lui x5, 0x80000         # DRAM_GATE_WEIGHT_BASE = 0x80000000
+addi x6, x5, 1024       # DRAM_UP_WEIGHT_BASE = 0x80000400
+addi x7, x6, 1024       # DRAM_ACTIVATION_BASE = 0x80000800
+addi x8, x7, 1024       # DRAM_OUTPUT_BASE = 0x80000C00
 # Byte lengths
 addi x9, x0, 1024       # fp8 tile bytes  (32*32*1)
 li x10, 2048            # bf16 tile bytes (32*32*2)
 
 # --- DRAM -> VMEM ---
-dma.config.ch0 x0
-dma.wait.ch0
+dma.config x0
 dma.load.ch0 x1, x5, x9    # gate weight tile
 dma.load.ch1 x2, x6, x9    # up weight tile
 dma.load.ch2 x3, x7, x9    # activation tile
