@@ -26,8 +26,7 @@ addi x7, x0, 1024           # x7 = 1024 (transfer size)
 seli e5, 1
 
 # --- DMA: DRAM -> VMEM ---
-dma.config.ch0 x0
-dma.wait.ch0
+dma.config x0
 dma.load.ch0 x1, x4, x7    # X_H0
 dma.load.ch1 x2, x5, x7    # X_H1
 dma.wait.ch0

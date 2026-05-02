@@ -60,7 +60,7 @@ def make_dma_load_visibility_scenario(cfg: DefaultHardwareConfig) -> Scenario:
             ADDI(rd=x(1), rs1=x(1), imm=0x400),
             LUI(rd=x(2), imm=0x80000),
             ADDI(rd=x(3), rs1=x(0), imm=TRANSFER_BYTES),
-            DMA_CONFIG_CH0(rs1=x(0)),
+            DMA_CONFIG(rs1=x(0)),
             DMA_WAIT_CH0(),
             DELAY(imm=1),
             DMA_LOAD_CH0(rd=x(1), rs1=x(2), rs2=x(3)),

@@ -615,7 +615,7 @@ class DMARegUnary(InstructionPattern):
     Instruction pattern for DMA instructions with one scalar register operand.
 
     Matches assembly patterns of the form `instr x(rs1)`. This pattern is
-    used for `dma.config.N`.
+    used for `dma.config`.
 
     Attributes:
         rs1: The source scalar register.

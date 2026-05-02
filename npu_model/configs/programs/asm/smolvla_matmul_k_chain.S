@@ -29,8 +29,7 @@ addi x12, x0, 1024          # x12 = 1024 (fp8 tile bytes)
 addi x13, x12, 1024         # x13 = 2048 (bf16 output bytes)
 
 # --- DMA: DRAM -> VMEM ---
-dma.config.ch0 x0
-dma.wait.ch0
+dma.config x0
 dma.load.ch0 x6, x1, x12   # A_K0
 dma.load.ch1 x8, x3, x12   # B_K0
 dma.wait.ch0

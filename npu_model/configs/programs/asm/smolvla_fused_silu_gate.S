@@ -23,8 +23,7 @@ lui x5, 0x1
 addi x5, x5, -2048          # x5 = 2048 (TILE_BYTES)
 
 # --- DMA: DRAM -> VMEM ---
-dma.config.ch0 x0
-dma.wait.ch0
+dma.config x0
 dma.load.ch0 x1, x3, x5
 dma.wait.ch0
 

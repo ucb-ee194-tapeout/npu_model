@@ -22,8 +22,7 @@ lui x6, 0x80001         # DRAM_OUTPUT_BASE = 0x80001000
 li x7, 2048         # bf16 tile bytes
 
 # --- DRAM -> VMEM ---
-dma.config.ch0 x0
-dma.wait.ch0
+dma.config x0
 dma.load.ch0 x1, x4, x7    # input
 dma.load.ch1 x2, x5, x7    # eps
 dma.wait.ch0

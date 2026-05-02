@@ -27,8 +27,7 @@ lui x15, 0x1                # x15 = 0x1000 = 4096 (tile bytes)
 addi x16, x0, 1024          # x16 = 1024 (scale bytes)
 
 # --- DMA: DRAM -> VMEM ---
-dma.config.ch0 x0
-dma.wait.ch0
+dma.config x0
 dma.load.ch0 x1, x8, x15   # Q
 dma.load.ch1 x2, x9, x15   # KT0
 dma.load.ch2 x3, x10, x15  # KT1

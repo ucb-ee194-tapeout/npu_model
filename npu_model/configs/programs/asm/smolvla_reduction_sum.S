@@ -21,8 +21,7 @@ addi x5, x5, -1280          # x5 = 0x80000B00 DRAM_OUT
 addi x6, x0, 1024           # x6 = 1024 (per-half bytes)
 
 # --- DMA: DRAM -> VMEM ---
-dma.config.ch0 x0
-dma.wait.ch0
+dma.config x0
 addi x7, x1, 1024           # x7 = 0x2400 VMEM_X_H1
 dma.load.ch0 x1, x3, x6    # X_H0
 dma.load.ch1 x7, x4, x6    # X_H1

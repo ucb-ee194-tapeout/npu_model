@@ -24,8 +24,7 @@ lui x7, 0x1
 addi x7, x7, -2048          # x7 = 2048 (TILE_BYTES)
 
 # --- DMA: DRAM -> VMEM ---
-dma.config.ch0 x0
-dma.wait.ch0
+dma.config x0
 dma.load.ch0 x1, x4, x7    # variance
 dma.load.ch1 x2, x5, x7    # matrix
 dma.wait.ch0

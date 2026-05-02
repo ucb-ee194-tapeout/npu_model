@@ -31,8 +31,7 @@ addi x11, x0, 1024
 li x12, 2048
 
 # --- DRAM -> VMEM ---
-dma.config.ch0 x0
-dma.wait.ch0
+dma.config x0
 dma.load.ch0 x1, x6, x11   # Q tile
 dma.load.ch1 x2, x7, x11   # K tile
 dma.load.ch2 x4, x9, x12   # scale (bf16 tile)

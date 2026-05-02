@@ -6,8 +6,7 @@ addi x4, x3, 1024   # x4 = 0x20002400 VMEM_B
 addi x5, x0, 1024   # x5 = 1024 (size)
 
 # --- 2. Configure DMA Channels ---
-dma.config.ch0 x0
-dma.wait.ch0
+dma.config x0
 
 # --- 3. Load thing ---
 dma.load.ch0 x3, x1, x5    # VMEM[x3] <- DRAM[x1], size=x5

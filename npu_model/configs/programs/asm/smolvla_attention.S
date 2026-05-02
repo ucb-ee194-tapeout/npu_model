@@ -43,8 +43,7 @@ addi x13, x12, 1024         # x13 = 0x80001400 DRAM_OUT_H1
 addi x14, x0, 1024          # x14 = 1024 per-half size
 
 # --- DRAM -> VMEM ---
-dma.config.ch0 x0
-dma.wait.ch0
+dma.config x0
 dma.load.ch0 x1, x8, x14   # Q
 dma.load.ch1 x2, x9, x14   # K
 dma.wait.ch0

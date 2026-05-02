@@ -31,8 +31,7 @@ lui x10, 0x1                # x10 = 0x1000
 addi x10, x10, -2048        # x10 = 2048 (bf16 tile bytes)
 
 # --- DMA: DRAM -> VMEM ---
-dma.config.ch0 x0
-dma.wait.ch0
+dma.config x0
 dma.load.ch0 x1, x5, x9    # A fp8
 dma.load.ch1 x2, x6, x9    # B fp8
 dma.wait.ch0

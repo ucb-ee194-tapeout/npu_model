@@ -126,7 +126,7 @@ class ScalarExecutionUnit(ExecutionUnit):
             "sw",
             "seld",
             "vload",
-            "vstore",
+            "vstore"
         }
         return uop.insn.mnemonic not in mem_ops
 

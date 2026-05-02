@@ -64,6 +64,18 @@ function activate(context) {
     "server.py"
   );
 
+  context.subscriptions.push(
+    require("vscode").commands.registerCommand("npu-asm.restartServer", async () => {
+      if (!client) {
+        window.showErrorMessage("NPU Assembly: language server is not running.");
+        return;
+      }
+      await client.stop();
+      client.start();
+      window.showInformationMessage("NPU Assembly: language server restarted.");
+    })
+  );
+
   if (!fs.existsSync(serverScript)) {
     window.showErrorMessage(
       `NPU Assembly: cannot find LSP server at ${serverScript}`
@@ -95,15 +107,6 @@ function activate(context) {
   );
 
   client.start();
-
-  context.subscriptions.push(
-    require("vscode").commands.registerCommand("npu-asm.restartServer", async () => {
-      await client.stop();
-      client.start();
-      window.showInformationMessage("NPU Assembly: language server restarted.");
-    })
-  );
-
   context.subscriptions.push(client);
 }
 

@@ -29,8 +29,7 @@ addi x9, x0, 1024       # fp8 tile bytes  (32*32*1)
 li x10, 2048            # bf16 tile bytes (32*32*2)
 
 # --- DRAM -> VMEM ---
-dma.config.ch0 x0
-dma.wait.ch0
+dma.config x0
 dma.load.ch0 x1, x5, x9    # gate weight tile
 dma.load.ch1 x2, x6, x9    # up weight tile
 dma.load.ch2 x3, x7, x9    # activation tile

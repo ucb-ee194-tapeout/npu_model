@@ -22,8 +22,7 @@ lui x8, 0x1                 # x8 = 0x1000
 addi x8, x8, -2048          # x8 = 2048 (bf16 output bytes)
 
 # --- DMA: DRAM -> VMEM ---
-dma.config.ch0 x0
-dma.wait.ch0
+dma.config x0
 dma.load.ch0 x4, x1, x7    # A
 dma.load.ch1 x5, x2, x7    # B
 dma.wait.ch0

@@ -39,8 +39,7 @@ addi x14, x3, 1024          # x14 = 0x4400 VMEM_EPS_H1
 addi x15, x4, 1024          # x15 = 0x5400 VMEM_OUT_H1
 
 # --- DMA: DRAM -> VMEM ---
-dma.config.ch0 x0
-dma.wait.ch0
+dma.config x0
 dma.load.ch0 x1, x5, x13   # X_H0
 dma.load.ch1 x11, x6, x13  # X_H1
 dma.wait.ch0

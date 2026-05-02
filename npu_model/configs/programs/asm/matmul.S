@@ -18,8 +18,7 @@ addi x3, x2, 1024   # VMEM_OUTPUT_BASE = 0x20002800
 addi x6, x0, 1024   # tile byte length
 
 # --- DRAM -> VMEM ---
-dma.config.ch0 x0
-dma.wait.ch0
+dma.config x0
 dma.load.ch0 x1, x4, x6    # activations -> VMEM[x1]
 dma.load.ch1 x2, x5, x6    # weights -> VMEM[x2]
 dma.wait.ch0

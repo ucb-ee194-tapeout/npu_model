@@ -47,8 +47,7 @@ addi x16, x3, 1024  # x16 = 0x4400 VMEM Csqrt pair
 addi x17, x4, 1024  # x17 = 0x5400 VMEM Chalf pair
 
 # --- DMA: DRAM -> VMEM ---
-dma.config.ch0 x0
-dma.wait.ch0
+dma.config x0
 dma.load.ch0 x1, x6, x13   # x_h0 -> VMEM[x1]
 dma.load.ch1 x14, x7, x13  # x_h1 -> VMEM[x14]
 dma.wait.ch0
