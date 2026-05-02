@@ -13,13 +13,13 @@
 #   (m12, m13) = sigmoid(x)     (m14, m15) = silu(x)
 
 # --- Scalar setup ---
-lui x1, 0x2                 # x1 = 0x2000 VMEM_INPUT
-lui x2, 0x3                 # x2 = 0x3000
-addi x2, x2, -2048          # x2 = 0x2800 VMEM_OUTPUT
-addi x3, x0, 0              # x3 = 0x0000 DRAM_INPUT
-lui x4, 0x1                 # x4 = 0x1000
-addi x4, x4, -2048          # x4 = 0x0800 DRAM_OUTPUT
-lui x5, 0x1                 # x5 = 0x1000
+lui x1, 0x20002             # x1 = 0x20002000 VMEM_INPUT
+lui x2, 0x20003
+addi x2, x2, -2048          # x2 = 0x20002800 VMEM_OUTPUT
+lui x3, 0x80000             # x3 = 0x80000000 DRAM_INPUT
+lui x4, 0x80001
+addi x4, x4, -2048          # x4 = 0x80000800 DRAM_OUTPUT
+lui x5, 0x1
 addi x5, x5, -2048          # x5 = 2048 (TILE_BYTES)
 
 # --- DMA: DRAM -> VMEM ---

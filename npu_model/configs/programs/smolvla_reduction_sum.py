@@ -96,9 +96,9 @@ if os.environ.get("NPU_MODEL_ENABLE_IREE_CROSSCHECK", "").lower() in {
     except ImportError:
         pass
 
-DRAM_X_H0 = 0x0000
-DRAM_X_H1 = 0x0400
-DRAM_OUT = 0x0B00
+DRAM_X_H0 = 0x80000000
+DRAM_X_H1 = 0x80000400
+DRAM_OUT = 0x80000B00
 
 
 # ═══════════════════════════════════════════════════════════════════════════

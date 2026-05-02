@@ -139,10 +139,10 @@ if os.environ.get("NPU_MODEL_ENABLE_IREE_CROSSCHECK", "").lower() in {
 #   [0x1000..0x17FF] output (32x32 bf16 = 2048 B, column-blocked)
 # ═══════════════════════════════════════════════════════════════════════════
 
-DRAM_A = 0x0000
-DRAM_B = 0x0400
-DRAM_BIAS = 0x0800
-DRAM_OUT = 0x1000
+DRAM_A = 0x80000000
+DRAM_B = 0x80000400
+DRAM_BIAS = 0x80000800
+DRAM_OUT = 0x80001000
 FP8_BYTES = 1024
 BF16_BYTES = 2048
 

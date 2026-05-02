@@ -14,19 +14,18 @@
 #   (m8, m9)  = out bf16
 
 # --- Scalar setup: VMEM addresses ---
-lui x1, 0x2                 # x1 = 0x2000 VMEM_A
-lui x2, 0x2                 # x2 = 0x2000
-addi x2, x2, 1024           # x2 = 0x2400 VMEM_B
-lui x3, 0x3                 # x3 = 0x3000
-addi x3, x3, -2048          # x3 = 0x2800 VMEM_BIAS
-lui x4, 0x3                 # x4 = 0x3000 VMEM_OUT
+lui x1, 0x20002             # x1 = 0x20002000 VMEM_A
+addi x2, x1, 1024           # x2 = 0x20002400 VMEM_B
+lui x3, 0x20003
+addi x3, x3, -2048          # x3 = 0x20002800 VMEM_BIAS
+lui x4, 0x20003             # x4 = 0x20003000 VMEM_OUT
 
 # --- Scalar setup: DRAM addresses + transfer sizes ---
-addi x5, x0, 0              # x5 = 0x0000 DRAM_A
-addi x6, x0, 1024           # x6 = 0x0400 DRAM_B
-lui x7, 0x1                 # x7 = 0x1000
-addi x7, x7, -2048          # x7 = 0x0800 DRAM_BIAS
-lui x8, 0x1                 # x8 = 0x1000 DRAM_OUT
+lui x5, 0x80000             # x5 = 0x80000000 DRAM_A
+addi x6, x5, 1024           # x6 = 0x80000400 DRAM_B
+lui x7, 0x80001
+addi x7, x7, -2048          # x7 = 0x80000800 DRAM_BIAS
+lui x8, 0x80001             # x8 = 0x80001000 DRAM_OUT
 addi x9, x0, 1024           # x9 = 1024 (fp8 tile bytes)
 lui x10, 0x1                # x10 = 0x1000
 addi x10, x10, -2048        # x10 = 2048 (bf16 tile bytes)

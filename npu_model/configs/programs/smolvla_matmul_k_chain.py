@@ -119,19 +119,19 @@ if os.environ.get("NPU_MODEL_ENABLE_IREE_CROSSCHECK", "").lower() in {
         pass
 
 # DRAM layout — all per-tile fp8 buffers are 32x32 = 1024 B; output is bf16 = 2048 B.
-DRAM_A_K0 = 0x0000
-DRAM_A_K1 = 0x0400
-DRAM_B_K0 = 0x0800
-DRAM_B_K1 = 0x0C00
-DRAM_OUT = 0x1000
+DRAM_A_K0 = 0x80000000
+DRAM_A_K1 = 0x80000400
+DRAM_B_K0 = 0x80000800
+DRAM_B_K1 = 0x80000C00
+DRAM_OUT = 0x80001000
 
 # VMEM mirrors DRAM layout (distinct address space).
-VMEM_A_K0 = 0x0000
-VMEM_A_K1 = 0x0400
-VMEM_B_K0 = 0x0800
-VMEM_B_K1 = 0x0C00
-VMEM_OUT_H0 = 0x1000
-VMEM_OUT_H1 = 0x1400  # second 32x16 half of the bf16 output tile
+VMEM_A_K0 = 0x20000000
+VMEM_A_K1 = 0x20000400
+VMEM_B_K0 = 0x20000800
+VMEM_B_K1 = 0x20000C00
+VMEM_OUT_H0 = 0x20001000
+VMEM_OUT_H1 = 0x20001400  # second 32x16 half of the bf16 output tile
 
 
 # ═══════════════════════════════════════════════════════════════════════════

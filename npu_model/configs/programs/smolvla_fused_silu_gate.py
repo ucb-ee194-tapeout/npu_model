@@ -118,8 +118,8 @@ if os.environ.get("NPU_MODEL_ENABLE_IREE_CROSSCHECK", "").lower() in {
 # in DRAM (first 1024 B = cols 0:16, next 1024 B = cols 16:32).
 # ═══════════════════════════════════════════════════════════════════════════
 
-DRAM_X_BASE = 0x0000
-DRAM_OUT_BASE = 0x0800
+DRAM_X_BASE = 0x80000000
+DRAM_OUT_BASE = 0x80000800
 TILE_BYTES = 2048
 
 

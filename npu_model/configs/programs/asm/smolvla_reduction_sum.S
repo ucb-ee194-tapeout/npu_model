@@ -12,12 +12,12 @@
 #   (m0, m1) = X   (m4, m5) = row-sum broadcast
 
 # --- Scalar setup ---
-lui x1, 0x2                 # x1 = 0x2000 VMEM_X
-lui x2, 0x3                 # x2 = 0x3000 VMEM_OUT
-addi x3, x0, 0              # x3 = 0x0000 DRAM_X_H0
-addi x4, x3, 1024           # x4 = 0x0400 DRAM_X_H1
-lui x5, 0x1                 # x5 = 0x1000
-addi x5, x5, -1280          # x5 = 0x0B00 DRAM_OUT
+lui x1, 0x20002             # x1 = 0x20002000 VMEM_X
+lui x2, 0x20003             # x2 = 0x20003000 VMEM_OUT
+lui x3, 0x80000             # x3 = 0x80000000 DRAM_X_H0
+addi x4, x3, 1024           # x4 = 0x80000400 DRAM_X_H1
+lui x5, 0x80001
+addi x5, x5, -1280          # x5 = 0x80000B00 DRAM_OUT
 addi x6, x0, 1024           # x6 = 1024 (per-half bytes)
 
 # --- DMA: DRAM -> VMEM ---

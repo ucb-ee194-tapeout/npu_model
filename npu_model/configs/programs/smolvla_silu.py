@@ -119,10 +119,10 @@ EXPECTED = _maybe_crosscheck_with_iree(EXPECTED)
 # 4. Memory layout
 # ═══════════════════════════════════════════════════════════════════════════
 
-DRAM_INPUT_BASE = 0x0000
-DRAM_OUTPUT_BASE = 0x0800
-VMEM_INPUT_BASE = 0x2000
-VMEM_OUTPUT_BASE = 0x2800
+DRAM_INPUT_BASE = 0x80000000
+DRAM_OUTPUT_BASE = 0x80000800
+VMEM_INPUT_BASE = 0x20002000
+VMEM_OUTPUT_BASE = 0x20002800
 TILE_BYTES = 2048  # 32 * 32 * 2 (bf16)
 
 

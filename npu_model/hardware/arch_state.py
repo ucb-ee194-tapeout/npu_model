@@ -342,33 +342,52 @@ class ArchState:
     def write_dram(self, offset: int, data: torch.Tensor) -> None:
         data = data.flatten()
         address = (self.base << 32) | offset
-        end = address + data.numel()
         assert (
-            0 <= address <= end <= self.cfg.dram_size
-        ), f"Memory write out of bounds: [{address}, {end}) exceeds size {self.cfg.dram_size}"
-        self.dram[address:end] = data
+            address >= self.cfg.dram_base
+        ), f"Memory write address 0x{address:x} is below dram_base 0x{self.cfg.dram_base:x}"
+        local = address - self.cfg.dram_base
+        end = local + data.numel()
+        assert (
+            local <= end <= self.cfg.dram_size
+        ), f"Memory write out of bounds: [{local}, {end}) exceeds size {self.cfg.dram_size}"
+        self.dram[local:end] = data
 
     def read_dram(self, offset: int, length: int) -> torch.Tensor:
         address = (self.base << 32) | offset
-        end = address + length
         assert (
-            0 <= address <= end <= self.cfg.dram_size
-        ), f"Memory read out of bounds: [{address}, {end}) exceeds size {self.cfg.dram_size}"
-        return self.dram[address:end]
+            address >= self.cfg.dram_base
+        ), f"Memory read address 0x{address:x} is below dram_base 0x{self.cfg.dram_base:x}"
+        local = address - self.cfg.dram_base
+        end = local + length
+        assert (
+            local <= end <= self.cfg.dram_size
+        ), f"Memory read out of bounds: [{local}, {end}) exceeds size {self.cfg.dram_size}"
+        return self.dram[local:end]
 
     def write_vmem(self, base: int, offset: int, data: torch.Tensor) -> None:
         data = data.flatten()
-        # print(f"Writing {data.numel()} bytes to memory at base {base}")
+        address = base + offset
         assert (
-            base + offset + data.numel() <= self.cfg.vmem_size
-        ), f"Memory write out of bounds: {base} + {data.numel()} > {self.cfg.vmem_size}"
-        self.vmem[base + offset : base + offset + data.numel()] = data
+            address >= self.cfg.vmem_base
+        ), f"Memory write address 0x{address:x} is below vmem_base 0x{self.cfg.vmem_base:x}"
+        local = address - self.cfg.vmem_base
+        end = local + data.numel()
+        assert (
+            local <= end <= self.cfg.vmem_size
+        ), f"Memory write out of bounds: [{local}, {end}) exceeds size {self.cfg.vmem_size}"
+        self.vmem[local:end] = data
 
     def read_vmem(self, base: int, offset: int, length: int) -> torch.Tensor:
+        address = base + offset
         assert (
-            base + offset + length <= self.cfg.vmem_size
-        ), f"Memory read out of bounds: {base} + {length} > {self.cfg.vmem_size}"
-        return self.vmem[base + offset : base + offset + length]
+            address >= self.cfg.vmem_base
+        ), f"Memory read address 0x{address:x} is below vmem_base 0x{self.cfg.vmem_base:x}"
+        local = address - self.cfg.vmem_base
+        end = local + length
+        assert (
+            local <= end <= self.cfg.vmem_size
+        ), f"Memory read out of bounds: [{local}, {end}) exceeds size {self.cfg.vmem_size}"
+        return self.vmem[local:end]
 
     def write_base(self, value: int):
         self.base = value

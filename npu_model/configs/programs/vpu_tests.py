@@ -4,10 +4,10 @@ from npu_model.software.instruction import Instruction
 from npu_model.software.program import Program, ASM_FOLDER
 
 # Memory layout (DRAM is program-loaded; VMEM is scratchpad accessed by vload/vstore)
-DRAM_INPUT_BASE = 0x0000
-DRAM_OUTPUT_BASE = 0x0800
-VMEM_INPUT_BASE = 0x2000
-VMEM_OUTPUT_BASE = 0x2800
+DRAM_INPUT_BASE = 0x80000000
+DRAM_OUTPUT_BASE = 0x80000800
+VMEM_INPUT_BASE = 0x20002000
+VMEM_OUTPUT_BASE = 0x20002800
 
 # Keep the cube input range modest so BF16 stays numerically well-behaved.
 INPUT = torch.linspace(-4.0, 4.0, steps=32 * 32, dtype=torch.bfloat16).reshape(32, 32)

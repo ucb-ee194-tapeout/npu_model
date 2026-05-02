@@ -72,7 +72,7 @@ Examples:
     # Try getting the program internally
     try:
         program: Program = eval(args.program)()
-    except NameError:
+    except NameError, SyntaxError:
         try:
             # If that doesn't work, try opening it as a file and parsing it
             with open(args.program) as p:
@@ -80,6 +80,7 @@ Examples:
                 golden_result: list[tuple[int, torch.Tensor]] = []
                 timeout: int | None = 10000
                 if args.memory != "":
+                    print("wtf2")
                     try:
                         program_data = load_json(Path(args.memory))
                     except (FileNotFoundError, ValueError) as e:
@@ -90,8 +91,7 @@ Examples:
                     timeout = program_data.timeout
 
                 program = input_to_program(p, memory_regions, golden_result, timeout)
-
-        except (FileNotFoundError, ValueError) as e:
+        except (FileNotFoundError, ValueError):
             print(f"Program '{args.program}' not found.")
             print("available options are a path or:")
             print(f"  {', '.join(npu_model.configs.programs.__all__)}")  # type: ignore

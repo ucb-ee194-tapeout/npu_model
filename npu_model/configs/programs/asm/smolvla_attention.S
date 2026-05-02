@@ -25,21 +25,21 @@
 #   x6 = 0x4000 OUT h0      x7 = 0x4400 OUT h1
 
 # --- VMEM addresses ---
-lui x1, 0x2                 # x1 = 0x2000 Q
-addi x2, x1, 1024           # x2 = 0x2400 K
-addi x3, x2, 1024           # x3 = 0x2800 V
-addi x4, x3, 1024           # x4 = 0x2C00 scale h0
-lui x5, 0x3                 # x5 = 0x3000 scale h1
-lui x6, 0x4                 # x6 = 0x4000 OUT h0
-addi x7, x6, 1024           # x7 = 0x4400 OUT h1
+lui x1, 0x20002             # x1 = 0x20002000 Q
+addi x2, x1, 1024           # x2 = 0x20002400 K
+addi x3, x2, 1024           # x3 = 0x20002800 V
+addi x4, x3, 1024           # x4 = 0x20002C00 scale h0
+lui x5, 0x20003             # x5 = 0x20003000 scale h1
+lui x6, 0x20004             # x6 = 0x20004000 OUT h0
+addi x7, x6, 1024           # x7 = 0x20004400 OUT h1
 
 # --- DRAM addresses ---
-addi x8, x0, 0              # x8  = 0x0000 DRAM_Q
-addi x9, x8, 1024           # x9  = 0x0400 DRAM_K
-addi x10, x9, 1024          # x10 = 0x0800 DRAM_V
-addi x11, x10, 1024         # x11 = 0x0C00 DRAM_SCALE
-lui x12, 0x1                # x12 = 0x1000 DRAM_OUT_H0
-addi x13, x12, 1024         # x13 = 0x1400 DRAM_OUT_H1
+lui x8, 0x80000             # x8  = 0x80000000 DRAM_Q
+addi x9, x8, 1024           # x9  = 0x80000400 DRAM_K
+addi x10, x9, 1024          # x10 = 0x80000800 DRAM_V
+addi x11, x10, 1024         # x11 = 0x80000C00 DRAM_SCALE
+lui x12, 0x80001            # x12 = 0x80001000 DRAM_OUT_H0
+addi x13, x12, 1024         # x13 = 0x80001400 DRAM_OUT_H1
 addi x14, x0, 1024          # x14 = 1024 per-half size
 
 # --- DRAM -> VMEM ---
