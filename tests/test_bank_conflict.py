@@ -99,13 +99,11 @@ class _NoAccBufConflictProgram(Program):
     [
         (_MrfConflictProgram(), BankConflictError),
         (_VmemConflictProgram(), BankConflictError),
-        (_WeightBufConflictProgram(), RuntimeError),
         (_AccBufConflictProgram(), RuntimeError),
     ],
     ids=[
         "MrfBankConflict",
         "VmemBankConflict",
-        "WeightBufSchedulingViolation",
         "AccBufSchedulingViolation",
     ],
 )
@@ -119,12 +117,14 @@ def test_conflicting_programs_fail(program: Program, expected_exception) -> None
     [
         _NoMrfConflictProgram(),
         _NoVmemConflictProgram(),
+        _WeightBufConflictProgram(),
         _NoWeightBufConflictProgram(),
         _NoAccBufConflictProgram(),
     ],
     ids=[
         "NoMrfConflict",
         "NoVmemConflict",
+        "WeightPushToMatmulOverlap",
         "NoWeightBufConflict",
         "NoAccBufConflict",
     ],

@@ -72,9 +72,9 @@ delay 34
 
 # --- Matmul 1: scores = Q @ K (push K as weight; activation = Q) ---
 vmatpush.weight.mxu0 w0, m2
-delay 32
+delay 1
 vmatmul.mxu0 acc0, m0, w0
-delay 96
+delay 64
 vmatpop.bf16.acc.mxu0 m10, acc0    # (m10, m11)
 delay 32
 
@@ -103,9 +103,9 @@ delay 66
 
 # --- Matmul 2: out = packed_probs @ V ---
 vmatpush.weight.mxu0 w0, m4
-delay 32
+delay 1
 vmatmul.mxu0 acc0, m26, w0
-delay 96
+delay 64
 vmatpop.bf16.acc.mxu0 m28, acc0    # (m28, m29)
 delay 32
 

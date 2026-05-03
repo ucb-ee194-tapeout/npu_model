@@ -28,7 +28,7 @@ vload m0, 0(x2)
 delay 34
 # Push Temporary MRF 1 -> MXU0 Weight Buffer 1
 vmatpush.weight.mxu0 w0, m0
-delay 32
+
 
 # --- 4. Do unnecessary loads (Overlapped with Matmul) ---
 # We do not need to reconfigure the DMA channels if the base addresses are unchanged
@@ -39,7 +39,7 @@ delay 16
 
 # --- 5. Do matmul ---
 vmatmul.mxu0 acc0, m1, w0
-delay 96 # TODO - verify delays
+delay 64 # TODO - verify delays
 # FIXME: I'm like, not at all sure how erf is supposed to work with exponent register
 # the temp fix is to just assume that we need to set it to 1 manually.
 seli e0, 1 

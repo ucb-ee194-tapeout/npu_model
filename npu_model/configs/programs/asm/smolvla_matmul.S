@@ -37,9 +37,9 @@ delay 34
 
 # --- fp8 matmul via MXU ---
 vmatpush.weight.mxu0 w0, m1
-delay 32
+
 vmatmul.mxu0 acc0, m0, w0
-delay 96
+delay 64
 vmatpop.bf16.acc.mxu0 m2, acc0     # (m2, m3) = C bf16
 delay 32
 

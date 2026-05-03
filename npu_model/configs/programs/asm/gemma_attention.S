@@ -52,9 +52,9 @@ delay 34
 
 # --- Push K to WB slot 0, compute scores = Q @ K, pop bf16 ---
 vmatpush.weight.mxu0 w0, m1
-delay 32
+delay 1
 vmatmul.mxu0 acc0, m0, w0
-delay 96
+delay 64
 vmatpop.bf16.acc.mxu0 m4, acc0     # scores -> m4/m5
 delay 32
 
