@@ -10,15 +10,19 @@
 #   x6 = 1024  (tile byte length)
 
 # --- Register Setup ---
-lui x4, 0x80000     # DRAM_ACTIVATION_BASE = 0x80000000
-addi x5, x4, 1024   # DRAM_WEIGHT_BASE = 0x80000400
-lui x1, 0x20002     # VMEM_ACTIVATION_BASE = 0x20002000
-addi x2, x1, 1024   # VMEM_WEIGHT_BASE = 0x20002400
-addi x3, x2, 1024   # VMEM_OUTPUT_BASE = 0x20002800
+lui x4, 0x80000  # DRAM_ACTIVATION_BASE = 0x0000
+lui x5, 0x80000  # DRAM_WEIGHT_BASE = 0x0400
+addi x5, x5, 1024
+li x1, 0x2000       # VMEM_ACTIVATION_BASE
+li x2, 0x2400       # VMEM_WEIGHT_BASE
+li x3, 0x2800       # VMEM_OUTPUT_BASE
+# Note: 0x800 is -2048 in signed 12-bit, so 0x2800 = lui 3 + addi -2048
 addi x6, x0, 1024   # tile byte length
 
 # --- DRAM -> VMEM ---
 dma.config x0
+
+dma.wait.ch0
 dma.load.ch0 x1, x4, x6    # activations -> VMEM[x1]
 dma.load.ch1 x2, x5, x6    # weights -> VMEM[x2]
 dma.wait.ch0
@@ -47,7 +51,7 @@ vstore m3, 32(x3)
 delay 34
 
 # --- VMEM -> DRAM ---
-# DRAM_OUTPUT_BASE = 0x80000800: LUI 0x80001 (0x80001000) + ADDI -2048 = 0x80000800
+# DRAM_OUTPUT_BASE = 0x0800: LUI 1 (0x1000) + ADDI -2048 = 0x0800
 lui x10, 0x80001
 addi x10, x10, -2048        # x10 = 0x0800 (DRAM output, first half)
 addi x11, x10, 1024         # x11 = 0x0C00 (DRAM output, second half)

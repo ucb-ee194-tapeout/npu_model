@@ -9,15 +9,17 @@
 #   (m0, m1) = X    (m2, m3) = cos(X)
 
 # --- Scalar setup ---
-lui x1, 0x20002             # x1 = 0x20002000 VMEM_X
-lui x4, 0x80000             # x4 = 0x80000000 DRAM_X
-lui x5, 0x80001
-addi x5, x5, -1280          # x5 = 0x80000B00 DRAM_OUT
-lui x6, 0x1
+lui x1, 0x2                 # x1 = 0x2000 VMEM_X
+lui x4, 0x80000  # x4 = 0x0000 DRAM_X
+lui x5, 0x80001  # x5 = 0x1000
+addi x5, x5, -1280          # x5 = 0x0B00 DRAM_OUT
+lui x6, 0x1                 # x6 = 0x1000
 addi x6, x6, -2048          # x6 = 2048 (TILE_BYTES)
 
 # --- DMA: DRAM -> VMEM ---
 dma.config x0
+
+dma.wait.ch0
 dma.load.ch0 x1, x4, x6
 dma.wait.ch0
 

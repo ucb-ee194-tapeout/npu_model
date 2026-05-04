@@ -11,26 +11,31 @@
 #   x12 = DRAM_OUT_H1 = 0x1000    x13 = 1024 (per-half size)
 
 # --- Scalar setup: VMEM addresses ---
-lui x1, 0x20002             # x1 = 0x20002000 VMEM_A_H0
-addi x2, x1, 1024           # x2 = 0x20002400 VMEM_A_H1
-addi x3, x2, 1024           # x3 = 0x20002800 VMEM_B_H0
-addi x4, x3, 1024           # x4 = 0x20002C00 VMEM_B_H1
-lui x5, 0x20003             # x5 = 0x20003000 VMEM_OUT_H0
-addi x6, x5, 1024           # x6 = 0x20003400 VMEM_OUT_H1
+lui x1, 2                   # x1 = 0x2000 VMEM_A_H0
+addi x2, x1, 1024           # x2 = 0x2400 VMEM_A_H1
+addi x3, x2, 1024           # x3 = 0x2800 VMEM_B_H0
+addi x4, x3, 1024           # x4 = 0x2C00 VMEM_B_H1
+lui x5, 3                   # x5 = 0x3000 VMEM_OUT_H0
+addi x6, x5, 1024           # x6 = 0x3400 VMEM_OUT_H1
 
 # --- Scalar setup: DRAM addresses + transfer size ---
-lui x7, 0x80000             # x7  = 0x80000000 DRAM_A_H0
-addi x8, x7, 1024           # x8  = 0x80000400 DRAM_A_H1
-addi x9, x8, 1024           # x9  = 0x80000800 DRAM_B_H0
-addi x10, x9, 1024          # x10 = 0x80000C00 DRAM_B_H1
-lui x11, 0x80001            # x11 = 0x80001000
-addi x11, x11, -1024        # x11 = 0x80000C00 DRAM_OUT_H0 (= B_H1, overwritten after load)
+lui x7, 0x80000  # x7  = 0x0000 DRAM_A_H0
+lui x8, 0x80000  # x8  = 0x0400 DRAM_A_H1
+addi x8, x8, 1024
+addi x9, x8, 1024           # x9  = 0x0800 DRAM_B_H0
+addi x10, x9, 1024          # x10 = 0x0C00 DRAM_B_H1
+lui x11, 0x80001  # x11 = 0x1000
+addi x11, x11, -1024        # x11 = 0x0C00 DRAM_OUT_H0 (= B_H1, overwritten after load)
 addi x12, x11, 1024         # x12 = 0x1000 DRAM_OUT_H1
 addi x13, x0, 1024          # x13 = 1024 per-half size
 
 # --- DMA: DRAM -> VMEM ---
 dma.config x0
-dma.config x0
+
+dma.config.ch1 x0
+
+dma.wait.ch0
+dma.wait.ch1
 dma.load.ch0 x1, x7, x13   # A_H0 -> VMEM[x1]
 dma.load.ch1 x2, x8, x13   # A_H1 -> VMEM[x2]
 dma.wait.ch0

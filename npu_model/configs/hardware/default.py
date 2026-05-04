@@ -18,7 +18,7 @@ class DefaultHardwareConfig(HardwareConfig):
         num_wb_registers=2,
         dram_base=0x80000000,
         dram_size=1 * 1024 * 1024 * 1024,  # 1 GiB default simulation aperture
-        vmem_base=0x20000000,
+        vmem_base=0,
         vmem_size=1024 * 1024,
     )
     mxu0_matmul_latency_cycles: int = 32
@@ -55,6 +55,6 @@ class FullDramHardwareConfig(DefaultHardwareConfig):
         num_wb_registers=2,
         dram_base=0x80000000,
         dram_size=16 * 1024 * 1024 * 1024,
-        vmem_base=0x20000000,
+        vmem_base=0,
         vmem_size=1024 * 1024,
     )

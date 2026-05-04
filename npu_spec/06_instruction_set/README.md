@@ -341,8 +341,8 @@ Rows are ordered by hex value.
 | `vtanh.bf16`             | `VR`     | `1010111` |                         | `1001011`        | `57/4B`    | Vector Tanh                       | `{m[vd], m[vd+1]} = bf16_tanh({m[vs1], m[vs1+1]});` |
 | `vlog2.bf16`             | `VR`     | `1010111` |                         | `1001100`        | `57/4C`    | Vector log2                       | `{m[vd], m[vd+1]} = bf16_log2({m[vs1], m[vs1+1]});` |
 | `vsqrt.bf16`             | `VR`     | `1010111` |                         | `1001101`        | `57/4D`    | Vector sqrt                       | `{m[vd], m[vd+1]} = bf16_sqrt({m[vs1], m[vs1+1]});` |
-| `vsquare.bf16`           | `VR`     | `1010111` |                         | `1001110`        | `57/4E`    | Vector Square                     | `{m[vd], m[vd+1]} = {m[vs1], m[vs1+1]} * {m[vs1], m[vs1+1]};` |
-| `vcube.bf16`             | `VR`     | `1010111` |                         | `1001111`        | `57/4F`    | Vector Cube                       | `{m[vd], m[vd+1]} = {m[vs1], m[vs1+1]} ** 3;` |
+| `vsquare.bf16`           | `VR`     | `1010111` |                         | `1000110`        | `57/4E`    | Vector Square                     | `{m[vd], m[vd+1]} = {m[vs1], m[vs1+1]} * {m[vs1], m[vs1+1]};` |
+| `vcube.bf16`             | `VR`     | `1010111` |                         | `1000111`        | `57/4F`    | Vector Cube                       | `{m[vd], m[vd+1]} = {m[vs1], m[vs1+1]} ** 3;` |
 | `vli.all`                | `VI`     | `1011111` | `000`                   |                  | `5F/0`     | Vector Load Immediate             | `m[vd][:] = imm;` |
 | `vli.row`                | `VI`     | `1011111` | `001`                   |                  | `5F/1`     | Vector Load Immediate             | `m[vd][0, :] = imm;` |
 | `vli.col`                | `VI`     | `1011111` | `010`                   |                  | `5F/2`     | Vector Load Immediate             | `m[vd][:, 0] = imm;` |

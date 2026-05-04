@@ -96,11 +96,11 @@ class IType[RD: (ScalarReg, ExponentReg) = ScalarReg, IMM: (Imm12, SBImm12) = Im
 
     def to_bytecode(self):
         rd = self.rd if hasattr(self, 'rd') else 0
-        rd = self.imm if hasattr(self, 'imm') else 0
+        imm = self.imm if hasattr(self, 'imm') else 0
         rd_b = _mask(rd, 5)
         rs1_b = _mask(self.rs1, 5)
         opcode_b = _mask(self.opcode, 7)
-        imm_b = _mask(self.imm, 12)
+        imm_b = _mask(imm, 12)
         funct3_b = _mask(self.funct3, 3)
 
         return (imm_b << 20) | (rs1_b << 15) | (funct3_b << 12) | (rd_b << 7) | opcode_b

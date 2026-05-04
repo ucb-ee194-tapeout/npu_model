@@ -11,18 +11,18 @@
 #   x7 = 2048  (bf16 tile bytes)
 
 # --- Register Setup ---
-lui x1, 0x20002         # VMEM_INPUT_BASE = 0x20002000
-lui x2, 0x20003
-addi x2, x2, -2048      # VMEM_EPS_BASE = 0x20002800
-lui x3, 0x20003         # VMEM_OUTPUT_BASE = 0x20003000
-lui x4, 0x80000         # DRAM_INPUT_BASE = 0x80000000
-lui x5, 0x80001
-addi x5, x5, -2048      # DRAM_EPS_BASE = 0x80000800
-lui x6, 0x80001         # DRAM_OUTPUT_BASE = 0x80001000
+li x1, 0x2000       # VMEM_INPUT_BASE
+li x2, 0x2800       # VMEM_EPS_BASE
+li x3, 0x3000       # VMEM_OUTPUT_BASE
+lui x4, 0x80000  # DRAM_INPUT_BASE = 0x0000
+li x5, 0x80000800  # DRAM_EPS_BASE
+li x6, 0x80001000  # DRAM_OUTPUT_BASE
 li x7, 2048         # bf16 tile bytes
 
 # --- DRAM -> VMEM ---
 dma.config x0
+
+dma.wait.ch0
 dma.load.ch0 x1, x4, x7    # input
 dma.load.ch1 x2, x5, x7    # eps
 dma.wait.ch0

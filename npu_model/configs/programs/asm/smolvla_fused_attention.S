@@ -7,28 +7,29 @@
 #   Sizes: x15=4096 (tile bytes)  x16=1024 (scale bytes)
 
 # --- Scalar setup: VMEM addresses ---
-lui x1, 0x20008             # x1  = 0x20008000 VMEM_Q
-lui x2, 0x20009             # x2  = 0x20009000 VMEM_KT0
-lui x3, 0x2000A             # x3  = 0x2000A000 VMEM_KT1
-lui x4, 0x2000B             # x4  = 0x2000B000 VMEM_VT0
-lui x5, 0x2000C             # x5  = 0x2000C000 VMEM_VT1
-lui x6, 0x2000D             # x6  = 0x2000D000 VMEM_SCALE
-lui x7, 0x2000E             # x7  = 0x2000E000 VMEM_OUT
+lui x1, 0x8                 # x1  = 0x8000 VMEM_Q
+lui x2, 0x9                 # x2  = 0x9000 VMEM_KT0
+lui x3, 0xA                 # x3  = 0xA000 VMEM_KT1
+lui x4, 0xB                 # x4  = 0xB000 VMEM_VT0
+lui x5, 0xC                 # x5  = 0xC000 VMEM_VT1
+lui x6, 0xD                 # x6  = 0xD000 VMEM_SCALE
+lui x7, 0xE                 # x7  = 0xE000 VMEM_OUT
 
 # --- Scalar setup: DRAM addresses + transfer sizes ---
-lui x8, 0x80000             # x8  = 0x80000000 DRAM_Q
-lui x9, 0x80001             # x9  = 0x80001000 DRAM_KT0
-lui x10, 0x80002            # x10 = 0x80002000 DRAM_KT1
-lui x11, 0x80003            # x11 = 0x80003000 DRAM_VT0
-lui x12, 0x80004            # x12 = 0x80004000 DRAM_VT1
-lui x13, 0x80005            # x13 = 0x80005000 DRAM_SCALE
-lui x14, 0x80006            # x14 = 0x80006000 DRAM_OUT
+lui x9, 0x80001  # x9  = 0x1000 DRAM_KT0
+lui x10, 0x80002  # x10 = 0x2000 DRAM_KT1
+lui x11, 0x80003  # x11 = 0x3000 DRAM_VT0
+lui x12, 0x80004  # x12 = 0x4000 DRAM_VT1
+lui x13, 0x80005  # x13 = 0x5000 DRAM_SCALE
+lui x14, 0x80006  # x14 = 0x6000 DRAM_OUT
 lui x15, 0x1                # x15 = 0x1000 = 4096 (tile bytes)
 addi x16, x0, 1024          # x16 = 1024 (scale bytes)
 
 # --- DMA: DRAM -> VMEM ---
 dma.config x0
-dma.load.ch0 x1, x8, x15   # Q
+
+dma.wait.ch0
+dma.load.ch0 x1, x31, x15   # Q
 dma.load.ch1 x2, x9, x15   # KT0
 dma.load.ch2 x3, x10, x15  # KT1
 dma.load.ch3 x4, x11, x15  # VT0

@@ -24,21 +24,21 @@
 #   (m26, m27) = GELU(x)
 
 # --- Scalar setup: VMEM addresses ---
-lui x1, 0x20002     # VMEM_X = 0x20002000
-lui x2, 0x20003     # VMEM_C044 = 0x20003000
-lui x3, 0x20004     # VMEM_CSQRT = 0x20004000
-lui x4, 0x20005     # VMEM_CHALF = 0x20005000
-lui x5, 0x20006     # VMEM_OUT = 0x20006000
+li x1, 0x2000       # VMEM_X
+li x2, 0x3000       # VMEM_C044
+li x3, 0x4000       # VMEM_CSQRT
+li x4, 0x5000       # VMEM_CHALF
+li x5, 0x6000       # VMEM_OUT
 
 # --- Scalar setup: DRAM addresses + transfer size ---
-lui x6, 0x80000     # DRAM_X_H0 = 0x80000000
-addi x7, x6, 1024   # DRAM_X_H1 = 0x80000400
-addi x8, x7, 1024   # DRAM_C044 = 0x80000800
-addi x9, x8, 1024   # DRAM_CSQRT = 0x80000C00
-lui x10, 0x80001    # DRAM_CHALF = 0x80001000
-addi x11, x10, 1024 # DRAM_OUT_H0 = 0x80001400
-addi x12, x11, 1024 # DRAM_OUT_H1 = 0x80001800
-addi x13, x0, 1024  # tile bytes
+li x6, 0x80000000  # DRAM_X_H0
+li x7, 0x80000400  # DRAM_X_H1
+li x8, 0x80000800  # DRAM_C044
+li x9, 0x80000c00  # DRAM_CSQRT
+li x10, 0x80001000  # DRAM_CHALF
+li x11, 0x80001400  # DRAM_OUT_H0
+li x12, 0x80001800  # DRAM_OUT_H1
+li x13, 1024        # tile bytes
 
 # --- Secondary VMEM offsets for second halves of each pair ---
 addi x14, x1, 1024  # x14 = 0x2400 VMEM x_h1
@@ -48,6 +48,8 @@ addi x17, x4, 1024  # x17 = 0x5400 VMEM Chalf pair
 
 # --- DMA: DRAM -> VMEM ---
 dma.config x0
+
+dma.wait.ch0
 dma.load.ch0 x1, x6, x13   # x_h0 -> VMEM[x1]
 dma.load.ch1 x14, x7, x13  # x_h1 -> VMEM[x14]
 dma.wait.ch0

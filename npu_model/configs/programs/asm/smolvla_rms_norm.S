@@ -18,18 +18,18 @@
 #   (m14, m15) = sqrt(mean + eps)
 
 # --- Scalar setup: VMEM addresses ---
-lui x1, 0x20002             # x1 = 0x20002000 VMEM_X
-lui x2, 0x20003             # x2 = 0x20003000 VMEM_INV_DIM
-lui x3, 0x20004             # x3 = 0x20004000 VMEM_EPS
-lui x4, 0x20005             # x4 = 0x20005000 VMEM_OUT
+lui x1, 0x2                 # x1 = 0x2000 VMEM_X
+lui x2, 0x3                 # x2 = 0x3000 VMEM_INV_DIM
+lui x3, 0x4                 # x3 = 0x4000 VMEM_EPS
+lui x4, 0x5                 # x4 = 0x5000 VMEM_OUT
 
 # --- Scalar setup: DRAM addresses ---
-lui x5, 0x80000             # x5  = 0x80000000 DRAM_X_H0
-addi x6, x5, 1024           # x6  = 0x80000400 DRAM_X_H1
-addi x7, x6, 1024           # x7  = 0x80000800 DRAM_INV_DIM
-addi x8, x7, 1024           # x8  = 0x80000C00 DRAM_EPS
-lui x9, 0x80001             # x9  = 0x80001000 DRAM_OUT_H0
-addi x10, x9, 1024          # x10 = 0x80001400 DRAM_OUT_H1
+lui x5, 0x80000  # x5  = 0x0000 DRAM_X_H0
+addi x6, x5, 1024           # x6  = 0x0400 DRAM_X_H1
+addi x7, x6, 1024           # x7  = 0x0800 DRAM_INV_DIM
+addi x8, x7, 1024           # x8  = 0x0C00 DRAM_EPS
+lui x9, 0x80001  # x9  = 0x1000 DRAM_OUT_H0
+addi x10, x9, 1024          # x10 = 0x1400 DRAM_OUT_H1
 addi x13, x0, 1024          # x13 = 1024 (per-half bytes)
 
 # --- Secondary VMEM offsets (second half of each pair) ---
@@ -40,6 +40,8 @@ addi x15, x4, 1024          # x15 = 0x5400 VMEM_OUT_H1
 
 # --- DMA: DRAM -> VMEM ---
 dma.config x0
+
+dma.wait.ch0
 dma.load.ch0 x1, x5, x13   # X_H0
 dma.load.ch1 x11, x6, x13  # X_H1
 dma.wait.ch0

@@ -71,8 +71,10 @@ Examples:
 
     # Try getting the program internally
     try:
+        if args.program.startswith(".") or args.program.startswith("/"):
+            raise NameError("This is a path")
         program: Program = eval(args.program)()
-    except NameError, SyntaxError:
+    except NameError:
         try:
             # If that doesn't work, try opening it as a file and parsing it
             with open(args.program) as p:

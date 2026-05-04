@@ -17,8 +17,8 @@ from tests.helpers import run_simulation
 
 
 TRANSFER_BYTES = 1024
-VMEM_SRC_BASE = 0x20000000
-VMEM_DST_BASE = 0x20000400
+VMEM_SRC_BASE = 0x00000000
+VMEM_DST_BASE = 0x00000400
 DRAM_SRC_BASE = 0x80000000
 
 STALE_WORD = 0x11223344
@@ -56,12 +56,11 @@ def make_dma_load_visibility_scenario(cfg: DefaultHardwareConfig) -> Scenario:
     fresh_tile = repeated_word_bytes(FRESH_WORD, TRANSFER_BYTES)
 
     instrs: list[Instruction] = [
-            LUI(rd=x(1), imm=0x20000),
+            LUI(rd=x(1), imm=0x00000),
             ADDI(rd=x(1), rs1=x(1), imm=0x400),
             LUI(rd=x(2), imm=0x80000),
             ADDI(rd=x(3), rs1=x(0), imm=TRANSFER_BYTES),
-            DMA_CONFIG(rs1=x(0)),
-            DMA_WAIT_CH0(),
+            DMA_CONFIG_CH0(rs1=x(0)),
             DELAY(imm=1),
             DMA_LOAD_CH0(rd=x(1), rs1=x(2), rs2=x(3)),
             LW(rd=x(10), imm=0, rs1=x(1)),
@@ -94,8 +93,8 @@ def make_vstore_visibility_scenario(cfg: DefaultHardwareConfig) -> Scenario:
     fresh_tile = repeated_word_bytes(FRESH_WORD, TRANSFER_BYTES)
 
     instrs: list[Instruction] = [
-        LUI(rd=x(1), imm=0x20000),
-        LUI(rd=x(2), imm=0x20000),
+        LUI(rd=x(1), imm=0x00000),
+        LUI(rd=x(2), imm=0x00000),
         ADDI(rd=x(2), rs1=x(2), imm=0x400),
         ADDI(rd=x(10), rs1=x(0), imm=0),
         VLOAD(vd=m(0), imm=0, rs1=x(1)),

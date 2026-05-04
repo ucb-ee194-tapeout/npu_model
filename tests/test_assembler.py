@@ -36,7 +36,7 @@ def test_dma_config_and_wait_parse_correctly() -> None:
     )
 
     config = program.instructions[0]
-    assert isinstance(config, DMA_CONFIG)
+    assert isinstance(config, DMA_CONFIG_CH0)
     assert config.rs1 == 7
     assert isinstance(program.instructions[1], DMA_WAIT_CH1)
 

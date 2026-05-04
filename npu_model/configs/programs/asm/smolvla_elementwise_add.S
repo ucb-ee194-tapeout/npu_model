@@ -11,12 +11,12 @@
 #   x7 = 2048  (TILE_BYTES)
 
 # --- Scalar setup: VMEM / DRAM addresses + transfer size ---
-lui x1, 0x20004             # x1 = VMEM_A = 0x20004000
-lui x2, 0x20005             # x2 = VMEM_B = 0x20005000
-lui x3, 0x20006             # x3 = VMEM_OUT = 0x20006000
-lui x4, 0x80000             # x4 = DRAM_A = 0x80000000
-lui x5, 0x80001             # x5 = DRAM_B = 0x80001000
-lui x6, 0x80002             # x6 = DRAM_OUT = 0x80002000
+lui x1, 0x4                 # x1 = VMEM_A = 0x4000
+lui x2, 0x5                 # x2 = VMEM_B = 0x5000
+lui x3, 0x6                 # x3 = VMEM_OUT = 0x6000
+lui x4, 0x80000  # x4 = DRAM_A = 0x0000
+lui x5, 0x80001  # x5 = DRAM_B = 0x1000
+lui x6, 0x80002  # x6 = DRAM_OUT = 0x2000
 # Transfer size = 2048 (= 0x800). Split via lui + addi because
 # 2048 exceeds the signed 12-bit addi immediate range.
 lui x7, 0x1                 # x7 = 0x1000
@@ -24,6 +24,8 @@ addi x7, x7, -2048          # x7 = 2048
 
 # --- DMA: DRAM -> VMEM (channels 0 and 1 in parallel) ---
 dma.config x0
+
+dma.wait.ch0
 dma.load.ch0 x1, x4, x7    # VMEM[x1] <- DRAM[x4]
 dma.load.ch1 x2, x5, x7    # VMEM[x2] <- DRAM[x5]
 dma.wait.ch0

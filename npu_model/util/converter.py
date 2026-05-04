@@ -6,7 +6,7 @@ from pathlib import Path
 from ..software.instruction import Instruction, x
 from ..software.program import InstantiableProgram
 from ..isa import IsaSpec
-from ..configs.isa_definition import ADDI, LUI
+from ..configs.isa_definition import ADDI, LUI, DMA_CONFIG_CH0
 from ..isa_types import ScalarReg
 
 def parse_reg(s: str):
@@ -81,7 +81,7 @@ def stream_to_instrs(source: TextIO) -> list[Instruction]:
 
     def resolve(s: str):
         if s in labels:
-            return (labels[s] - pc) * 4
+            return (labels[s] - pc) * 2
         return int(s, 0)
 
     for line in lines:
@@ -102,6 +102,9 @@ def stream_to_instrs(source: TextIO) -> list[Instruction]:
             e = expand_li(parse_reg(tokens[1]), int(tokens[2], 0))
             instructions.extend(e)
             pc += len(e)
+        elif mnemonic == "dma.config" and len(tokens) == 2:
+            instructions.append(DMA_CONFIG_CH0(ScalarReg(tokens[1])))
+            pc +=1
         else:
             try:
                 # mnemonic should be lowercase
