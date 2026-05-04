@@ -22,17 +22,18 @@ li x4, 0x2800           # VMEM_SCALE_BASE
 li x5, 0x3000           # VMEM_OUTPUT_BASE
 
 # --- Register Setup (DRAM addresses) ---
-addi x6, x0, 0          # DRAM_QUERY_BASE = 0x0000
-addi x7, x0, 1024       # DRAM_KEY_BASE = 0x0400
-li x9, 0x0800           # DRAM_SCALE_BASE
-li x10, 0x1000          # DRAM_OUTPUT_BASE
+lui x6, 0x80000  # DRAM_QUERY_BASE = 0x0000
+lui x7, 0x80000  # DRAM_KEY_BASE = 0x0400
+addi x7, x7, 1024
+li x9, 0x80000800  # DRAM_SCALE_BASE
+li x10, 0x80001000  # DRAM_OUTPUT_BASE
 # Byte lengths: fp8 tile (1024) and bf16 tile (2048)
 addi x11, x0, 1024
 li x12, 2048
 
 # --- DRAM -> VMEM ---
-dma.config.ch0 x0
-dma.wait.ch0
+dma.config x0
+
 dma.load.ch0 x1, x6, x11   # Q tile
 dma.load.ch1 x2, x7, x11   # K tile
 dma.load.ch2 x4, x9, x12   # scale (bf16 tile)

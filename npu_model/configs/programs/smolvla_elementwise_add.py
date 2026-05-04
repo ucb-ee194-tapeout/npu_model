@@ -119,12 +119,12 @@ if os.environ.get("NPU_MODEL_ENABLE_IREE_CROSSCHECK", "").lower() in {
 # reading the output as [32, 32] row-major recovers the arithmetic sum.
 # ═══════════════════════════════════════════════════════════════════════════
 
-DRAM_A_BASE = 0x0000
-DRAM_B_BASE = 0x1000
-DRAM_OUTPUT_BASE = 0x2000
-VMEM_A_BASE = 0x4000
-VMEM_B_BASE = 0x5000
-VMEM_OUTPUT_BASE = 0x6000
+DRAM_A_BASE = 0x80000000
+DRAM_B_BASE = 0x80001000
+DRAM_OUTPUT_BASE = 0x80002000
+VMEM_A_BASE = 0x20004000
+VMEM_B_BASE = 0x20005000
+VMEM_OUTPUT_BASE = 0x20006000
 TILE_BYTES = 2048  # 32 * 32 * 2 (bf16)
 
 
@@ -146,7 +146,7 @@ class SmolVLAElementwiseAddProgram(Program):
         (DRAM_B_BASE, INPUT_B),
     ]
 
-    golden_result: tuple[int, torch.Tensor] = (
+    golden_result: list[tuple[int, torch.Tensor]] = [(
         DRAM_OUTPUT_BASE,
         EXPECTED,
-    )
+    )]

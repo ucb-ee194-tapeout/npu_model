@@ -34,16 +34,17 @@ lui x6, 0x4                 # x6 = 0x4000 OUT h0
 addi x7, x6, 1024           # x7 = 0x4400 OUT h1
 
 # --- DRAM addresses ---
-addi x8, x0, 0              # x8  = 0x0000 DRAM_Q
+lui x8, 0x80000  # x8  = 0x0000 DRAM_Q
 addi x9, x8, 1024           # x9  = 0x0400 DRAM_K
 addi x10, x9, 1024          # x10 = 0x0800 DRAM_V
 addi x11, x10, 1024         # x11 = 0x0C00 DRAM_SCALE
-lui x12, 0x1                # x12 = 0x1000 DRAM_OUT_H0
+lui x12, 0x80001  # x12 = 0x1000 DRAM_OUT_H0
 addi x13, x12, 1024         # x13 = 0x1400 DRAM_OUT_H1
 addi x14, x0, 1024          # x14 = 1024 per-half size
 
 # --- DRAM -> VMEM ---
-dma.config.ch0 x0
+dma.config x0
+
 dma.wait.ch0
 dma.load.ch0 x1, x8, x14   # Q
 dma.load.ch1 x2, x9, x14   # K

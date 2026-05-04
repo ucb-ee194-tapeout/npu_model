@@ -80,10 +80,10 @@ if os.environ.get("NPU_MODEL_ENABLE_IREE_CROSSCHECK", "").lower() in {
     except ImportError:
         pass
 
-DRAM_X_H0 = 0x0000
-DRAM_X_H1 = 0x0400
-DRAM_OUT_H0 = 0x0B00
-DRAM_OUT_H1 = 0x0F00
+DRAM_X_H0 = 0x80000000
+DRAM_X_H1 = 0x80000400
+DRAM_OUT_H0 = 0x80000B00
+DRAM_OUT_H1 = 0x80000F00
 EXPECTED_STACKED = torch.cat((EXPECTED[:, :16], EXPECTED[:, 16:]), dim=0)
 
 
@@ -121,7 +121,7 @@ class SmolVLASoftmaxProgram(Program):
         (DRAM_X_H1, INPUT[:, 16:].contiguous()),
     ]
 
-    golden_result: tuple[int, torch.Tensor] = (
+    golden_result: list[tuple[int, torch.Tensor]] = [(
         DRAM_OUT_H0,
         EXPECTED_STACKED,
-    )
+    )]

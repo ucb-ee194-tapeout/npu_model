@@ -14,13 +14,14 @@
 li x1, 0x2000       # VMEM_INPUT_BASE
 li x2, 0x2800       # VMEM_EPS_BASE
 li x3, 0x3000       # VMEM_OUTPUT_BASE
-addi x4, x0, 0     # DRAM_INPUT_BASE = 0x0000
-li x5, 0x800        # DRAM_EPS_BASE
-li x6, 0x1000       # DRAM_OUTPUT_BASE
+lui x4, 0x80000  # DRAM_INPUT_BASE = 0x0000
+li x5, 0x80000800  # DRAM_EPS_BASE
+li x6, 0x80001000  # DRAM_OUTPUT_BASE
 li x7, 2048         # bf16 tile bytes
 
 # --- DRAM -> VMEM ---
-dma.config.ch0 x0
+dma.config x0
+
 dma.wait.ch0
 dma.load.ch0 x1, x4, x7    # input
 dma.load.ch1 x2, x5, x7    # eps

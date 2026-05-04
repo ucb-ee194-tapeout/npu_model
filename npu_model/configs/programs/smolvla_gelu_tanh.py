@@ -121,13 +121,13 @@ if os.environ.get("NPU_MODEL_ENABLE_IREE_CROSSCHECK", "").lower() in {
         assert _diff < 5e-2, f"MLIR vs PyTorch mismatch: {_diff}"
     except ImportError:
         pass
-DRAM_X_H0 = 0x0000
-DRAM_X_H1 = 0x0400
-DRAM_C044 = 0x0800  # 0.044715 broadcast tile
-DRAM_CSQRT = 0x0C00  # sqrt(2/pi) broadcast tile
-DRAM_CHALF = 0x1000  # 0.5 broadcast tile
-DRAM_OUT_H0 = 0x1400
-DRAM_OUT_H1 = 0x1800
+DRAM_X_H0 = 0x80000000
+DRAM_X_H1 = 0x80000400
+DRAM_C044 = 0x80000800  # 0.044715 broadcast tile
+DRAM_CSQRT = 0x80000C00  # sqrt(2/pi) broadcast tile
+DRAM_CHALF = 0x80001000  # 0.5 broadcast tile
+DRAM_OUT_H0 = 0x80001400
+DRAM_OUT_H1 = 0x80001800
 
 _c044 = torch.full((32, 16), 0.044715, dtype=torch.bfloat16)
 _csqrt = torch.full((32, 16), math.sqrt(2.0 / math.pi), dtype=torch.bfloat16)
@@ -164,4 +164,4 @@ class SmolVLAGeluTanhProgram(Program):
         (DRAM_CHALF, _chalf),
     ]
 
-    golden_result: tuple[int, torch.Tensor] = (DRAM_OUT_H0, EXPECTED_STACKED)
+    golden_result: list[tuple[int, torch.Tensor]] = [(DRAM_OUT_H0, EXPECTED_STACKED)]

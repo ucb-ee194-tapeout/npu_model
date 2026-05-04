@@ -10,8 +10,9 @@
 #   x6 = 1024  (tile byte length)
 
 # --- Register Setup ---
-addi x4, x0, 0      # DRAM_ACTIVATION_BASE = 0x0000
-addi x5, x0, 1024   # DRAM_WEIGHT_BASE = 0x0400
+lui x4, 0x80000  # DRAM_ACTIVATION_BASE = 0x0000
+lui x5, 0x80000  # DRAM_WEIGHT_BASE = 0x0400
+addi x5, x5, 1024
 li x1, 0x2000       # VMEM_ACTIVATION_BASE
 li x2, 0x2400       # VMEM_WEIGHT_BASE
 li x3, 0x2800       # VMEM_OUTPUT_BASE
@@ -19,7 +20,8 @@ li x3, 0x2800       # VMEM_OUTPUT_BASE
 addi x6, x0, 1024   # tile byte length
 
 # --- DRAM -> VMEM ---
-dma.config.ch0 x0
+dma.config x0
+
 dma.wait.ch0
 dma.load.ch0 x1, x4, x6    # activations -> VMEM[x1]
 dma.load.ch1 x2, x5, x6    # weights -> VMEM[x2]
@@ -50,7 +52,7 @@ delay 34
 
 # --- VMEM -> DRAM ---
 # DRAM_OUTPUT_BASE = 0x0800: LUI 1 (0x1000) + ADDI -2048 = 0x0800
-lui x10, 1
+lui x10, 0x80001
 addi x10, x10, -2048        # x10 = 0x0800 (DRAM output, first half)
 addi x11, x10, 1024         # x11 = 0x0C00 (DRAM output, second half)
 # IMPORTANT: DMA ops read XRF at *execute* time. Since DMA now has non-trivial

@@ -31,13 +31,13 @@ li x4, 0x5000       # VMEM_CHALF
 li x5, 0x6000       # VMEM_OUT
 
 # --- Scalar setup: DRAM addresses + transfer size ---
-li x6, 0            # DRAM_X_H0
-li x7, 0x400        # DRAM_X_H1
-li x8, 0x800        # DRAM_C044
-li x9, 0xC00        # DRAM_CSQRT
-li x10, 0x1000      # DRAM_CHALF
-li x11, 0x1400      # DRAM_OUT_H0
-li x12, 0x1800      # DRAM_OUT_H1
+li x6, 0x80000000  # DRAM_X_H0
+li x7, 0x80000400  # DRAM_X_H1
+li x8, 0x80000800  # DRAM_C044
+li x9, 0x80000c00  # DRAM_CSQRT
+li x10, 0x80001000  # DRAM_CHALF
+li x11, 0x80001400  # DRAM_OUT_H0
+li x12, 0x80001800  # DRAM_OUT_H1
 li x13, 1024        # tile bytes
 
 # --- Secondary VMEM offsets for second halves of each pair ---
@@ -47,7 +47,8 @@ addi x16, x3, 1024  # x16 = 0x4400 VMEM Csqrt pair
 addi x17, x4, 1024  # x17 = 0x5400 VMEM Chalf pair
 
 # --- DMA: DRAM -> VMEM ---
-dma.config.ch0 x0
+dma.config x0
+
 dma.wait.ch0
 dma.load.ch0 x1, x6, x13   # x_h0 -> VMEM[x1]
 dma.load.ch1 x14, x7, x13  # x_h1 -> VMEM[x14]

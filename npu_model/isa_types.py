@@ -497,13 +497,13 @@ class Bundled(Named):
     Represents a bundled immediate and register.
     """
     scalar_offset_fmt = re.compile(
-        r"^(0[xX][0-9a-fA-F]+|0[bB][01]+|0[oO][0-7]+|\d+)\(x(\d+)\)"
+        r"^(-?0[xX][0-9a-fA-F]+|-?0[bB][01]+|-?0[oO][0-7]+|-?\d+)\(x(\d+)\)"
     )
     exponent_offset_fmt = re.compile(
-        r"^(0[xX][0-9a-fA-F]+|0[bB][01]+|0[oO][0-7]+|\d+)\(e(\d+)\)"
+        r"^(-?0[xX][0-9a-fA-F]+|-?0[bB][01]+|-?0[oO][0-7]+|-?\d+)\(e(\d+)\)"
     )
     matrix_offset_fmt = re.compile(
-        r"^(0[xX][0-9a-fA-F]+|0[bB][01]+|0[oO][0-7]+|\d+)\(m(\d+)\)"
+        r"^(-?0[xX][0-9a-fA-F]+|-?0[bB][01]+|-?0[oO][0-7]+|-?\d+)\(m(\d+)\)"
     )
 
 

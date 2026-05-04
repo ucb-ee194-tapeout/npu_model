@@ -21,8 +21,12 @@ class ArchStateConfig:
     """ Number of matrix registers. """
     num_wb_registers: int
     """ Number of weight buffer entries. """
+    dram_base: int
+    """ Base address to compute offsets from (i.e. DRAM addresses are from `dram_base` to `dram_base + log2(dram_size)`). """
     dram_size: int
     """ Size of dram in bytes. """
+    vmem_base: int
+    """ Base address of VMEM in the system address space. """
     vmem_size: int
     """ Size of vmem in bytes. """
     randomize_init: bool = False

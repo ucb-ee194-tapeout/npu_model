@@ -10,7 +10,7 @@
 #   Sizes: x12=1024 (fp8 tile)  x13=2048 (bf16 output)
 
 # --- Scalar setup: DRAM addresses ---
-addi x1, x0, 0              # x1 = 0x0000 DRAM_A_K0
+lui x1, 0x80000  # x1 = 0x0000 DRAM_A_K0
 addi x2, x1, 1024           # x2 = 0x0400 DRAM_A_K1
 addi x3, x2, 1024           # x3 = 0x0800 DRAM_B_K0
 addi x4, x3, 1024           # x4 = 0x0C00 DRAM_B_K1
@@ -29,7 +29,8 @@ addi x12, x0, 1024          # x12 = 1024 (fp8 tile bytes)
 addi x13, x12, 1024         # x13 = 2048 (bf16 output bytes)
 
 # --- DMA: DRAM -> VMEM ---
-dma.config.ch0 x0
+dma.config x0
+
 dma.wait.ch0
 dma.load.ch0 x6, x1, x12   # A_K0
 dma.load.ch1 x8, x3, x12   # B_K0

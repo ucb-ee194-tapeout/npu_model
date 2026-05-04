@@ -6,7 +6,7 @@ import torch
 from npu_model.configs.hardware import DefaultHardwareConfig
 from npu_model.configs.isa_definition import *  # noqa: F401, F403
 from npu_model.hardware.bank_conflict import BankConflictError
-from npu_model.isa import Instruction
+from npu_model.software.instruction import Instruction
 from npu_model.software import Program, acc, m, w, x
 from tests.helpers import run_simulation
 
@@ -21,14 +21,15 @@ class _MrfConflictProgram(Program):
 
 class _VmemConflictProgram(Program):
     instructions: list[Instruction] = [
+        LUI(rd=x(1), imm=0x00000),
+        LUI(rd=x(3), imm=0x80000),
         ADDI(rd=x(2), rs1=x(0), imm=1024),
         DMA_CONFIG_CH0(rs1=x(0)),
-        DMA_WAIT_CH0(),
-        DMA_LOAD_CH0(rd=x(0), rs1=x(0), rs2=x(2)),
-        VLOAD(vd=m(0), imm=0, rs1=x(0)),
+        DMA_LOAD_CH0(rd=x(1), rs1=x(3), rs2=x(2)),
+        VLOAD(vd=m(0), imm=0, rs1=x(1)),
     ]
     memory_regions: List[Tuple[int, torch.Tensor]] = [
-        (0, torch.zeros(1024, dtype=torch.uint8)),
+        (0x80000000, torch.zeros(1024, dtype=torch.uint8)),
     ]
 
 
@@ -60,17 +61,17 @@ class _NoMrfConflictProgram(Program):
 
 class _NoVmemConflictProgram(Program):
     instructions: list[Instruction] = [
+        LUI(rd=x(1), imm=0x00000),
+        ADDI(rd=x(3), rs1=x(1), imm=1024),
+        LUI(rd=x(4), imm=0x80000),
         ADDI(rd=x(2), rs1=x(0), imm=1024),
-        ADDI(rd=x(3), rs1=x(0), imm=1024),
         DMA_CONFIG_CH0(rs1=x(0)),
-        DMA_WAIT_CH0(),
-        DMA_LOAD_CH0(rd=x(0), rs1=x(0), rs2=x(2)),
+        DMA_LOAD_CH0(rd=x(1), rs1=x(4), rs2=x(2)),
         VLOAD(vd=m(0), imm=0, rs1=x(3)),
         DMA_WAIT_CH0(),
     ]
     memory_regions: List[Tuple[int, torch.Tensor]] = [
-        (0, torch.zeros(1024, dtype=torch.uint8)),
-        (1024, torch.zeros(1024, dtype=torch.uint8)),
+        (0x80000000, torch.zeros(1024, dtype=torch.uint8)),
     ]
 
 

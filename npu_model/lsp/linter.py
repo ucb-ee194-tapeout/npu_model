@@ -136,9 +136,23 @@ def _lint_li(tokens: list[str], labels: list[str]) -> list[AsmError]:
     return errors
 
 
+def _lint_dma_config(tokens: list[str], labels: list[str]) -> list[AsmError]:
+    if len(tokens) != 2:
+        return [
+            AsmError(
+                f"'dma.config' expects 1 operand ({ScalarReg.fmt}<rd> imm12), got {len(tokens) - 1}",
+                token_index=0,
+            )
+        ]
+    errors: list[AsmError] = []
+    errors.extend(ScalarReg.lint(tokens[1], role="rd", tok_idx=1))
+
+    return errors
+
 _PSEUDOS: dict[str, Callable[[list[str], list[str]], list[AsmError]]] = {
     "nop": _lint_nop,
     "li": _lint_li,
+    "dma.config": _lint_dma_config
 }
 
 # ---------------------------------------------------------------------------

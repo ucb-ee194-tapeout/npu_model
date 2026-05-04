@@ -16,9 +16,11 @@
 lui x1, 0x2                 # x1 = 0x2000 VMEM_X_H0
 addi x2, x1, 1024           # x2 = 0x2400 VMEM_X_H1
 lui x3, 0x3                 # x3 = 0x3000 VMEM_OUT
-addi x4, x0, 0              # x4 = 0x0000 DRAM_X_H0
-addi x5, x0, 1024           # x5 = 0x0400 DRAM_X_H1
-addi x6, x0, 2047           # x6 = 2047
+lui x4, 0x80000  # x4 = 0x0000 DRAM_X_H0
+lui x5, 0x80000  # x5 = 0x0400 DRAM_X_H1
+addi x5, x5, 1024
+lui x6, 0x80000  # x6 = 2047
+addi x6, x6, 2047
 addi x6, x6, 769            # x6 = 0x0B00 DRAM_OUT (2047+769=2816)
 addi x7, x0, 1024           # x7 = 1024 (transfer size)
 
@@ -26,7 +28,8 @@ addi x7, x0, 1024           # x7 = 1024 (transfer size)
 seli e5, 1
 
 # --- DMA: DRAM -> VMEM ---
-dma.config.ch0 x0
+dma.config x0
+
 dma.wait.ch0
 dma.load.ch0 x1, x4, x7    # X_H0
 dma.load.ch1 x2, x5, x7    # X_H1

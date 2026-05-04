@@ -16,14 +16,15 @@
 # --- Scalar setup ---
 lui x1, 0x2                 # x1 = 0x2000 VMEM_X
 lui x2, 0x3                 # x2 = 0x3000 VMEM_OUT
-addi x3, x0, 0              # x3 = 0x0000 DRAM_X
-lui x4, 0x1                 # x4 = 0x1000
+lui x3, 0x80000  # x3 = 0x0000 DRAM_X
+lui x4, 0x80001  # x4 = 0x1000
 addi x4, x4, -2048          # x4 = 0x0800 DRAM_OUT
 lui x5, 0x1                 # x5 = 0x1000
 addi x5, x5, -2048          # x5 = 2048 (TILE_BYTES)
 
 # --- DMA: DRAM -> VMEM ---
-dma.config.ch0 x0
+dma.config x0
+
 dma.wait.ch0
 dma.load.ch0 x1, x3, x5
 dma.wait.ch0

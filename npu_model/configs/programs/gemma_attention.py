@@ -15,10 +15,10 @@ SCALE_VALUE = 1.0 / math.sqrt(float(HEAD_DIM))
 SCALE_DATA = torch.full((SEQ_LEN, HEAD_DIM), SCALE_VALUE, dtype=torch.bfloat16)
 
 # DRAM layout (program-loaded)
-DRAM_QUERY_BASE = 0x0000
-DRAM_KEY_BASE = 0x0400
-DRAM_SCALE_BASE = 0x0800
-DRAM_OUTPUT_BASE = 0x1000
+DRAM_QUERY_BASE = 0x80000000
+DRAM_KEY_BASE = 0x80000400
+DRAM_SCALE_BASE = 0x80000800
+DRAM_OUTPUT_BASE = 0x80001000
 
 
 class GemmaAttentionProgram(Program):
@@ -40,10 +40,10 @@ class GemmaAttentionProgram(Program):
     ]
 
     # Golden result: softmax(scores_scaled) (no max subtraction), pure torch
-    golden_result: tuple[int, torch.Tensor] = (
+    golden_result: list[tuple[int, torch.Tensor]] = [(
         DRAM_OUTPUT_BASE,
         torch.softmax(
             (QUERY_DATA.to(torch.float32) @ KEY_DATA.to(torch.float32)) * SCALE_VALUE,
             dim=1,
         ).to(torch.bfloat16),
-    )
+    )]

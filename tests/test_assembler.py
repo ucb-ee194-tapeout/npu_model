@@ -29,7 +29,7 @@ def test_dma_config_and_wait_parse_correctly() -> None:
     program = input_to_program(
         io.StringIO(
             """
-            dma.config.ch0 x7
+            dma.config x7
             dma.wait.ch1
             """
         )

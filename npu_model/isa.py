@@ -1,6 +1,7 @@
-from typing import TYPE_CHECKING, TypeIs, Any, cast
+from typing import TYPE_CHECKING, TypeIs, Any, ClassVar, cast
 from abc import ABC, abstractmethod
 from npu_model.isa_types import *
+from npu_model.software.instruction import Instruction, is_instruction
 if TYPE_CHECKING:
     from npu_model.hardware.arch_state import ArchState
 
@@ -22,10 +23,10 @@ class IsaSpec:
     VI: dict[str,type[VIType]] = {}
     CSR: dict[str,type[CSRType]] = {}
 
-class Instruction(ABC):
-    mnemonic: str  = NotImplemented
-    opcode: Opcode = NotImplemented
-    exu: EXU       = NotImplemented
+class InstructionType(ABC):
+    mnemonic: ClassVar[str]  = NotImplemented
+    opcode: ClassVar[Opcode] = NotImplemented
+    exu: ClassVar[EXU]       = NotImplemented
 
     def __str__(self):
         values = [str(v) for v in self.__dict__.values()]
@@ -51,11 +52,11 @@ class Instruction(ABC):
         if mnemonic:
             cls.mnemonic = mnemonic
         
-        if instr:
+        if instr and is_instruction(cls):
             IsaSpec.operations[cls.mnemonic] = cls
         return super().__init_subclass__()
 
-class RType(Instruction, instr=False):
+class RType(InstructionType, instr=False):
     funct3: Funct3 = NotImplemented
     funct7: Funct7 = NotImplemented
     rd: ScalarReg  = ScalarReg(0)
@@ -87,7 +88,7 @@ class RType(Instruction, instr=False):
         IsaSpec.R[mnemonic] = cls
         return super().__init_subclass__(exu, mnemonic, opcode, instr=True)
 
-class IType[RD: (ScalarReg, ExponentReg) = ScalarReg, IMM: (Imm12, SBImm12) = Imm12](Instruction, instr=False):
+class IType[RD: (ScalarReg, ExponentReg) = ScalarReg, IMM: (Imm12, SBImm12) = Imm12](InstructionType, instr=False):
     funct3: Funct3         = NotImplemented
     rd: RD
     rs1: ScalarReg         = ScalarReg(0)
@@ -95,11 +96,11 @@ class IType[RD: (ScalarReg, ExponentReg) = ScalarReg, IMM: (Imm12, SBImm12) = Im
 
     def to_bytecode(self):
         rd = self.rd if hasattr(self, 'rd') else 0
-        rd = self.imm if hasattr(self, 'imm') else 0
+        imm = self.imm if hasattr(self, 'imm') else 0
         rd_b = _mask(rd, 5)
         rs1_b = _mask(self.rs1, 5)
         opcode_b = _mask(self.opcode, 7)
-        imm_b = _mask(self.imm, 12)
+        imm_b = _mask(imm, 12)
         funct3_b = _mask(self.funct3, 3)
 
         return (imm_b << 20) | (rs1_b << 15) | (funct3_b << 12) | (rd_b << 7) | opcode_b
@@ -110,7 +111,7 @@ class IType[RD: (ScalarReg, ExponentReg) = ScalarReg, IMM: (Imm12, SBImm12) = Im
         IsaSpec.I[mnemonic] = cls
         return super().__init_subclass__(exu, mnemonic, opcode, instr=True)
 
-class SType(Instruction, instr=False):
+class SType(InstructionType, instr=False):
     funct3: Funct3    = NotImplemented
     rs1: ScalarReg    = ScalarReg(0)
     rs2: ScalarReg    = ScalarReg(0)
@@ -145,7 +146,7 @@ class SType(Instruction, instr=False):
         IsaSpec.S[mnemonic] = cls
         return super().__init_subclass__(exu, mnemonic, opcode, instr=True)
 
-class SBType(Instruction, instr=False):
+class SBType(InstructionType, instr=False):
     funct3: Funct3    = NotImplemented
     rs1: ScalarReg    = ScalarReg(0)
     rs2: ScalarReg    = ScalarReg(0)
@@ -183,7 +184,7 @@ class SBType(Instruction, instr=False):
         IsaSpec.SB[mnemonic] = cls
         return super().__init_subclass__(exu, mnemonic, opcode, instr=True)
 
-class UType(Instruction, instr=False):
+class UType(InstructionType, instr=False):
     rd: ScalarReg = ScalarReg(0)
     imm: Imm20    = Imm20(0)
 
@@ -199,7 +200,7 @@ class UType(Instruction, instr=False):
         IsaSpec.U[mnemonic] = cls
         return super().__init_subclass__(exu, mnemonic, opcode, instr=True)
 
-class UJType(Instruction, instr=False):
+class UJType(InstructionType, instr=False):
     rd: ScalarReg = ScalarReg(0)
     imm: Imm20    = Imm20(0)
 
@@ -226,7 +227,7 @@ class UJType(Instruction, instr=False):
         IsaSpec.UJ[mnemonic] = cls
         return super().__init_subclass__(exu, mnemonic, opcode, instr=True)
 
-class VLSType(Instruction, instr=False):
+class VLSType(InstructionType, instr=False):
     funct2: Funct2 = NotImplemented
     vd: MatrixReg  = MatrixReg(0)
     rs1: ScalarReg = ScalarReg(0)
@@ -247,7 +248,7 @@ class VLSType(Instruction, instr=False):
         IsaSpec.VLS[mnemonic] = cls
         return super().__init_subclass__(exu, mnemonic, opcode, instr=True)
 
-class VRType[VD: (MatrixReg,Accumulator,WeightBuffer) = MatrixReg, VS2: (MatrixReg,Accumulator,WeightBuffer) = MatrixReg](Instruction, instr=False):
+class VRType[VD: (MatrixReg,Accumulator,WeightBuffer) = MatrixReg, VS2: (MatrixReg,Accumulator,WeightBuffer) = MatrixReg](InstructionType, instr=False):
     funct7: Funct7    = NotImplemented
     vs1: MatrixReg
     es1: ExponentReg
@@ -279,7 +280,7 @@ class VRType[VD: (MatrixReg,Accumulator,WeightBuffer) = MatrixReg, VS2: (MatrixR
         IsaSpec.VR[mnemonic] = cls
         return super().__init_subclass__(exu, mnemonic, opcode, instr=True)
 
-class VIType(Instruction, instr=False):
+class VIType(InstructionType, instr=False):
     funct3: Funct3 = NotImplemented
     vd: MatrixReg  = MatrixReg(0)
     imm: Imm16     = Imm16(0)
@@ -298,7 +299,7 @@ class VIType(Instruction, instr=False):
         IsaSpec.VI[mnemonic] = cls
         return super().__init_subclass__(exu, mnemonic, opcode, instr=True)
 
-class CSRType(Instruction, instr=False):
+class CSRType(InstructionType, instr=False):
     funct3: Funct3 = NotImplemented
     rs1: ScalarReg = ScalarReg(0)
     rd: ScalarReg  = ScalarReg(0)
@@ -326,10 +327,10 @@ def is_scalar_reg(obj: Any) -> TypeIs[ScalarReg]:
 def is_exponent_reg(obj: Any) -> TypeIs[ScalarReg]:
     return isinstance(obj, ExponentReg)
 
-def is_scalar_itype(insn: Instruction) -> TypeIs[IType[ScalarReg]]:
+def is_scalar_itype(insn: Any) -> TypeIs[IType[ScalarReg]]:
     return isinstance(insn, IType) and (not hasattr(cast(IType[Any], insn), 'rd') or is_scalar_reg(cast(IType[Any], insn).rd))
 
-def is_exponent_itype(insn: Instruction) -> TypeIs[IType[ExponentReg]]:
+def is_exponent_itype(insn: Any) -> TypeIs[IType[ExponentReg]]:
     return isinstance(insn, IType) and hasattr(cast(IType[Any], insn), 'rd') and is_exponent_reg(cast(IType[Any], insn).rd)
 
 # Global registry accumulating decode table rows

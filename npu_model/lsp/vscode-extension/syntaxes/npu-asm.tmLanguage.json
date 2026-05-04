@@ -94,7 +94,7 @@
         },
         {
           "name": "keyword.control.mnemonic.dma.npu-asm",
-          "match": "(?i)\\b(dma\\.load\\.ch[0-7]|dma\\.store\\.ch[0-7]|dma\\.config\\.ch[0-7]|dma\\.wait\\.ch[0-7])\\b"
+          "match": "(?i)\\b(dma\\.load\\.ch[0-7]|dma\\.store\\.ch[0-7]|dma\\.config(.ch[0-7])?|dma\\.wait\\.ch[0-7])\\b"
         },
         {
           "name": "keyword.control.mnemonic.pseudo.npu-asm",

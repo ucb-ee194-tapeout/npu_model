@@ -22,17 +22,19 @@ addi x3, x3, -2048          # x3 = 0x2800 VMEM_BIAS
 lui x4, 0x3                 # x4 = 0x3000 VMEM_OUT
 
 # --- Scalar setup: DRAM addresses + transfer sizes ---
-addi x5, x0, 0              # x5 = 0x0000 DRAM_A
-addi x6, x0, 1024           # x6 = 0x0400 DRAM_B
-lui x7, 0x1                 # x7 = 0x1000
+lui x5, 0x80000  # x5 = 0x0000 DRAM_A
+lui x6, 0x80000  # x6 = 0x0400 DRAM_B
+addi x6, x6, 1024
+lui x7, 0x80001  # x7 = 0x1000
 addi x7, x7, -2048          # x7 = 0x0800 DRAM_BIAS
-lui x8, 0x1                 # x8 = 0x1000 DRAM_OUT
+lui x8, 0x80001  # x8 = 0x1000 DRAM_OUT
 addi x9, x0, 1024           # x9 = 1024 (fp8 tile bytes)
 lui x10, 0x1                # x10 = 0x1000
 addi x10, x10, -2048        # x10 = 2048 (bf16 tile bytes)
 
 # --- DMA: DRAM -> VMEM ---
-dma.config.ch0 x0
+dma.config x0
+
 dma.wait.ch0
 dma.load.ch0 x1, x5, x9    # A fp8
 dma.load.ch1 x2, x6, x9    # B fp8

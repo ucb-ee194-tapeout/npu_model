@@ -7,7 +7,7 @@ from npu_model.hardware.dma import (
     dma_transfer_cycles,
     vmem_transfer_cycles,
 )
-from npu_model.isa import Instruction
+from npu_model.software.instruction import Instruction
 from npu_model.software import acc, m, w, x
 from npu_model.software.program import InstantiableProgram
 from tests.helpers import run_simulation

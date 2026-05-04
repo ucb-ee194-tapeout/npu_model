@@ -14,14 +14,15 @@
 lui x1, 0x4                 # x1 = VMEM_A = 0x4000
 lui x2, 0x5                 # x2 = VMEM_B = 0x5000
 lui x3, 0x6                 # x3 = VMEM_OUT = 0x6000
-addi x4, x0, 0              # x4 = DRAM_A = 0x0000
-lui x5, 0x1                 # x5 = DRAM_B = 0x1000
-lui x6, 0x2                 # x6 = DRAM_OUT = 0x2000
+lui x4, 0x80000  # x4 = DRAM_A = 0x0000
+lui x5, 0x80001  # x5 = DRAM_B = 0x1000
+lui x6, 0x80002  # x6 = DRAM_OUT = 0x2000
 lui x7, 0x1                 # x7 = 0x1000
 addi x7, x7, -2048          # x7 = 2048
 
 # --- DMA: DRAM -> VMEM ---
-dma.config.ch0 x0
+dma.config x0
+
 dma.wait.ch0
 dma.load.ch0 x1, x4, x7    # VMEM[x1] <- DRAM[x4]
 dma.load.ch1 x2, x5, x7    # VMEM[x2] <- DRAM[x5]

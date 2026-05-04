@@ -19,18 +19,21 @@ lui x5, 3                   # x5 = 0x3000 VMEM_OUT_H0
 addi x6, x5, 1024           # x6 = 0x3400 VMEM_OUT_H1
 
 # --- Scalar setup: DRAM addresses + transfer size ---
-addi x7, x0, 0              # x7  = 0x0000 DRAM_A_H0
-addi x8, x0, 1024           # x8  = 0x0400 DRAM_A_H1
+lui x7, 0x80000  # x7  = 0x0000 DRAM_A_H0
+lui x8, 0x80000  # x8  = 0x0400 DRAM_A_H1
+addi x8, x8, 1024
 addi x9, x8, 1024           # x9  = 0x0800 DRAM_B_H0
 addi x10, x9, 1024          # x10 = 0x0C00 DRAM_B_H1
-lui x11, 1                  # x11 = 0x1000
+lui x11, 0x80001  # x11 = 0x1000
 addi x11, x11, -1024        # x11 = 0x0C00 DRAM_OUT_H0 (= B_H1, overwritten after load)
 addi x12, x11, 1024         # x12 = 0x1000 DRAM_OUT_H1
 addi x13, x0, 1024          # x13 = 1024 per-half size
 
 # --- DMA: DRAM -> VMEM ---
-dma.config.ch0 x0
+dma.config x0
+
 dma.config.ch1 x0
+
 dma.wait.ch0
 dma.wait.ch1
 dma.load.ch0 x1, x7, x13   # A_H0 -> VMEM[x1]

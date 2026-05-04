@@ -42,7 +42,6 @@ class DmaExecutionUnit(ExecutionUnit):
     order and executing them head-of-line. Transfer latency is computed from
     the byte count stored in XRF[rs2] divided by the configured VMEM
     bandwidth (vmem_bytes_per_cycle), with a minimum of 1 cycle.
-    Config ops (dma.config.ch<N>) are treated as fixed 1-cycle control ops.
 
     Completion logging is deferred by one cycle so that the Kanata trace
     reflects the cycle in which results become visible, and the corresponding
@@ -131,15 +130,11 @@ class DmaExecutionUnit(ExecutionUnit):
                 self.arch_state.conflict_checker.acquire_vmem(banks, label)
                 self._in_flight_vmem_banks.append(banks)
                 # tag instruction with execution delay
-                if mnemonic == "dma.config.ch<N>":
-                    # Config is a control op; keep it fixed-latency.
-                    uop.execute_delay = 1
-                else:
-                    nbytes = self._bytes_for_dma_uop(uop)
-                    uop.execute_delay = max(
-                        1,
-                        dma_transfer_cycles(self.config, nbytes),
-                    )
+                nbytes = self._bytes_for_dma_uop(uop)
+                uop.execute_delay = max(
+                    1,
+                    dma_transfer_cycles(self.config, nbytes),
+                )
                 self.in_flight.append(uop)
                 self._total_instructions += 1
 

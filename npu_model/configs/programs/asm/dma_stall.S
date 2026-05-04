@@ -1,21 +1,21 @@
 # --- 1. Setup Scalar Registers ---
 # Set x2 = 1024 (Base Address & Size 1024)
+lui x31 0x80000
+addi x21, x31, 0
+addi x22, x31, 1024
 addi x1, x0, 0
 addi x2, x0, 1024
-addi x3, x0, 0
-addi x4, x0, 1024
-
 # --- 2. Configure DMA Channels ---
 # Configure Base Address x1 (0)
-dma.config.ch0 x0
+dma.config x0
 dma.wait.ch0
 
 # --- 3. Load thing ---
 # Load 1024 bytes (x2) from DRAM to VMEM(x1) on Channel 0
 # Note: rs1 specifies VMEM offset, rs2 specifies length. Base address comes from dma.config
-dma.load.ch0 x0, x1, x2
+dma.load.ch0 x0, x21, x2
 # Load 1024 bytes (x2) from DRAM to VMEM(x2) on Channel 1
-dma.load.ch1 x2, x2, x2
+dma.load.ch1 x2, x22, x2
 # Wait to get these things in VMEM
 dma.wait.ch0
 dma.wait.ch1
@@ -33,8 +33,8 @@ delay 32
 # --- 4. Do unnecessary loads (Overlapped with Matmul) ---
 # We do not need to reconfigure the DMA channels if the base addresses are unchanged
 # Issue DMA loads again (DRAM -> VMEM)
-dma.load.ch0 x3, x0, x1
-dma.load.ch1 x4, x1, x1
+dma.load.ch0 x1, x31, x1
+dma.load.ch1 x2, x21, x1
 delay 16
 
 # --- 5. Do matmul ---

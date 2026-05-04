@@ -91,16 +91,16 @@ if os.environ.get("NPU_MODEL_ENABLE_IREE_CROSSCHECK", "").lower() in {
     except ImportError:
         pass
 
-DRAM_A_H0 = 0x0000
-DRAM_A_H1 = 0x0400
-DRAM_B_H0 = 0x0800
-# dram_in_3 (B_h1) at 0xC00; the kernel writes its first output half back
-# at 0xC00 too (see manifest patch_points for elementwise_div). So
+DRAM_A_H0 = 0x80000000
+DRAM_A_H1 = 0x80000400
+DRAM_B_H0 = 0x80000800
+# dram_in_3 (B_h1) at 0x80000C00; the kernel writes its first output half back
+# at 0x80000C00 too (see manifest patch_points for elementwise_div). So
 # DRAM_B_H1 and DRAM_OUT_H0 share the same address — the DMA store
 # overwrites the B_h1 buffer in place once it's no longer needed.
-DRAM_B_H1 = 0x0C00
-DRAM_OUT_H0 = 0x0C00  # written after B_h1 is read into VMEM
-DRAM_OUT_H1 = 0x1000
+DRAM_B_H1 = 0x80000C00
+DRAM_OUT_H0 = 0x80000C00  # written after B_h1 is read into VMEM
+DRAM_OUT_H1 = 0x80001000
 EXPECTED_STACKED = torch.cat((EXPECTED[:, :16], EXPECTED[:, 16:]), dim=0)
 
 
@@ -127,7 +127,7 @@ class SmolVLAElementwiseDivProgram(Program):
         (DRAM_B_H1, INPUT_B[:, 16:].contiguous()),
     ]
 
-    golden_result: tuple[int, torch.Tensor] = (
+    golden_result: list[tuple[int, torch.Tensor]] = [(
         DRAM_OUT_H0,
         EXPECTED_STACKED,
-    )
+    )]
