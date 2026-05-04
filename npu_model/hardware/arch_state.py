@@ -53,6 +53,7 @@ class ArchState:
             self._fill_u8_random(self.vmem, generator)
         self.base: int = 0  # dram base
         self.flags: list[bool] = [False] * 8
+        self.halted: bool = False
 
     def close(self) -> None:
         """Release large architectural buffers once a simulation is no longer needed."""
@@ -107,6 +108,7 @@ class ArchState:
         self.npc = 0
         self.base = 0
         self.flags = [False] * len(self.flags)
+        self.halted = False
 
     def _make_generator(self) -> torch.Generator:
         generator = torch.Generator()
