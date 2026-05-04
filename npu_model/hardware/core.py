@@ -134,6 +134,8 @@ class Core(Module):
             if not self._handle_runtime_error("IDU", exc):
                 raise
             self._recover_idu_fault()
+        else:
+            self.total_completed += self.idu.complete_count
 
         # 4. Tick IFU (fetch new instructions if not stalled)
         try:
@@ -191,6 +193,7 @@ class Core(Module):
     def _recover_idu_fault(self) -> None:
         self.idu.uop = None
         self.idu.force_unstall()
+        self.idu._pending_scalar_completion = None
         for output in self.idu.outputs.values():
             output.reset()
 

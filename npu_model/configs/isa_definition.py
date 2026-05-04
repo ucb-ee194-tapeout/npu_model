@@ -51,7 +51,7 @@ from npu_model.isa_types import (
 if TYPE_CHECKING:
     from npu_model.hardware.arch_state import ArchState
 
-PIPELINE_LATENCY = 2
+PIPELINE_LATENCY = 1
 
 # Mask for 64-bit unsigned comparison (RISC-V RV64)
 _MASK64 = 0xFFFFFFFFFFFFFFFF

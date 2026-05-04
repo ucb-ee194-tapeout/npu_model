@@ -91,9 +91,10 @@ def test_dma_transfer_latency_uses_offchip_and_vmem_formulas() -> None:
     assert dma_transfer_cycles(cfg, 1024) == 516
 
 
-def test_taken_branch_executes_exactly_two_delay_slots_before_redirect() -> None:
+def test_taken_branch_executes_exactly_one_delay_slot_before_redirect() -> None:
     instrs: list[Instruction] = [
         ADDI(rd=x(1), rs1=x(0), imm=1),
+        ADDI(rd=x(3), rs1=x(0), imm=0),
         ADDI(rd=x(4), rs1=x(0), imm=0),
         BEQ(rs1=x(1), rs2=x(1), imm=16),
         ADDI(rd=x(2), rs1=x(0), imm=11),
@@ -107,7 +108,7 @@ def test_taken_branch_executes_exactly_two_delay_slots_before_redirect() -> None
 
     assert sim.core is not None
     assert sim.core.arch_state.read_xrf(2) == 11
-    assert sim.core.arch_state.read_xrf(3) == 22
+    assert sim.core.arch_state.read_xrf(3) == 0
     assert sim.core.arch_state.read_xrf(4) == 0
     assert sim.core.arch_state.read_xrf(5) == 44
 

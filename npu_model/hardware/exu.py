@@ -138,61 +138,16 @@ class ScalarExecutionUnit(ExecutionUnit):
         self._busy_cycles = 0
 
     def tick(self, idu_output: StageData[Uop | None]) -> None:
+        # Scalar execution moved into the decode stage (the IDU now runs
+        # scalar instructions inline and updates this unit's stats / lane).
+        # The unit only exists to provide a trace lane and stat counters.
         self.cycle += 1
-        # Log deferred completions from last cycle
-        if self._pending_completion_uop is not None:
-            self.logger.log_stage_end(
-                self._pending_completion_uop.id,
-                "E",
-                lane=self.lane_id,
-                cycle=self.cycle,
-            )
-            self.logger.log_retire(self._pending_completion_uop.id)
-            self._pending_completion_uop = None
-
-        # reset cycle states
         self._complete_count = 0
-
-        # Claim instruction from DIU
-        uop = idu_output.claim()
-
-        # Accept new instruction
-        if uop is not None:
-            assert uop.insn.exu == EXU.SCALAR, "Attempted to pass non-scalar args to Scalar Excution Unit."
-            # tag instruction with execution delay
-            uop.execute_delay = 1
-            self._pending_completion_uop = uop
-            self._total_instructions += 1
-            # Log: end dispatch, start execute
-            self.logger.log_stage_end(
-                uop.id,
-                "D",
-                lane=LaneType.DIU.value,
-                cycle=self.cycle,
-            )
-            self.logger.log_stage_start(
-                uop.id,
-                "E",
-                lane=self.lane_id,
-                cycle=self.cycle,
-            )
-
-            self._busy_cycles += uop.insn.mnemonic != "delay"
-            self._complete_count = 1
-            # execute the instruction and modify the arch state
-            uop.insn.exec(self.arch_state)
 
     def flush_completions(self) -> None:
         """Flush any pending completions (call at end of simulation)."""
-        if self._pending_completion_uop is not None:
-            self.logger.log_stage_end(
-                self._pending_completion_uop.id,
-                "E",
-                lane=self.lane_id,
-                cycle=self.cycle,
-            )
-            self.logger.log_retire(self._pending_completion_uop.id)
-            self._pending_completion_uop = None
+        # Scalar instructions retire inside the IDU now; nothing to flush here.
+        return
 
     @property
     def total_instructions(self) -> int:

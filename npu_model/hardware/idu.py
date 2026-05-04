@@ -20,6 +20,18 @@ from ..isa_types import EXU
 from ..hardware.arch_state import ArchState
 from .exu import *  # noqa: F401, F403
 
+
+_DMA_WAIT_TYPES = (
+    DMA_WAIT_CH0,
+    DMA_WAIT_CH1,
+    DMA_WAIT_CH2,
+    DMA_WAIT_CH3,
+    DMA_WAIT_CH4,
+    DMA_WAIT_CH5,
+    DMA_WAIT_CH6,
+    DMA_WAIT_CH7,
+)
+
 if TYPE_CHECKING:
     from ..software.instruction import Uop
 
@@ -53,6 +65,9 @@ class InstructionDecode(Module):
         for exu in exus:
             exu_name = exu.__class__.__name__
             self.exu_map[EXU(exu_name)] = exu
+        # The scalar core lives inside decode: we keep a reference to the
+        # scalar EXU only to borrow its trace lane and stat counters.
+        self.scalar_exu: ExecutionUnit | None = self.exu_map.get(EXU.SCALAR)
         self.reset()
 
     def reset(self) -> None:
@@ -62,11 +77,15 @@ class InstructionDecode(Module):
         }
         self._stalled = False
         self._control_flow_delay_slots_remaining = 0
+        self._pending_scalar_completion: Uop | None = None
+        self._complete_count = 0
 
     def is_finished(self) -> bool:
         """Check if DIU is finished."""
-        return self.uop is None and all(
-            not output.is_valid() for output in self.outputs.values()
+        return (
+            self.uop is None
+            and self._pending_scalar_completion is None
+            and all(not output.is_valid() for output in self.outputs.values())
         )
 
     def tick(self, ifu_output: StageData[Uop | None]) -> None:
@@ -74,8 +93,17 @@ class InstructionDecode(Module):
         Dispatch fetched instructions to their target execution units.
         Logs: E (end F stage), S (start D stage)
         When stalled, ends D stage early to show gap.
+
+        Scalar instructions are executed inline in this stage (the scalar
+        core sits inside decode in the real hardware), so they retire one
+        cycle earlier than instructions routed to a separate FU.
         """
         self.cycle += 1
+        self._complete_count = 0
+
+        # Retire any scalar instruction that executed inline last cycle.
+        self._retire_pending_scalar()
+
         # check if we currently have a uop in flight
         if self.uop is not None:
 
@@ -115,7 +143,7 @@ class InstructionDecode(Module):
                 uop.dispatch_delay = uop.insn.imm
 
             if self._is_control_flow_instruction(uop):
-                self._control_flow_delay_slots_remaining = 2
+                self._control_flow_delay_slots_remaining = 1
             self.uop = uop
 
             if uop.dispatch_delay > 0:
@@ -140,20 +168,17 @@ class InstructionDecode(Module):
         assert self.uop.dispatch_delay == 0
         # Prepare empty outputs for this cycle
 
-        if (
-            isinstance(self.uop.insn, DMA_WAIT_CH0)
-            or isinstance(self.uop.insn, DMA_WAIT_CH1)
-            or isinstance(self.uop.insn, DMA_WAIT_CH2)
-            or isinstance(self.uop.insn, DMA_WAIT_CH3)
-            or isinstance(self.uop.insn, DMA_WAIT_CH4)
-            or isinstance(self.uop.insn, DMA_WAIT_CH5)
-            or isinstance(self.uop.insn, DMA_WAIT_CH6)
-            or isinstance(self.uop.insn, DMA_WAIT_CH7)
-        ):
+        if isinstance(self.uop.insn, _DMA_WAIT_TYPES):
             self.logger.log_stage_end(
                 self.uop.id, "D", lane=LaneType.DIU.value, cycle=self.cycle + 1
             )
             self.uop = None
+            return
+
+        # Scalar instructions execute inline in the decode stage; everything
+        # else is forwarded to its target FU through the sequencer queue.
+        if self.uop.insn.exu == EXU.SCALAR:
+            self._execute_scalar_inline()
             return
 
         target_exu = self.exu_map[self.uop.insn.exu]
@@ -168,6 +193,53 @@ class InstructionDecode(Module):
             ), f"Flag {self.uop.insn.funct3} is already set, erroneous program"
             self.arch_state.set_flag(self.uop.insn.funct3)
         self.uop = None
+
+    def _execute_scalar_inline(self) -> None:
+        """Run a scalar instruction inside the decode stage."""
+        uop = self.uop
+        assert uop is not None
+        scalar_lane = (
+            self.scalar_exu.lane_id if self.scalar_exu is not None else LaneType.DIU.value
+        )
+
+        # Open the execute lane in parallel with decode so the trace shows
+        # that decode and scalar execute share the same cycle.
+        self.logger.log_stage_start(
+            uop.id, "E", lane=scalar_lane, cycle=self.cycle
+        )
+
+        uop.insn.exec(self.arch_state)
+
+        if self.scalar_exu is not None:
+            self.scalar_exu._total_instructions += 1
+            if uop.insn.mnemonic != "delay":
+                self.scalar_exu._busy_cycles += 1
+
+        self._pending_scalar_completion = uop
+        self.uop = None
+
+    def _retire_pending_scalar(self) -> None:
+        """Close the D and E stages opened last cycle and retire the uop."""
+        uop = self._pending_scalar_completion
+        if uop is None:
+            return
+        scalar_lane = (
+            self.scalar_exu.lane_id if self.scalar_exu is not None else LaneType.DIU.value
+        )
+        self.logger.log_stage_end(
+            uop.id, "D", lane=LaneType.DIU.value, cycle=self.cycle
+        )
+        self.logger.log_stage_end(
+            uop.id, "E", lane=scalar_lane, cycle=self.cycle
+        )
+        self.logger.log_retire(uop.id)
+        self._complete_count += 1
+        self._pending_scalar_completion = None
+
+    @property
+    def complete_count(self) -> int:
+        """Scalar instructions retired this cycle (executed inside decode)."""
+        return self._complete_count
 
     def claim_uop(self, ifu_output: StageData[Uop | None]) -> None:
         """Claim a new uop from IFU"""
@@ -187,22 +259,18 @@ class InstructionDecode(Module):
             self._control_flow_delay_slots_remaining -= 1
 
     def check_backpressure(self, uop: Uop) -> bool:
-        if (
-            isinstance(uop.insn, DMA_WAIT_CH0)
-            or isinstance(uop.insn, DMA_WAIT_CH1)
-            or isinstance(uop.insn, DMA_WAIT_CH2)
-            or isinstance(uop.insn, DMA_WAIT_CH3)
-            or isinstance(uop.insn, DMA_WAIT_CH4)
-            or isinstance(uop.insn, DMA_WAIT_CH5)
-            or isinstance(uop.insn, DMA_WAIT_CH6)
-            or isinstance(uop.insn, DMA_WAIT_CH7)
-        ):
+        if isinstance(uop.insn, _DMA_WAIT_TYPES):
             if self.arch_state.check_flag(uop.insn.funct3):
                 self._stalled = True
                 return True
             else:
                 self._stalled = False
                 return False
+        if uop.insn.exu == EXU.SCALAR:
+            # Scalar instructions execute in-place in decode; no FU queue to
+            # back up against.
+            self._stalled = False
+            return False
         target_exu = self.exu_map[uop.insn.exu]
         if self.outputs[target_exu].should_stall():
             # Don't end D stage - keep it active to show instruction is waiting
