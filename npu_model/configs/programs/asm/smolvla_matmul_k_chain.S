@@ -46,9 +46,9 @@ delay 34
 vload m1, 0(x8)             # B_K0
 delay 34
 vmatpush.weight.mxu0 w0, m1
-delay 34
+delay 1
 vmatmul.mxu0 acc0, m0, w0
-delay 96
+delay 64
 
 # --- K tile 1: acc[0] += A_K1 @ B_K1 (accumulate) ---
 vload m2, 0(x7)             # A_K1
@@ -56,9 +56,9 @@ delay 34
 vload m3, 0(x9)             # B_K1
 delay 34
 vmatpush.weight.mxu0 w0, m3
-delay 32
+delay 1
 vmatmul.acc.mxu0 acc0, m2, w0
-delay 96
+delay 64
 
 # --- Pop accumulator, store halves to VMEM, DMA out ---
 vmatpop.bf16.acc.mxu0 m4, acc0     # (m4, m5) = C bf16

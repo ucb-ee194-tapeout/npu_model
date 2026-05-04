@@ -180,6 +180,8 @@ class BankConflictChecker:
 
     def __init__(self) -> None:
         self._mrf_in_use: dict[int, str] = {}
+        self._mrf_read_in_use: dict[int, set[str]] = {}
+        self._mrf_write_in_use: dict[int, str] = {}
         self._vmem_in_use: dict[int, str] = {}
         # Add tracking for MXU buffers
         self._weight_buf_in_use: dict[int, str] = {}
@@ -187,6 +189,8 @@ class BankConflictChecker:
 
     def reset(self) -> None:
         self._mrf_in_use.clear()
+        self._mrf_read_in_use.clear()
+        self._mrf_write_in_use.clear()
         self._vmem_in_use.clear()
         self._weight_buf_in_use.clear()
         self._acc_buf_in_use.clear()
@@ -203,9 +207,18 @@ class BankConflictChecker:
         Raises BankConflictError if any of the requested banks is
         already held by a different in-flight instruction.
         """
-        conflict = frozenset(self._mrf_in_use) & banks
+        directed_conflict = (
+            frozenset(self._mrf_read_in_use) | frozenset(self._mrf_write_in_use)
+        ) & banks
+        conflict = (frozenset(self._mrf_in_use) | directed_conflict) & banks
         if conflict:
-            holders = {self._mrf_in_use[b] for b in conflict}
+            holders = set()
+            for bank in conflict:
+                if bank in self._mrf_in_use:
+                    holders.add(self._mrf_in_use[bank])
+                holders.update(self._mrf_read_in_use.get(bank, set()))
+                if bank in self._mrf_write_in_use:
+                    holders.add(self._mrf_write_in_use[bank])
             raise BankConflictError(
                 f"MRF bank conflict: '{label}' accesses tensor register(s) "
                 f"{sorted(conflict)} currently held by {holders}"
@@ -217,6 +230,53 @@ class BankConflictChecker:
         """Release the given MRF banks."""
         for bank in banks:
             self._mrf_in_use.pop(bank, None)
+
+    def acquire_mrf_access(
+        self, reads: frozenset[int], writes: frozenset[int], label: str
+    ) -> None:
+        """
+        Declare directed MRF access.
+
+        Multiple readers may share a bank. Writers conflict with any active
+        reader or writer, matching the MXU program-spacing rule.
+        """
+        conflict = (frozenset(self._mrf_in_use) & (reads | writes)) | (
+            frozenset(self._mrf_write_in_use) & reads
+        ) | (
+            (frozenset(self._mrf_read_in_use) | frozenset(self._mrf_write_in_use))
+            & writes
+        )
+        if conflict:
+            holders = set()
+            for bank in conflict:
+                if bank in self._mrf_in_use:
+                    holders.add(self._mrf_in_use[bank])
+                holders.update(self._mrf_read_in_use.get(bank, set()))
+                if bank in self._mrf_write_in_use:
+                    holders.add(self._mrf_write_in_use[bank])
+            raise BankConflictError(
+                f"MRF bank conflict: '{label}' accesses tensor register(s) "
+                f"{sorted(conflict)} currently held by {holders}"
+            )
+
+        for bank in reads:
+            self._mrf_read_in_use.setdefault(bank, set()).add(label)
+        for bank in writes:
+            self._mrf_write_in_use[bank] = label
+
+    def release_mrf_access(
+        self, reads: frozenset[int], writes: frozenset[int], label: str
+    ) -> None:
+        for bank in reads:
+            holders = self._mrf_read_in_use.get(bank)
+            if holders is None:
+                continue
+            holders.discard(label)
+            if not holders:
+                self._mrf_read_in_use.pop(bank, None)
+        for bank in writes:
+            if self._mrf_write_in_use.get(bank) == label:
+                self._mrf_write_in_use.pop(bank, None)
 
     # ------------------------------------------------------------------
     # Weight Buffer

@@ -48,19 +48,19 @@ delay 34
 
 # --- Push weights to MXU0 WB slots 0 and 1 ---
 vmatpush.weight.mxu0 w0, m0
-delay 32
+delay 1
 vmatpush.weight.mxu0 w1, m1
-delay 32
+
 
 # --- Matrix Multiplications ---
 # Gate projection: activation @ gate_weight -> acc0
 vmatmul.mxu0 acc0, m2, w0
-delay 96
+delay 64
 vmatpop.bf16.acc.mxu0 m4, acc0     # gate -> m4/m5
 delay 32
 # Up projection: activation @ up_weight -> acc0
 vmatmul.mxu0 acc0, m2, w1
-delay 96
+delay 64
 vmatpop.bf16.acc.mxu0 m6, acc0     # up -> m6/m7
 delay 32
 
