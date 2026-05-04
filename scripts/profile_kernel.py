@@ -9,13 +9,13 @@ Usage:
              or a path to an assembly file (e.g. npu_model/configs/programs/asm/smolvla_gelu_tanh.S)
 
 Options:
+    --output         Output trace file (default: trace.json); open in https://ui.perfetto.dev
     --max-cycles     Maximum cycles to simulate
     --hardware       HardwareConfig class name
     --list           List all available Python programs and exit
 """
 
 import argparse
-import tempfile
 from pathlib import Path
 
 # hardware must be imported before programs to avoid circular import
@@ -32,6 +32,8 @@ from npu_model.software.program import InstantiableProgram
 def main() -> None:
     parser = argparse.ArgumentParser(description="Profile an NPU kernel.")
     parser.add_argument("program", nargs="?", help="Program class name or .S file path")
+    parser.add_argument("-o", "--output", default="trace.json",
+                        help="Output trace file for Perfetto/Speedscope (default: trace.json)")
     parser.add_argument("--max-cycles", type=int, default=200000)
     parser.add_argument("--hardware", default="DefaultHardwareConfig",
                         help="HardwareConfig class name")
@@ -66,9 +68,6 @@ def main() -> None:
         prog = prog_cls()
         label = args.program
 
-    with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
-        trace_path = f.name
-
     sim = None
     try:
         print(f"Program : {label}")
@@ -77,15 +76,15 @@ def main() -> None:
 
         sim = Simulation(
             hardware_config=hw_cls(),
-            logger_config=LoggerConfig(filename=trace_path),
+            logger_config=LoggerConfig(filename=args.output),
             program=prog,
             verbose=False,
             record_timeline=True,
         )
         sim.run(max_cycles=args.max_cycles)
         print_stats(sim)
+        print(f"Trace   : {args.output}  (open at https://ui.perfetto.dev or https://www.speedscope.app)")
     finally:
-        Path(trace_path).unlink(missing_ok=True)
         if sim is not None:
             sim.close()
 
