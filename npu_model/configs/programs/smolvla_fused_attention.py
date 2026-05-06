@@ -92,8 +92,9 @@ from typing import Any, List, Tuple
 
 import torch
 
-from ...software import Instruction, Program
-from npu_model.isa import DmaArgs, MatrixArgs, ScalarArgs, VectorArgs
+from npu_model.software.instruction import Instruction
+from npu_model.software.program import Program, ASM_FOLDER
+from npu_model.util.converter import load_asm
 
 
 def fused_attention_reference(
