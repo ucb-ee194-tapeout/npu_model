@@ -568,16 +568,50 @@ class VEXP2_BF16(
         _write_mrf_bf16_pair(state, self.vd, torch.exp2(x))
 
 
+def _e8m0_scale(code: int) -> float:
+    """The scale factor a whole-tensor scale register denotes, DERIVED FROM THE RTL.
+
+    Ground truth is ``atlas/vector/VectorEngine.scala``, which converts the architectural register
+    value to the shift the datapath applies::
+
+        // Convert raw E8M0 into a clamped signed scale exponent.
+        private def e8m0ToScaleExpClamped(scaleE8M0: UInt): SInt =
+          scaleE8M0.zext -& 127.S(9.W)
+
+    and ``atlas/vector/laneBoxes/FP8Unpack.scala``, which ADDS that shift to the operand's unbiased
+    exponent (``unbExpBF16 = unbExpFP8 + scaleWide``) rather than dividing by anything. Every scale
+    register resets to ``RegInit(127.U(8.W))`` -- the hardware's own statement that 127 is unit scale.
+    So the factor is ``2**(code - 127)``.
+
+    Both users here read the raw CODE as the factor itself: pack multiplied by it, unpack divided by
+    it. That is self-consistent -- they are exact inverses, which is why this model's own validation
+    programs are bit-exact on this core -- and wrong against the hardware. MEASURED: whole-tensor
+    outputs disagreed with the arc cosim and Verilator by ~127x, exactly what dividing by the code 127
+    predicts where the hardware multiplies by 2**(127-127) = 1. Merlin's atlas backend emits
+    ``seli e0, 127`` (19 occurrences across 5 capsules), i.e. it already speaks the hardware's
+    convention; two programs shipped in this repo emit ``seli e5, 1`` and call it "unit scale", which
+    on hardware is 2**-126 and clamps to signed zero.
+
+    NOT modelled here: the RTL also clamps a rebiased exponent of <=0 to signed zero and >=255 to
+    saturation, and flushes fp8 subnormals and the reserved NaN to signed zero. Those are properties
+    of the conversion, not of the scale, and they belong with the fp8 decode rather than in this
+    helper -- but a result that depends on them is not corroborated by this core.
+    """
+    import math
+
+    return math.ldexp(1.0, int(code) - 127)
+
+
 class VPACK_BF16_FP8(
     TensorComputeMixed, VRType, exu=EXU.VECTOR, opcode=0b1010111, funct7=0b1000100
 ):
     def exec(self, state: ArchState) -> None:
         assert self.vs2 != state.cfg.num_m_registers - 1
-        scale = state.read_erf(self.es1)
+        scale = _e8m0_scale(state.read_erf(self.es1))
         reg_low = state.read_mrf_bf16(self.vs2)
         reg_high = state.read_mrf_bf16(self.vs2 + 1)
         combined_bf16 = torch.cat([reg_low, reg_high], dim=1)
-        quantized_fp8 = (combined_bf16 * scale).to(torch.float8_e4m3fn)
+        quantized_fp8 = (combined_bf16 / scale).to(torch.float8_e4m3fn)
         state.write_mrf_fp8(self.vd, quantized_fp8)
 
 
@@ -586,10 +620,10 @@ class VUNPACK_FP8_BF16(
 ):
     def exec(self, state: ArchState) -> None:
         assert self.vd != state.cfg.num_m_registers - 1
-        scale = state.read_erf(self.es1)
+        scale = _e8m0_scale(state.read_erf(self.es1))
         source_fp8 = state.read_mrf_fp8(self.vs2)
         dequantized_bf16 = source_fp8.to(torch.bfloat16)
-        scaled_bf16 = dequantized_bf16 / scale
+        scaled_bf16 = dequantized_bf16 * scale
         reg_low, reg_high = torch.chunk(scaled_bf16, chunks=2, dim=1)
         state.write_mrf_bf16(self.vd, reg_low)
         state.write_mrf_bf16(self.vd + 1, reg_high)
