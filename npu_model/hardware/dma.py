@@ -50,6 +50,11 @@ class DmaExecutionUnit(ExecutionUnit):
     instructions held in the DIU.
     """
 
+    def latency(self, uop: Uop) -> int:
+        if uop.insn.mnemonic == "dma.config.ch<N>":
+            return 1
+        return max(1, dma_transfer_cycles(self.config, self._bytes_for_dma_uop(uop)))
+
     def _bytes_for_dma_uop(self, uop: Uop) -> int:
         """
         Determine transfer size in bytes for DMA ops.

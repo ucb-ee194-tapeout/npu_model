@@ -12,6 +12,7 @@ from .config import HardwareConfig
 from .ifu import InstructionFetch
 from .idu import InstructionDecode
 from .exu import ExecutionUnit
+from .scoreboard import Scoreboard
 
 from .exu import ScalarExecutionUnit  # type: ignore # noqa: F401, F403
 from .mxu import (
@@ -40,9 +41,11 @@ class Core(Module):
         self,
         config: HardwareConfig,
         logger: Logger,
+        schedule_mode: bool = False,
     ) -> None:
         self.config = config
         self.logger = logger
+        self.scoreboard = Scoreboard() if schedule_mode else None
 
         self.arch_state = ArchState(
             config=self.config.arch_state_config,
@@ -74,6 +77,7 @@ class Core(Module):
             logger=self.logger,
             arch_state=self.arch_state,
             isa=self.config.isa,
+            scoreboard=self.scoreboard,
         )
 
         self.ignore_runtime_errors = False

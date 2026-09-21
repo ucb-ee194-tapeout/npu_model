@@ -69,7 +69,7 @@ class LoadStoreUnit(ExecutionUnit):
         self._total_instructions = 0
         self._busy_cycles = 0
 
-    def _get_latency(self, uop: Uop) -> int:
+    def latency(self, uop: Uop) -> int:
         return LSU_OP_LATENCIES[uop.insn.mnemonic]
 
     def tick(self, idu_output: StageData[Uop | None]) -> None:
@@ -98,7 +98,7 @@ class LoadStoreUnit(ExecutionUnit):
                 self._in_flight_mrf_banks = mrf_banks
                 self._in_flight_vmem_banks = vmem_banks
 
-                uop.execute_delay = self._get_latency(uop)
+                uop.execute_delay = self.latency(uop)
                 self.in_flight = uop
                 self._total_instructions += 1
                 self.logger.log_stage_end(

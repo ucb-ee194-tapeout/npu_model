@@ -84,7 +84,7 @@ class VectorExecutionUnit(ExecutionUnit):
         self._total_instructions = 0
         self._busy_cycles = 0
 
-    def _execution_latency(self, uop: Uop) -> int:
+    def latency(self, uop: Uop) -> int:
         mnemonic = uop.insn.mnemonic
         return VPU_OP_LATENCIES[mnemonic]
 
@@ -117,7 +117,7 @@ class VectorExecutionUnit(ExecutionUnit):
                 self._in_flight_mrf_banks = mrf_banks
                 self._in_flight_vmem_banks = vmem_banks
                 # tag instruction with execution delay
-                uop.execute_delay = self._execution_latency(uop)
+                uop.execute_delay = self.latency(uop)
                 self.in_flight = uop
                 self._total_instructions += 1
                 # Log: end dispatch, start execute

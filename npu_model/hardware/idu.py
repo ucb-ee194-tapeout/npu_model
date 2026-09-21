@@ -18,6 +18,8 @@ from ..configs.isa_definition import (
 )
 from ..isa_types import EXU
 from ..hardware.arch_state import ArchState
+from .bank_conflict import mrf_accesses
+from .scoreboard import Scoreboard, ereg_accesses, xrf_accesses
 from .exu import *  # noqa: F401, F403
 
 if TYPE_CHECKING:
@@ -34,17 +36,26 @@ class InstructionDecode(Module):
     When stalled, ends D stage early - gap in trace shows stall period.
     """
 
+    _SCOREBOARD_EXU_OCCUPANCY = {
+        EXU.MATRIX_SYSTOLIC,
+        EXU.MATRIX_INNER,
+        EXU.VECTOR,
+        EXU.LSU,
+    }
+
     def __init__(
         self,
         exus: list[ExecutionUnit],
         logger: Logger,
         isa: type[IsaSpec],
         arch_state: ArchState,
+        scoreboard: Scoreboard | None = None,
     ) -> None:
         self.exus = exus
         self.logger = logger
         self.isa = isa
         self.arch_state = arch_state
+        self.scoreboard = scoreboard
         self.uop = None  # the current uop in flight
         self.lane_id = 1
         self.cycle = 0
@@ -62,6 +73,9 @@ class InstructionDecode(Module):
         }
         self._stalled = False
         self._control_flow_delay_slots_remaining = 0
+        self.schedule_stalls: list[tuple[Uop, int]] = []
+        if self.scoreboard is not None:
+            self.scoreboard.reset()
 
     def is_finished(self) -> bool:
         """Check if DIU is finished."""
@@ -111,7 +125,12 @@ class InstructionDecode(Module):
             )
 
             # Tag instruction with dispatch delay.
-            if uop.dispatch_delay == 0 and isinstance(uop.insn, DELAY):
+            if self.scoreboard is not None:
+                stall = max(0, self._scoreboard_ready_cycle(uop) - self.cycle)
+                if stall > 0:
+                    self.schedule_stalls.append((uop, stall))
+                uop.dispatch_delay = stall
+            elif uop.dispatch_delay == 0 and isinstance(uop.insn, DELAY):
                 uop.dispatch_delay = uop.insn.imm
 
             if self._is_control_flow_instruction(uop):
@@ -157,6 +176,10 @@ class InstructionDecode(Module):
             return
 
         target_exu = self.exu_map[self.uop.insn.exu]
+
+        if self.scoreboard is not None:
+            self._mark_scoreboard_busy(self.uop, target_exu)
+
         self.outputs[target_exu].prepare(self.uop)
 
         # if we dispatched a DMA instruction, set flag as busy here
@@ -185,6 +208,26 @@ class InstructionDecode(Module):
     def _consume_delay_slot_if_needed(self) -> None:
         if self._control_flow_delay_slots_remaining > 0:
             self._control_flow_delay_slots_remaining -= 1
+
+    def _scoreboard_ready_cycle(self, uop: Uop) -> int:
+        assert self.scoreboard is not None
+        ready = max(
+            self.scoreboard.xrf_ready_cycle(xrf_accesses(uop.insn)),
+            self.scoreboard.mrf_ready_cycle(mrf_accesses(uop.insn)),
+            self.scoreboard.ereg_ready_cycle(ereg_accesses(uop.insn)),
+        )
+        if uop.insn.exu in self._SCOREBOARD_EXU_OCCUPANCY:
+            ready = max(ready, self.scoreboard.exu_ready_cycle(uop.insn.exu))
+        return ready
+
+    def _mark_scoreboard_busy(self, uop: Uop, exu: ExecutionUnit) -> None:
+        assert self.scoreboard is not None
+        until = self.cycle + exu.latency(uop)
+        self.scoreboard.mark_xrf_busy(xrf_accesses(uop.insn), until)
+        self.scoreboard.mark_mrf_busy(mrf_accesses(uop.insn), until)
+        self.scoreboard.mark_ereg_busy(ereg_accesses(uop.insn), until)
+        if uop.insn.exu in self._SCOREBOARD_EXU_OCCUPANCY:
+            self.scoreboard.mark_exu_busy(uop.insn.exu, until)
 
     def check_backpressure(self, uop: Uop) -> bool:
         if (
