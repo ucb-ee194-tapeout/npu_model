@@ -222,6 +222,7 @@ class InstructionDecode(Module):
 
     def _mark_scoreboard_busy(self, uop: Uop, exu: ExecutionUnit) -> None:
         assert self.scoreboard is not None
+        # TODO: Use mark_dma_busy()'s queued completion for DMA register/VMEM reservations.
         until = self.cycle + exu.latency(uop)
         self.scoreboard.mark_xrf_busy(xrf_accesses(uop.insn), until)
         self.scoreboard.mark_mrf_busy(mrf_accesses(uop.insn), until)
