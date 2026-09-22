@@ -29,6 +29,7 @@ class Simulation:
         verbose: bool = True,
         ignore_runtime_errors: bool = False,
         record_timeline: bool = False,
+        schedule_mode: bool = False,
     ):
         """
         Create a simple NPU hardware configuration.
@@ -64,6 +65,7 @@ class Simulation:
         self.core = Core(
             config=hardware_config,
             logger=self.logger,
+            schedule_mode=schedule_mode,
         )
         self.core.ignore_runtime_errors = ignore_runtime_errors
         self.core.runtime_error_reporter = self._report_runtime_error

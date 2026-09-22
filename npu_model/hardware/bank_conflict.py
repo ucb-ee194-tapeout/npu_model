@@ -111,6 +111,7 @@ def vmem_accesses(insn: Instruction, arch_state: ArchState) -> frozenset[int]:
 
     Bank indices are computed from the byte address and length at dispatch
     time by reading the current scalar register file.
+    Address and length registers must be ready.
     """
 
     if isinstance(insn, TensorBaseOffset):

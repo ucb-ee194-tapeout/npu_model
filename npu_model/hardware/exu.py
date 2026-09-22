@@ -113,6 +113,9 @@ class ScalarExecutionUnit(ExecutionUnit):
         )
         self.reset()
 
+    def latency(self, uop: Uop) -> int:
+        return 1
+
     def can_handle(self, uop: Uop) -> bool:
         # List of memory instructions that should go to the LSU instead
         mem_ops = {

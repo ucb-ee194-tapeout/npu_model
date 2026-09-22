@@ -73,7 +73,7 @@ class MatrixExecutionUnitSystolic(ExecutionUnit):
         self._total_instructions = 0
         self._busy_cycles = 0
 
-    def _execution_latency(self, uop: Uop) -> int:
+    def latency(self, uop: Uop) -> int:
         return MXU_OP_LATENCIES.get(uop.insn.mnemonic, 32)
 
     def tick(self, idu_output: StageData[Uop | None]) -> None:
@@ -110,7 +110,7 @@ class MatrixExecutionUnitSystolic(ExecutionUnit):
                 self._in_flight_weight_banks = weight_banks
                 self._in_flight_acc_banks = acc_banks
 
-                uop.execute_delay = self._execution_latency(uop)
+                uop.execute_delay = self.latency(uop)
                 self.in_flight = uop
                 self._total_instructions += 1
                 # Log: end dispatch, start execute
@@ -222,7 +222,7 @@ class MatrixExecutionUnitInner(ExecutionUnit):
         self._total_instructions = 0
         self._busy_cycles = 0
 
-    def _execution_latency(self, uop: Uop) -> int:
+    def latency(self, uop: Uop) -> int:
         return MXU_OP_LATENCIES[uop.insn.mnemonic]
 
     def tick(self, idu_output: StageData[Uop | None]) -> None:
@@ -259,7 +259,7 @@ class MatrixExecutionUnitInner(ExecutionUnit):
                 self._in_flight_weight_banks = weight_banks
                 self._in_flight_acc_banks = acc_banks
 
-                uop.execute_delay = self._execution_latency(uop)
+                uop.execute_delay = self.latency(uop)
                 self.in_flight = uop
                 self._total_instructions += 1
                 # Log: end dispatch, start execute
