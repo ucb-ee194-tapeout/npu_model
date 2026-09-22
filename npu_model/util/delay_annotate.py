@@ -54,4 +54,7 @@ def annotate_delays(
         if stall:
             instructions.append(DELAY(imm=stall))
         instructions.append(insn)
-    return InstantiableProgram(instructions)
+
+    annotated = InstantiableProgram(instructions)
+    annotated.memory_regions = program.memory_regions
+    return annotated
