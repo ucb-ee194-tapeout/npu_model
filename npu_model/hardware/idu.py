@@ -18,7 +18,7 @@ from ..configs.isa_definition import (
 )
 from ..isa_types import EXU
 from ..hardware.arch_state import ArchState
-from .bank_conflict import mrf_accesses
+from .bank_conflict import mrf_accesses, vmem_accesses
 from .scoreboard import Scoreboard, ereg_accesses, xrf_accesses
 from .exu import *  # noqa: F401, F403
 
@@ -175,6 +175,17 @@ class InstructionDecode(Module):
             self.uop = None
             return
 
+        if self.scoreboard is not None:
+            # Re-check VMEM readiness now that dispatch_delay == 0 guarantees
+            # any address register vmem_accesses() reads holds its final value.
+            stall = self.scoreboard.vmem_ready_cycle(
+                vmem_accesses(self.uop.insn, self.arch_state)
+            ) - self.cycle
+            if stall > 0:
+                self.uop.dispatch_delay = stall
+                self._stalled = True
+                return
+
         target_exu = self.exu_map[self.uop.insn.exu]
 
         if self.scoreboard is not None:
@@ -215,6 +226,7 @@ class InstructionDecode(Module):
             self.scoreboard.xrf_ready_cycle(xrf_accesses(uop.insn)),
             self.scoreboard.mrf_ready_cycle(mrf_accesses(uop.insn)),
             self.scoreboard.ereg_ready_cycle(ereg_accesses(uop.insn)),
+            self.scoreboard.vmem_ready_cycle(vmem_accesses(uop.insn, self.arch_state)),
         )
         if uop.insn.exu in self._SCOREBOARD_EXU_OCCUPANCY:
             ready = max(ready, self.scoreboard.exu_ready_cycle(uop.insn.exu))
@@ -222,11 +234,14 @@ class InstructionDecode(Module):
 
     def _mark_scoreboard_busy(self, uop: Uop, exu: ExecutionUnit) -> None:
         assert self.scoreboard is not None
-        # TODO: Use mark_dma_busy()'s queued completion for DMA register/VMEM reservations.
-        until = self.cycle + exu.latency(uop)
+        if uop.insn.exu == EXU.DMA:
+            until = self.scoreboard.mark_dma_busy(int(uop.insn.funct3), self.cycle, exu.latency(uop))
+        else:
+            until = self.cycle + exu.latency(uop)
         self.scoreboard.mark_xrf_busy(xrf_accesses(uop.insn), until)
         self.scoreboard.mark_mrf_busy(mrf_accesses(uop.insn), until)
         self.scoreboard.mark_ereg_busy(ereg_accesses(uop.insn), until)
+        self.scoreboard.mark_vmem_busy(vmem_accesses(uop.insn, self.arch_state), until)
         if uop.insn.exu in self._SCOREBOARD_EXU_OCCUPANCY:
             self.scoreboard.mark_exu_busy(uop.insn.exu, until)
 
