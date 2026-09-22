@@ -15,7 +15,6 @@ from typing import TYPE_CHECKING
 from npu_model.isa import VRType
 from ..isa_types import MatrixReg, WeightBuffer, Accumulator
 from npu_model.isa_patterns import TensorBaseOffset, TensorComputeBinary, TensorComputeUnary, DirectImm, MXUAccumulatorPop, MXUWeightPush, MXUAccumulatorPopE1, MXUAccumulatorPush, MXUMatMul, ScalarComputeReg
-from npu_model.isa_patterns import ExponentOffsetLoad, ScalarBaseOffsetStore, ScalarOffsetLoad
 from npu_model.configs.isa_definition import VMOV, VPACK_BF16_FP8, VUNPACK_FP8_BF16
 
 if TYPE_CHECKING:
@@ -29,9 +28,6 @@ if TYPE_CHECKING:
 
 VMEM_BANK_BYTES: int = 32
 """Granularity of VMEM banks in bytes (matches DMA / vload / vstore alignment)."""
-
-SCALAR_VMEM_ACCESS_BYTES = {"lb": 1, "lbu": 1, "lh": 2, "lhu": 2, "lw": 4, "sb": 1, "sh": 2, "sw": 4, "seld": 1,}
-"""VMEM access size in bytes for scalar loads/stores, including seld."""
 
 
 # ---------------------------------------------------------------------------
@@ -117,13 +113,6 @@ def vmem_accesses(insn: Instruction, arch_state: ArchState) -> frozenset[int]:
     time by reading the current scalar register file.
     Address and length registers must be ready.
     """
-
-    if isinstance(insn, (ScalarOffsetLoad, ScalarBaseOffsetStore, ExponentOffsetLoad)):
-        offset = int(insn.imm) & 0xFFF
-        if offset & 0x800:
-            offset -= 0x1000
-        addr = arch_state.read_xrf(insn.rs1) + offset
-        return _vmem_range_to_banks(addr, SCALAR_VMEM_ACCESS_BYTES[insn.mnemonic])
 
     if isinstance(insn, TensorBaseOffset):
         addr = arch_state.read_xrf(insn.rs1) + (insn.imm << 5)
