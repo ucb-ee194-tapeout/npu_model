@@ -3,11 +3,11 @@ from typing import TextIO, List, cast
 from pathlib import Path
 
 from ..software.instruction import Instruction, x
-from ..software.program import InstantiableProgram
+from ..software.program import InstantiableProgram, Program
 from ..isa import IsaSpec
 from ..isa_patterns import InstructionPattern
 from ..configs.isa_definition import ADDI, LUI
-from ..isa_types import ScalarReg
+from ..isa_types import Bundled, Named, RegBase, ScalarReg
 
 def parse_reg(s: str):
     s = s.strip().rstrip(",").lower()
@@ -124,3 +124,28 @@ def load_asm(source: Path):
 
 def input_to_program(source: TextIO):
     return InstantiableProgram(stream_to_instrs(source))
+
+
+def format_operand(value: object) -> str:
+    """Render a field value the way `parse_reg`/`resolve` expect to read it back."""
+    if isinstance(value, RegBase):
+        return f"{value.fmt}{int(value)}"
+    return str(value)
+
+
+def format_token(param: Named, instr: Instruction) -> str:
+    """Render one `params` entry back into the single asm token it was parsed from."""
+    if isinstance(param, Bundled):
+        offset = format_operand(getattr(instr, param.imm.repr))
+        base = format_operand(getattr(instr, param.reg.repr))
+        return f"{offset}({base})"
+    return format_operand(getattr(instr, param.repr))
+
+
+def program_to_asm(program: Program) -> str:
+    """Render `program` as assembly text parseable by `stream_to_instrs`."""
+    lines = [
+        f"{instr.mnemonic} {', '.join(format_token(p, instr) for p in instr.params)}".rstrip()
+        for instr in program.instructions
+    ]
+    return "\n".join(lines) + "\n"
