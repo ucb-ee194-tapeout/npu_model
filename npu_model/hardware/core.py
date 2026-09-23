@@ -20,14 +20,15 @@ from .mxu import (
 )  # noqa: F401, F403
 from .dma import DmaExecutionUnit  # type: ignore # noqa: F401, F403
 from .vpu import VectorExecutionUnit  # type: ignore # noqa: F401, F403
+from .xlu import CrossLaneExecutionUnit  # noqa: F401
 from .lsu import LoadStoreUnit  # type: ignore # noqa: F401, F403 
 
 
 class Core(Module):
     """
     NPU Core.
-    Orchestrates the pipeline: IFU -> DIU -> EXUs.
-    Ticking happens in reverse pipeline order to properly propagate values.
+    Orchestrates the two RTL stages: fetch, then decode/execute/writeback.
+    Decode dispatches combinationally to the EXUs before the next fetch edge.
 
     Pipeline stages use StageData with claim-based handshaking:
     - Downstream stages claim data from upstream stages
@@ -94,29 +95,38 @@ class Core(Module):
         self.idu.reset()
         for exu in self.exus:
             exu.reset()
-        # self.cycle_count = 0
+        self.cycle_count = 0
+        self.last_cycle = {}
         self.total_completed = 0
 
     def tick(self) -> None:
-        """
-        Execute one cycle.
-        Tick in reverse pipeline order (downstream first):
-        2. EXUs claim and consume from DIU outputs
-        1. IDU claims from IFU and dispatches to EXU outputs
-        3. IFU fetches new instructions (if not stalled)
-        4. Log cycle advancement
+        """Advance one edge, evaluating S1 against the previous edge's state.
 
-        Each downstream stage claims from the previous stage's output.
-        If a stage's output isn't claimed, it will stall on the next tick.
+        Fetch reads the old PC even on a redirect, preserving exactly one
+        architectural delay slot. LSU writeback is last so register reads in
+        this cycle observe the old value, as in the RTL (no load bypass).
         """
-        # 0. Log cycle advancement
         self.logger.log_cycle(1)
+        self.cycle_count += 1
+        state = self.arch_state
+        state.conflict_checker.begin_cycle(self.cycle_count)
+        state.begin_csr_cycle()
+        fetch_pc = state.pc
+        s1 = self.idu.uop or self.ifu.output.peek()
+        state.npc = (state.pc + 1) & 0xFFFFFFFF
+        state.redirect_requested = False
+        state.current_uop = None
 
-        # 1. Advance program counter
-        self.arch_state.npc = self.arch_state.pc + 4
+        try:
+            self.idu.tick(self.ifu.output)
+        except Exception as exc:
+            if not self._handle_runtime_error("IDU", exc):
+                raise
+            self._recover_idu_fault()
+        state.current_uop = self.idu.issued_uop
 
-        # 2. Tick EXUs (claim from InstructionDecode outputs)
-        for exu in self.exus:
+        # Read operands / launch commands before scalar-load writeback.
+        for exu in sorted(self.exus, key=lambda unit: isinstance(unit, LoadStoreUnit)):
             idu_out = self.idu.outputs[exu]
             try:
                 exu.tick(idu_output=idu_out)
@@ -124,24 +134,33 @@ class Core(Module):
                 if not self._handle_runtime_error(f"EXU {exu.name}", exc):
                     raise
                 self._recover_exu_fault(exu, idu_out)
-            else:
-                self.total_completed += exu.complete_count
 
-        # 3. Tick IDU (claim from InstructionFetch output, dispatch to EXU outputs)
-        try:
-            self.idu.tick(self.ifu.output)
-        except Exception as exc:
-            if not self._handle_runtime_error("IDU", exc):
-                raise
-            self._recover_idu_fault()
+        if self.idu.issued_uop is not None:
+            # RTL inst_retire counts S1 launches, not asynchronous completions.
+            self.total_completed += 1
+        if state.redirect_requested:
+            state.in_delay_slot = True
+        state.finish_csr_cycle(retired=self.idu.issued_uop is not None)
 
-        # 4. Tick IFU (fetch new instructions if not stalled)
         try:
-            self.ifu.tick()
+            self.ifu.tick(stalled=self.idu.is_stalled)
         except Exception as exc:
             if not self._handle_runtime_error("IFU", exc):
                 raise
             self._recover_ifu_fault()
+
+        self.last_cycle = {
+            "cycle": self.cycle_count,
+            "fetch_pc": fetch_pc,
+            "s1_pc": s1.pc if s1 is not None else None,
+            "s1_valid": s1 is not None,
+            "s1_fire": self.idu.issued_uop is not None,
+            "instruction": s1.insn.mnemonic if s1 is not None else None,
+            "stall": self.idu.stall_reason,
+            "redirect": state.redirect_requested,
+            "next_pc": state.pc,
+            "halted": state.halted,
+        }
 
     def is_finished(self) -> bool:
         """Check if execution is complete."""
@@ -153,7 +172,6 @@ class Core(Module):
             return False
         for exu in self.exus:
             if exu.has_in_flight:
-                print(f"EXU {exu.name} has in-flight instructions")
                 return False
         return True
 
@@ -175,6 +193,9 @@ class Core(Module):
 
     def _recover_exu_fault(self, exu: ExecutionUnit, idu_out: StageData[Uop | None]) -> None:
         idu_out.reset()
+        if hasattr(exu, "abort"):
+            exu.abort()
+            return
         if hasattr(exu, "in_flight"):
             current = getattr(exu, "in_flight")
             if isinstance(current, list):
@@ -190,6 +211,7 @@ class Core(Module):
 
     def _recover_idu_fault(self) -> None:
         self.idu.uop = None
+        self.idu.issued_uop = None
         self.idu.force_unstall()
         for output in self.idu.outputs.values():
             output.reset()

@@ -2,13 +2,10 @@
 
 [![Tests](https://github.com/ucb-ee194-tapeout/npu_model/actions/workflows/test.yml/badge.svg)](https://github.com/ucb-ee194-tapeout/npu_model/actions/workflows/test.yml)
 
-This is a preliminary, experimental performance model for various NPU architecture.
-Notice that this is neither performant or accurate in any sense.
-This model makes highly ideal assumption, and is only useful for educational purposes or early stage exploration.
-Use at your own risk.
-
-This perf model is tick-based.
-
+An execution-driven, tick-based model of the Atlas NPU.
+The scalar frontend, instruction addressing, and on-chip memory paths follow the
+RTL in `../src/main/scala`. See [RTL timing and validation](docs/rtl-timing.md)
+for cycle conventions, supported behavior, and remaining approximations.
 
 ### Tick Based vs Event Based
 These two terms primarily discerns the execution model of the simulator.
@@ -46,12 +43,12 @@ So writing this model in execution-driven fashion achives both goals in one shot
 
 ## Hardware Modeling
 
-The hardware model uses a **tick-based simulation** approach with reverse pipeline order ticking to properly propagate values:
+The hardware model advances one rising edge per tick:
 
 - **Pipeline Stages**:
   - **IFU (Instruction Fetch Unit)**: Fetches instructions from program memory
-  - **IDU (Instruction Decode Unit)**: Decodes and dispatches instructions to execution units
-  - **EXUs (Execution Units)**: Execute instructions with configurable latencies
+  - **S1 (Decode / Execute / Writeback)**: Reads scalar registers, executes scalar operations, and launches engines in the same cycle
+  - **Engines**: Continue independently after launch
 
 - **Execution Unit Types**:
   - **ScalarExecutionUnit**: Single-cycle scalar operations (add, sub, branches)
@@ -87,7 +84,7 @@ The simulator generates detailed execution traces for visualization:
 
 ### Requirements
 
-- Python >= 3.10
+- Python >= 3.14
 - Dependencies managed via `uv` (see `pyproject.toml`)
 
 ### Basic Simulation
@@ -98,7 +95,7 @@ Run a simulation with default configuration:
 uv run ./scripts/run.py --program MatmulProgram --hardware_config DefaultHardwareConfig -o matmul.json
 ```
 
-`DefaultHardwareConfig` models a `2 GiB` DRAM aperture for routine simulation.
+`DefaultHardwareConfig` models a `1 GiB` DRAM aperture for routine simulation.
 Use `FullDramHardwareConfig` to expose the full `16 GiB` DRAM address space.
 
 ### Custom Configuration
@@ -147,24 +144,18 @@ uv run pytest tests/test_programs.py --sim-verbose -vv
 ### Pipeline Flow
 
 ```
-IFU → IDU → EXUs (Scalar/Matrix/DMA)
- ↓     ↓      ↓
-Fetch Decode Execute → Retire
+S0: synchronous IMEM fetch → S1: decode / scalar execute / writeback / engine launch
+                                  └→ independent multi-cycle engines
 ```
 
-The simulator ticks in **reverse pipeline order** to ensure proper data propagation:
-1. Execution units claim instructions from IDU outputs
-2. IDU claims instructions from IFU and dispatches to EXUs
-3. IFU fetches new instructions (if not stalled)
-4. Cycle counter advances
+Cycle 1 fetches word 0; cycle 2 executes it. Taken branches and jumps execute
+exactly one sequential delay-slot instruction, then the target. PCs and jump
+links are word indices. `delay N` retires immediately, then stalls the following
+instruction for N cycles. `dma.wait` holds S1 while its channel is busy.
 
-### Claim-Based Handshaking
-
-Pipeline stages use `StageData` with claim-based handshaking:
-- Downstream stages **claim** data from upstream stages
-- Upstream stages **stall** if their data isn't claimed
-- Prevents data loss and ensures proper backpressure
-
+`Core.last_cycle` exposes the fetch PC, S1 PC, issue, stall, redirect, and halt
+signals for comparisons. `StageData` connects the stages and engine launch
+ports; decode and launch occur in the same cycle.
 
 ## Project Structure
 

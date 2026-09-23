@@ -32,6 +32,7 @@ class EXU(StrEnum):
     IDU = "InstructionDecode"
     SCALAR = "ScalarExecutionUnit"
     VECTOR = "VectorExecutionUnit"
+    XLU = "CrossLaneExecutionUnit"
     MATRIX_SYSTOLIC = "MatrixExecutionUnitSystolic"
     MATRIX_INNER = "MatrixExecutionUnitInner"
     DMA = "DmaExecutionUnit"
@@ -396,16 +397,17 @@ class Imm12(BoundedInt):
 # SBImm12
 class SBImm12(BoundedInt):
     """
-    Represents a 12-bit signed byte offset for SBType branch and JALR instructions.
+    Raw 13-bit B-type immediate, including the implicit zero low bit.
 
-    Targets must be 2-byte aligned (even), matching RISC-V SB encoding.
-    The assembler produces byte offsets (word_offset * 4) for label resolution.
+    Atlas uses this value divided by two as an instruction-word displacement.
+    Assembly operands are word offsets; instruction constructors use this raw
+    immediate. JALR uses an ordinary Imm12 instead.
     """
 
-    lower_bound = -2048
+    lower_bound = -4096
     unsigned_lower_bound = 0
-    signed_upper_bound = 2048  # remember, top of range is exclusive
-    upper_bound = 4096
+    signed_upper_bound = 4096
+    upper_bound = 8192
     fmt = "sbimm12"
 
     @classmethod
@@ -453,6 +455,26 @@ class Imm20(BoundedInt):
     signed_upper_bound = 524288  # remember, top of range is exclusive
     upper_bound = 1048576
     fmt = "imm20"
+
+
+class Imm21(BoundedInt):
+    """Raw J-type immediate; Atlas divides it by two for a word displacement."""
+
+    lower_bound = -1048576
+    unsigned_lower_bound = 0
+    signed_upper_bound = 1048576
+    upper_bound = 2097152
+    fmt = "imm21"
+
+    @classmethod
+    def lint(cls, val: str | int, role: str = "", tok_idx: int = 0) -> list[AsmError]:
+        errors = super().lint(val, role, tok_idx)
+        if errors:
+            return errors
+        value = int(val, 0) if isinstance(val, str) else val
+        if value & 1:
+            return [AsmError(f"Encoded jump immediate must be even (got {value})", token_index=tok_idx)]
+        return []
 
 # Imm32 — not real. Only used in Pseudoinstrs
 class Imm32(BoundedInt):

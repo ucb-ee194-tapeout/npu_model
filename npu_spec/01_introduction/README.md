@@ -48,7 +48,7 @@ Execution is overlap-oriented rather than superscalar:
 
 Control flow is explicit and compiler-visible:
 
-- branches and jumps have exactly `2` architecturally visible delay slots
+- branches and jumps have exactly `1` architecturally visible delay slot when taken
 - a control-transfer instruction appearing in a delay slot is illegal
 
 ## Baseline Tile Geometry

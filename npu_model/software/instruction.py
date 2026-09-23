@@ -85,10 +85,13 @@ class Uop():
 
     _next_id: int = 0
 
-    def __init__(self, insn: Instruction) -> None:
+    def __init__(self, insn: Instruction, pc: int = 0) -> None:
         self.id = Uop._next_id
         Uop._next_id += 1
         self.insn = insn
+        # IMEM word index captured at fetch; never reconstruct it from the
+        # current fetch PC (which can redirect or remain stalled).
+        self.pc = pc
 
         self.dispatch_delay: int = 0
         """the number of dispatch stalling cycles left"""

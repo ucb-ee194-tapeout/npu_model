@@ -48,3 +48,5 @@ class HardwareConfig:
     vmem_bus_width_bits: int = 512
     vmem_bus_core_cycles_per_beat: int = 1
     vmem_bytes_per_cycle: int = 64
+    vmem_bank_bytes: int = 256 * 1024
+    """Contiguous VMEM bank window (six banks in the default RTL)."""

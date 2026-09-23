@@ -83,7 +83,7 @@ The machine exposes three disjoint architectural memory regions.
 | Region | Base Address | Size | Role |
 |---|---:|---:|---|
 | `IMEM` | `0x0002_0000` | `128 KiB` | Instruction memory |
-| `VMEM` | `0x2000_0000` | `1 MiB` | On-chip tensor / vector data memory |
+| `VMEM` | `0x2000_0000` | `1.5 MiB` | On-chip tensor / vector data memory |
 | `DRAM` | `0x8000_0000` | `16 GiB` | Off-chip backing data memory |
 
 Rules:

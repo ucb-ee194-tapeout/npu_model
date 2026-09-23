@@ -131,6 +131,8 @@ class ScalarExecutionUnit(ExecutionUnit):
         return uop.insn.mnemonic not in mem_ops
 
     def reset(self) -> None:
+        self.cycle = 0
+        self._complete_count = 0
         # variables
         self._pending_completion_uop: Uop | None = None
         # logging variables

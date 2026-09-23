@@ -51,10 +51,8 @@ from npu_model.isa_types import (
 if TYPE_CHECKING:
     from npu_model.hardware.arch_state import ArchState
 
-PIPELINE_LATENCY = 2
-
-# Mask for 64-bit unsigned comparison (RISC-V RV64)
-_MASK64 = 0xFFFFFFFFFFFFFFFF
+# ScalarCore is RV32 with word-indexed PCs.
+_MASK32 = 0xFFFFFFFF
 
 
 # =============================================================================
@@ -202,19 +200,19 @@ class ADDI(ScalarComputeImm, IType, exu=EXU.SCALAR, opcode=0b0010011, funct3=0b0
 
 class SLLI(ScalarComputeShamt, IType, exu=EXU.SCALAR, opcode=0b0010011, funct3=0b001):
     def exec(self, state: ArchState) -> None:
-        state.write_xrf(self.rd, state.xrf[self.rs1] << (self.imm & 0x3F))
+        state.write_xrf(self.rd, state.xrf[self.rs1] << (self.imm & 0x1F))
 
 
 class SLTI(ScalarComputeImm, IType, exu=EXU.SCALAR, opcode=0b0010011, funct3=0b010):
     def exec(self, state: ArchState) -> None:
         imm = _sign_extend(self.imm & 0xFFF, 12)
-        state.write_xrf(self.rd, 1 if state.xrf[self.rs1] < imm else 0)
+        state.write_xrf(self.rd, 1 if _sign_extend(state.xrf[self.rs1], 32) < imm else 0)
 
 
 class SLTIU(ScalarComputeImm, IType, exu=EXU.SCALAR, opcode=0b0010011, funct3=0b011):
     def exec(self, state: ArchState) -> None:
-        a = state.xrf[self.rs1] & _MASK64
-        b = _sign_extend(self.imm & 0xFFF, 12) & _MASK64
+        a = state.xrf[self.rs1] & _MASK32
+        b = _sign_extend(self.imm & 0xFFF, 12) & _MASK32
         state.write_xrf(self.rd, 1 if a < b else 0)
 
 
@@ -227,7 +225,7 @@ class XORI(ScalarComputeImm, IType, exu=EXU.SCALAR, opcode=0b0010011, funct3=0b1
 
 class SRLI(ScalarComputeShamt, IType, exu=EXU.SCALAR, opcode=0b0010011, funct3=0b101):
     def exec(self, state: ArchState) -> None:
-        state.write_xrf(self.rd, state.xrf[self.rs1] >> (self.imm & 0x3F))
+        state.write_xrf(self.rd, state.xrf[self.rs1] >> (self.imm & 0x1F))
 
 
 class SRAI(ScalarComputeShamt, IType, exu=EXU.SCALAR, opcode=0b0010011, funct3=0b101):
@@ -255,7 +253,7 @@ class ANDI(ScalarComputeImm, IType, exu=EXU.SCALAR, opcode=0b0010011, funct3=0b1
 class AUIPC(ScalarImm, UType, exu=EXU.SCALAR, opcode=0b0010111):
     def exec(self, state: ArchState) -> None:
         state.write_xrf(
-            self.rd, ((self.imm << 12) & 0xFFFFFFFF) + state.pc - PIPELINE_LATENCY * 4
+            self.rd, ((self.imm << 12) & 0xFFFFFFFF) + state.execute_pc
         )
 
 
@@ -322,7 +320,7 @@ class SLL(
     funct7=0b0000000,
 ):
     def exec(self, state: ArchState) -> None:
-        state.write_xrf(self.rd, state.xrf[self.rs1] << state.xrf[self.rs2])
+        state.write_xrf(self.rd, state.xrf[self.rs1] << (state.xrf[self.rs2] & 0x1F))
 
 
 class SLT(
@@ -334,7 +332,7 @@ class SLT(
     funct7=0b0000000,
 ):
     def exec(self, state: ArchState) -> None:
-        state.write_xrf(self.rd, 1 if state.xrf[self.rs1] < state.xrf[self.rs2] else 0)
+        state.write_xrf(self.rd, 1 if _sign_extend(state.xrf[self.rs1], 32) < _sign_extend(state.xrf[self.rs2], 32) else 0)
 
 
 class SLTU(
@@ -346,8 +344,8 @@ class SLTU(
     funct7=0b0000000,
 ):
     def exec(self, state: ArchState) -> None:
-        a = state.xrf[self.rs1] & _MASK64
-        b = state.xrf[self.rs2] & _MASK64
+        a = state.xrf[self.rs1] & _MASK32
+        b = state.xrf[self.rs2] & _MASK32
         state.write_xrf(self.rd, 1 if a < b else 0)
 
 
@@ -372,7 +370,7 @@ class SRL(
     funct7=0b0000000,
 ):
     def exec(self, state: ArchState) -> None:
-        state.write_xrf(self.rd, state.xrf[self.rs1] >> state.xrf[self.rs2])
+        state.write_xrf(self.rd, state.xrf[self.rs1] >> (state.xrf[self.rs2] & 0x1F))
 
 
 class SRA(
@@ -414,7 +412,7 @@ class AND(
 
 class LUI(ScalarImm, UType, exu=EXU.SCALAR, opcode=0b0110111):
     def exec(self, state: ArchState) -> None:
-        state.write_xrf(self.rd, (self.imm << 12) & _MASK64)
+        state.write_xrf(self.rd, (self.imm << 12) & _MASK32)
 
 
 class VADD_BF16(
@@ -699,59 +697,60 @@ class BEQ(ScalarBranchImm, SBType, exu=EXU.SCALAR, opcode=0b1100011, funct3=0b00
     def exec(self, state: ArchState) -> None:
         imm = _sign_extend(self.imm & 0x1FFF, 13)
         if state.xrf[self.rs1] == state.xrf[self.rs2]:
-            state.set_npc(state.pc + imm - PIPELINE_LATENCY * 4)
+            state.set_npc(state.execute_pc + (imm >> 1))
 
 
 class BNE(ScalarBranchImm, SBType, exu=EXU.SCALAR, opcode=0b1100011, funct3=0b001):
     def exec(self, state: ArchState) -> None:
         imm = _sign_extend(self.imm & 0x1FFF, 13)
         if state.xrf[self.rs1] != state.xrf[self.rs2]:
-            state.set_npc(state.pc + imm - PIPELINE_LATENCY * 4)
+            state.set_npc(state.execute_pc + (imm >> 1))
 
 
 class BLT(ScalarBranchImm, SBType, exu=EXU.SCALAR, opcode=0b1100011, funct3=0b100):
     def exec(self, state: ArchState) -> None:
         imm = _sign_extend(self.imm & 0x1FFF, 13)
-        if state.xrf[self.rs1] < state.xrf[self.rs2]:
-            state.set_npc(state.pc + imm - PIPELINE_LATENCY * 4)
+        if _sign_extend(state.xrf[self.rs1], 32) < _sign_extend(state.xrf[self.rs2], 32):
+            state.set_npc(state.execute_pc + (imm >> 1))
 
 
 class BGE(ScalarBranchImm, SBType, exu=EXU.SCALAR, opcode=0b1100011, funct3=0b101):
     def exec(self, state: ArchState) -> None:
         imm = _sign_extend(self.imm & 0x1FFF, 13)
-        if state.xrf[self.rs1] >= state.xrf[self.rs2]:
-            state.set_npc(state.pc + imm - PIPELINE_LATENCY * 4)
+        if _sign_extend(state.xrf[self.rs1], 32) >= _sign_extend(state.xrf[self.rs2], 32):
+            state.set_npc(state.execute_pc + (imm >> 1))
 
 
 class BLTU(ScalarBranchImm, SBType, exu=EXU.SCALAR, opcode=0b1100011, funct3=0b110):
     def exec(self, state: ArchState) -> None:
         imm = _sign_extend(self.imm & 0x1FFF, 13)
-        a = state.xrf[self.rs1] & _MASK64
-        b = state.xrf[self.rs2] & _MASK64
+        a = state.xrf[self.rs1] & _MASK32
+        b = state.xrf[self.rs2] & _MASK32
         if a < b:
-            state.set_npc(state.pc + imm - PIPELINE_LATENCY * 4)
+            state.set_npc(state.execute_pc + (imm >> 1))
 
 
 class BGEU(ScalarBranchImm, SBType, exu=EXU.SCALAR, opcode=0b1100011, funct3=0b111):
     def exec(self, state: ArchState) -> None:
         imm = _sign_extend(self.imm & 0x1FFF, 13)
-        a = state.xrf[self.rs1] & _MASK64
-        b = state.xrf[self.rs2] & _MASK64
+        a = state.xrf[self.rs1] & _MASK32
+        b = state.xrf[self.rs2] & _MASK32
         if a >= b:
-            state.set_npc(state.pc + imm - PIPELINE_LATENCY * 4)
+            state.set_npc(state.execute_pc + (imm >> 1))
 
 
 class JALR(
     JalrPattern,
-    IType[ScalarReg, SBImm12],
+    IType[ScalarReg, Imm12],
     exu=EXU.SCALAR,
     opcode=0b1100111,
     funct3=0b000,
 ):
     def exec(self, state: ArchState) -> None:
-        imm = _sign_extend(self.imm & 0x1FFF, 13)
-        state.write_xrf(self.rd, state.pc - PIPELINE_LATENCY * 4 + 4)
-        state.set_npc(state.read_xrf(self.rs1) + imm)
+        imm = _sign_extend(self.imm, 12)
+        target = state.read_xrf(self.rs1) + imm
+        state.write_xrf(self.rd, state.execute_pc + 1)
+        state.set_npc(target)
 
 
 class DELAY(UnaryImm, IType, exu=EXU.SCALAR, opcode=0b1100111, funct3=0b001):
@@ -760,7 +759,7 @@ class DELAY(UnaryImm, IType, exu=EXU.SCALAR, opcode=0b1100111, funct3=0b001):
 
 
 class VTRPOSE_XLU(
-    TensorComputeUnary, VRType, exu=EXU.VECTOR, opcode=0b1101011, funct7=0b0000000
+    TensorComputeUnary, VRType, exu=EXU.XLU, opcode=0b1101011, funct7=0b0000000
 ):
     def exec(self, state: ArchState) -> None:
         reg_in = state.read_mrf_fp8(self.vs1)
@@ -770,9 +769,9 @@ class VTRPOSE_XLU(
 
 class JAL(ScalarImm, UJType, exu=EXU.SCALAR, opcode=0b1101111):
     def exec(self, state: ArchState) -> None:
-        imm = _sign_extend(self.imm & 0xFFFFF, 20)
-        state.write_xrf(self.rd, state.pc - PIPELINE_LATENCY * 4 + 4)
-        state.set_npc(state.pc + imm - PIPELINE_LATENCY * 4)
+        imm = _sign_extend(self.imm, 21)
+        state.write_xrf(self.rd, state.execute_pc + 1)
+        state.set_npc(state.execute_pc + (imm >> 1))
 
 
 class CSRRW(ScalarComputeImm, CSRType, exu=EXU.SCALAR, opcode=0b1110011, funct3=0b001):
@@ -810,7 +809,7 @@ class CSRRSI(ScalarComputeImm, CSRType, exu=EXU.SCALAR, opcode=0b1110011, funct3
         state.write_xrf(self.rd, old)
 
 
-class CSRRCI(ScalarComputeImm, CSRType, exu=EXU.SCALAR, opcode=0b1110011, funct3=0b100):
+class CSRRCI(ScalarComputeImm, CSRType, exu=EXU.SCALAR, opcode=0b1110011, funct3=0b111):
     def exec(self, state: ArchState) -> None:
         old = state.read_csrf(self.imm)
         state.write_csrf(self.imm, old & ~(self.rs1 & 0b11111))

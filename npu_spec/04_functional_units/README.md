@@ -25,11 +25,9 @@ The frontend baseline is:
 - single issue decision per cycle
 - fixed-width `32`-bit fetch from `IMEM`
 
-The frontend phase model used by the software model and trace infrastructure is:
-
-- `IFU`: fetched-instruction stage
-- `IDU`: decode and issue stage
-- `EXU`: execution-unit stage
+The RTL has two pipeline stages: synchronous IMEM fetch, followed by combined
+decode, register read, scalar execute/writeback, and engine launch. Trace labels
+for decode and engine execution do not imply an extra pipeline register.
 
 ## Execution-Unit Overlap Model
 
@@ -39,7 +37,7 @@ Requirements:
 
 - `mxu0`, `mxu1`, `vpu`, `xlu`, and DMA transfers may be active concurrently
 - only one new instruction may issue in a cycle
-- issue stalls when the targeted unit cannot accept a new instruction
+- resource conflicts assert; only DELAY and DMA.WAIT stall the frontend
 - issue does not perform dynamic reordering to bypass stalled older instructions
 - execution timing is determined by frontend ordering, unit availability, architecturally
   defined blocking instructions, and fixed instruction latency classes
@@ -80,18 +78,10 @@ consume or produce `{m[r], m[r + 1]}`:
 
 ## Delay-Slot Handling
 
-The microarchitecture preserves the architectural two-delay-slot rule without
-speculation.
-
-Implementation direction:
-
-- the control block tracks unresolved control-flow shadows in program order
-- sequential fetch continues until the youngest resolved shadow has observed its two
-  required delay slots
-- once the youngest resolved shadow has consumed its delay slots, its redirect is
-  applied
-- a branch or jump decoded in a delay-slot position is illegal and shall terminate
-  execution before any younger redirect is applied
+The RTL has one delay slot for taken branches and jumps. The sequential word
+already being fetched executes once before the redirect target. A branch or jump
+in that slot halts as illegal; a not-taken branch does not mark a delay slot.
+The slot marker and S1 PC hold across DELAY and DMA.WAIT stalls.
 
 ## Scalar Arithmetic and Logical Unit
 

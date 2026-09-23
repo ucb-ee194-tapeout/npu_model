@@ -7,7 +7,7 @@
 | `INSN_WIDTH` | `32` bits | Fixed instruction width |
 | `INSN_ALIGN` | `4` bytes | Instruction alignment |
 | `NUM_XREG` | `32` | Scalar register count |
-| `CONTROL_FLOW_DELAY_SLOTS` | `2` | Required branch / jump delay slots |
+| `CONTROL_FLOW_DELAY_SLOTS` | `1` | Required branch / jump delay slots |
 | `NUM_EREG` | `32` | Scale register count |
 | `EREG_BITS` | `8` | Bits per scale register |
 | `NUM_MREG` | `64` | Tensor register count |

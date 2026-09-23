@@ -106,6 +106,15 @@ class ArchState:
                 self.acc["mxu1"][i].fill_(0)
         self.pc = 0
         self.npc = 0
+        self.execute_pc = 0
+        self.redirect_requested = False
+        self.in_delay_slot = False
+        self.current_uop = None
+        self.halt_reason = None
+        # CSRFile.scala implements six internal addresses; other addresses
+        # alias the cycle counter through its default word-index mapping.
+        self._csr_values = {addr: 0 for addr in (0xC00, 0xC01, 0xC03, 0xC10, 0xC11)}
+        self._csr_written: set[int] = set()
         self.base = 0
         self.flags = [False] * len(self.flags)
         self.halted = False
@@ -160,9 +169,11 @@ class ArchState:
             return output
 
     def set_npc(self, value: int) -> None:
-        self.npc = value
+        self.npc = value & 0xFFFFFFFF
+        self.redirect_requested = True
 
     def set_pc(self, value: int) -> None:
+        value &= 0xFFFFFFFF
         if self.pc == value:
             return
         self.pc = value
@@ -170,6 +181,7 @@ class ArchState:
             self.logger.log_arch_value("pc", 0, value)
 
     def write_xrf(self, rd: int, value: int) -> None:
+        value &= 0xFFFFFFFF
         if rd == 0:
             return
         if rd < len(self.xrf) and self.xrf[rd] == value:
@@ -179,16 +191,21 @@ class ArchState:
             self.logger.log_arch_value("xrf", rd, value)
 
     def write_erf(self, rd: int, value: int) -> None:
-        if rd < len(self.xrf) and self.xrf[rd] == value:
+        if self.erf[rd] == (value & 0xFF):
             return
         self.erf[rd] = value & 0xFF
         if self.logger:
             self.logger.log_arch_value("erf", rd, value & 0xFF)
 
     def write_csrf(self, rd: int, value: int) -> None:
-        if rd < len(self.csrf) and self.csrf[rd] == value:
-            return
-        self.csrf[rd] = value
+        rd = self._csr_address(rd)
+        if rd in (0xC02, 0xC03):
+            return  # status and illegal PC are hardware driven
+        value &= 0xFFFFFFFF
+        self._csr_values[rd] = value
+        self._csr_written.add(rd)
+        if rd < len(self.csrf):
+            self.csrf[rd] = value
         if self.logger:
             self.logger.log_arch_value("csrf", rd, value)
 
@@ -199,7 +216,28 @@ class ArchState:
         return self.xrf[rs]
 
     def read_csrf(self, rs: int) -> int:
-        return self.csrf[rs]
+        rs = self._csr_address(rs)
+        if rs == 0xC02:
+            reason = {None: 0, "illegal": 1, "ecall": 2, "ebreak": 3}[self.halt_reason]
+            return (reason << 1) | int(self.halted)
+        return self._csr_values[rs]
+
+    @staticmethod
+    def _csr_address(address: int) -> int:
+        return address if address in (0xC00, 0xC01, 0xC02, 0xC03, 0xC10, 0xC11) else 0xC00
+
+    def begin_csr_cycle(self) -> None:
+        self._csr_written.clear()
+
+    def finish_csr_cycle(self, retired: bool) -> None:
+        for address, increment in ((0xC00, 1), (0xC01, int(retired))):
+            if address not in self._csr_written:
+                value = (self._csr_values[address] + increment) & 0xFFFFFFFF
+                self._csr_values[address] = value
+                if address < len(self.csrf):
+                    self.csrf[address] = value
+        if self.halt_reason == "illegal":
+            self._csr_values[0xC03] = self.execute_pc
 
     def write_mrf_u8(self, vd: int, value: torch.Tensor) -> None:
         assert value.dtype == torch.uint8

@@ -184,12 +184,87 @@ class BankConflictChecker:
         # Add tracking for MXU buffers
         self._weight_buf_in_use: dict[int, str] = {}
         self._acc_buf_in_use: dict[int, str] = {}
+        self._mreg_reservations: dict[str, tuple[frozenset[int], frozenset[int]]] = {}
+        self._mreg_ports: dict[tuple[bool, int], tuple[int, int, str]] = {}
+        self._mreg_cycle: int | None = None
+        self._mreg_releases: list[tuple[str, bool, bool]] = []
 
     def reset(self) -> None:
         self._mrf_in_use.clear()
         self._vmem_in_use.clear()
         self._weight_buf_in_use.clear()
         self._acc_buf_in_use.clear()
+        self._mreg_reservations.clear()
+        self._mreg_ports.clear()
+        self._mreg_releases.clear()
+        self._mreg_cycle = None
+
+    def begin_cycle(self, cycle: int) -> None:
+        """Apply last edge's releases before this cycle's issue checks.
+
+        Deferral makes issue legality independent of the Python unit tick order.
+        Every unit can call this with the same cycle; it advances only once.
+        """
+        if cycle == self._mreg_cycle:
+            return
+        for owner, release_reads, release_writes in self._mreg_releases:
+            reads, writes = self._mreg_reservations.get(owner, (frozenset(), frozenset()))
+            reads = frozenset() if release_reads else reads
+            writes = frozenset() if release_writes else writes
+            if reads or writes:
+                self._mreg_reservations[owner] = (reads, writes)
+            else:
+                self._mreg_reservations.pop(owner, None)
+        self._mreg_releases.clear()
+        self._mreg_ports.clear()
+        self._mreg_cycle = cycle
+
+    def reserve_mreg(self, owner: str, reads: frozenset[int],
+                     writes: frozenset[int], *, allow_write_during_read: bool = False) -> None:
+        """ScalarCore's direction-aware logical-register issue assertions.
+
+        VLOAD deliberately checks pending writes only. Physical SRAM port
+        conflicts are checked separately on actual read/write request cycles.
+        """
+        if any(reg < 0 or reg >= 64 for reg in reads | writes):
+            raise BankConflictError("MRF register outside m0..m63")
+        for other, (busy_reads, busy_writes) in self._mreg_reservations.items():
+            if other == owner:
+                continue
+            conflict = (reads & busy_writes) | (writes & busy_writes)
+            if not allow_write_during_read:
+                conflict |= writes & busy_reads
+            if conflict:
+                raise BankConflictError(
+                    f"MRF bank conflict: '{owner}' accesses register(s) {sorted(conflict)} held by '{other}'"
+                )
+        self._mreg_reservations[owner] = (reads, writes)
+
+    def release_mreg(self, owner: str, *, reads: bool = True, writes: bool = True) -> None:
+        self._mreg_releases.append((owner, reads, writes))
+
+    def access_mreg(self, cycle: int, reg: int, row: int, write: bool, owner: str) -> None:
+        """Check the 32 physical 1R1W banks in MregFile.scala.
+
+        mN and m(N+32) share a bank. One read and one write may coexist,
+        except same-row read/write has undefined SyncReadMem data.
+        """
+        self.begin_cycle(cycle)
+        bank = reg % 32
+        physical_row = (reg // 32) * 32 + row
+        key = (write, bank)
+        if key in self._mreg_ports:
+            other = self._mreg_ports[key][2]
+            direction = "write" if write else "read"
+            raise BankConflictError(
+                f"MRF bank conflict: multiple {direction} ports targeting physical bank {bank}: {other}, {owner}"
+            )
+        opposite = self._mreg_ports.get((not write, bank))
+        if opposite is not None and opposite[1] == physical_row:
+            raise BankConflictError(
+                f"Undefined MRF same-row read/write collision on physical bank {bank}, row {physical_row}"
+            )
+        self._mreg_ports[key] = (reg, physical_row, owner)
 
     # ------------------------------------------------------------------
     # MRF

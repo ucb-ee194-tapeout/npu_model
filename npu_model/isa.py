@@ -95,7 +95,6 @@ class IType[RD: (ScalarReg, ExponentReg) = ScalarReg, IMM: (Imm12, SBImm12) = Im
 
     def to_bytecode(self):
         rd = self.rd if hasattr(self, 'rd') else 0
-        rd = self.imm if hasattr(self, 'imm') else 0
         rd_b = _mask(rd, 5)
         rs1_b = _mask(self.rs1, 5)
         opcode_b = _mask(self.opcode, 7)
@@ -201,7 +200,7 @@ class UType(Instruction, instr=False):
 
 class UJType(Instruction, instr=False):
     rd: ScalarReg = ScalarReg(0)
-    imm: Imm20    = Imm20(0)
+    imm: Imm21    = Imm21(0)
 
     def to_bytecode(self):
         imm_b = _mask(self.imm, 21)

@@ -17,7 +17,7 @@ class DefaultHardwareConfig(HardwareConfig):
         num_m_registers=64,
         num_wb_registers=2,
         dram_size=1 * 1024 * 1024 * 1024,  # 1 GiB default simulation aperture
-        vmem_size=1024 * 1024,
+        vmem_size=1536 * 1024,
     )
     mxu0_matmul_latency_cycles: int = 32
     mxu1_matmul_latency_cycles: int = 32
@@ -35,6 +35,7 @@ class DefaultHardwareConfig(HardwareConfig):
         "Matrix0": "MatrixExecutionUnitSystolic",
         "Matrix1": "MatrixExecutionUnitInner",
         "Vector0": "VectorExecutionUnit",
+        "XLU": "CrossLaneExecutionUnit",
         "DMA0": "DmaExecutionUnit",
         "LSU": "LoadStoreUnit"
     }
@@ -52,5 +53,5 @@ class FullDramHardwareConfig(DefaultHardwareConfig):
         num_m_registers=64,
         num_wb_registers=2,
         dram_size=16 * 1024 * 1024 * 1024,
-        vmem_size=1024 * 1024,
+        vmem_size=1536 * 1024,
     )
