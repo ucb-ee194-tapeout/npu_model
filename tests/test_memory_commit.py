@@ -95,10 +95,11 @@ def make_vstore_visibility_scenario(cfg: DefaultHardwareConfig) -> Scenario:
     instrs: list[Instruction] = [
         ADDI(rd=x(1), rs1=x(0), imm=VMEM_SRC_BASE),
         ADDI(rd=x(2), rs1=x(0), imm=VMEM_DST_BASE),
+        ADDI(rd=x(3), rs1=x(0), imm=VMEM_DST_BASE // 4),
         ADDI(rd=x(10), rs1=x(0), imm=0),
         VLOAD(vd=m(0), imm=0, rs1=x(1)),
         DELAY(imm=latency_cycles),
-        VSTORE(vd=m(0), imm=0, rs1=x(2)),
+        VSTORE(vd=m(0), imm=0, rs1=x(3)),
         LW(rd=x(10), imm=0, rs1=x(2)),
         DELAY(imm=latency_cycles),
         LW(rd=x(11), imm=0, rs1=x(2)),
@@ -116,10 +117,10 @@ def make_vstore_visibility_scenario(cfg: DefaultHardwareConfig) -> Scenario:
         seed_state=seed_state,
         stale_reg=10,
         fresh_reg=11,
-        expected_stale=0,
+        expected_stale=STALE_WORD,
         expected_fresh=FRESH_WORD,
         final_word_addr=VMEM_DST_BASE,
-        expect_violating_load_blocked=True,
+        expect_violating_load_blocked=False,
     )
 
 

@@ -19,3 +19,7 @@ wheels/
 .bloop/
 .metals/
 .scala-build/
+
+# Reproducible RTL comparison fixtures and their simulator harnesses
+!tests/rtl/*.json
+!tests/rtl/scala/**/*.scala

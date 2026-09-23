@@ -35,24 +35,30 @@ dma.load.ch0 x3, x15, x5
 dma.load.ch1 x8, x15, x5
 dma.wait.ch0
 dma.wait.ch1
-vload m8, 0(x3)
+srli x31, x3, 2   # VLS bases count words; DMA bases count bytes
+vload m8, 0(x31)
 delay 34
-vload m9, 32(x3)
+srli x31, x3, 2   # VLS bases count words; DMA bases count bytes
+vload m9, 8(x31)
 delay 34
 loop_1:
 add x15, x10, x5
 add x16, x11, x5
 dma.load.ch0 x1, x10, x5
 dma.load.ch1 x6, x15, x5
-vload m6, 0(x2)
+srli x31, x2, 2   # VLS bases count words; DMA bases count bytes
+vload m6, 0(x31)
 delay 34
-vload m7, 32(x2)
+srli x31, x2, 2   # VLS bases count words; DMA bases count bytes
+vload m7, 8(x31)
 delay 34
 dma.wait.ch0
 dma.wait.ch1
-vload m0, 0(x1)
+srli x31, x1, 2   # VLS bases count words; DMA bases count bytes
+vload m0, 0(x31)
 delay 34
-vload m1, 32(x1)
+srli x31, x1, 2   # VLS bases count words; DMA bases count bytes
+vload m1, 8(x31)
 delay 34
 vsquare.bf16 m2, m0
 delay 66
@@ -68,9 +74,11 @@ vrecip.bf16 m4, m14
 delay 66
 vmul.bf16 m6, m0, m4
 delay 66
-vstore m6, 0(x4)
+srli x31, x4, 2   # VLS bases count words; DMA bases count bytes
+vstore m6, 0(x31)
 delay 34
-vstore m7, 32(x4)
+srli x31, x4, 2   # VLS bases count words; DMA bases count bytes
+vstore m7, 8(x31)
 delay 34
 dma.store.ch0 x11, x4, x5
 dma.store.ch1 x16, x9, x5

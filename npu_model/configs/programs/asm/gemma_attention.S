@@ -41,16 +41,22 @@ dma.wait.ch1
 dma.wait.ch2
 
 # --- VMEM -> MRF ---
-vload m0, 0(x1)     # Q (fp8 tile)
+srli x31, x1, 2   # VLS bases count words; DMA bases count bytes
+vload m0, 0(x31)     # Q (fp8 tile)
 delay 34
-vload m1, 0(x2)     # K (fp8 tile)
+srli x31, x2, 2   # VLS bases count words; DMA bases count bytes
+vload m1, 0(x31)     # K (fp8 tile)
 delay 34
-vload m2, 0(x4)     # scale low half
+srli x31, x4, 2   # VLS bases count words; DMA bases count bytes
+vload m2, 0(x31)     # scale low half
 delay 34
-vload m3, 32(x4)    # scale high half
+srli x31, x4, 2   # VLS bases count words; DMA bases count bytes
+vload m3, 8(x31)    # scale high half
 delay 34
 
 # --- Push K to WB slot 0, compute scores = Q @ K, pop bf16 ---
+vtrpose.xlu m1, m1   # MXU weights are streamed as columns
+delay 66
 vmatpush.weight.mxu0 w0, m1
 delay 32
 vmatmul.mxu0 acc0, m0, w0
@@ -77,9 +83,11 @@ vmul.bf16 m14, m8, m12
 delay 66
 
 # --- Store softmax scores (bf16 tile) ---
-vstore m14, 0(x5)
+srli x31, x5, 2   # VLS bases count words; DMA bases count bytes
+vstore m14, 0(x31)
 delay 34
-vstore m15, 32(x5)
+srli x31, x5, 2   # VLS bases count words; DMA bases count bytes
+vstore m15, 8(x31)
 delay 34
 dma.store.ch0 x10, x5, x12
 dma.wait.ch0

@@ -67,21 +67,9 @@ def _tile_matrix(mat: torch.Tensor, rows: int, cols: int) -> torch.Tensor:
 def matmul_reference(
     a: torch.Tensor, b: torch.Tensor
 ) -> torch.Tensor:
-    """Hardware-faithful reference: fp8 inputs, bf16 accumulation per K-tile."""
-    M, K = a.shape
-    K2, N = b.shape
-    assert K == K2
-    K_tiles = K // TILE
-
-    acc = torch.zeros(M, N, dtype=torch.float16)
-    for k in range(K_tiles):
-        a_k = a[:, k * TILE : (k + 1) * TILE].to(torch.float16)
-        b_k = b[k * TILE : (k + 1) * TILE, :].to(torch.float16)
-        if k == 0:
-            acc = a_k @ b_k
-        else:
-            acc = (acc.to(torch.bfloat16).to(torch.float16)) + (a_k @ b_k)
-    return acc.to(torch.bfloat16)
+    """MXU1 anchor accumulation and BF16 rounding after each K-tile."""
+    from npu_model.util.rtl_reference import ipt_matmul
+    return ipt_matmul(a, b)
 
 
 def _expected_stacked(result: torch.Tensor, rows: int, cols: int) -> torch.Tensor:

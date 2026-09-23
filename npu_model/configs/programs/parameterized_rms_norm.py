@@ -58,15 +58,16 @@ def rms_norm_reference(
     inv_dim: float = 1.0 / 32.0,
     eps: float = 1e-6,
 ) -> torch.Tensor:
+    from npu_model.util.rtl_reference import unary, add, row_sum
     xb = x.to(torch.bfloat16)
-    sq = (xb * xb).to(torch.bfloat16)
-    row_sum = sq.sum(dim=-1, keepdim=True).to(torch.bfloat16)
-    inv_dim_t = torch.full_like(row_sum, inv_dim, dtype=torch.bfloat16)
-    eps_t = torch.full_like(row_sum, eps, dtype=torch.bfloat16)
-    mean = (row_sum * inv_dim_t).to(torch.bfloat16)
-    denom = (mean + eps_t).to(torch.bfloat16)
-    root = torch.sqrt(denom.float()).to(torch.bfloat16)
-    inv = (1.0 / root.float()).to(torch.bfloat16)
+    sq = unary("square", xb)
+    summed = row_sum(sq)
+    inv_dim_t = torch.full_like(summed, inv_dim, dtype=torch.bfloat16)
+    eps_t = torch.full_like(summed, eps, dtype=torch.bfloat16)
+    mean = (summed * inv_dim_t).to(torch.bfloat16)
+    denom = add(mean, eps_t)
+    root = unary("sqrt", denom)
+    inv = unary("rcp", root)
     return (xb * inv).to(x.dtype)
 
 

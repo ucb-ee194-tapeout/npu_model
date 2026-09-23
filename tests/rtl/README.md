@@ -1,30 +1,47 @@
-# Scalar RTL trace regressions
+# RTL comparison fixtures
 
-`scalar_cases.json` contains assembly and the exact instruction words supplied to
-the RTL. `scalar_traces.json` records the real Chisel `ScalarCore` simulated with
-Verilator. The Python test compares fetch PC, executing PC, instruction issue,
-halt, redirect timing, and scalar CSR output data on every cycle.
+These are outputs of **actual Chisel RTL simulated with Verilator**, not traces
+produced by the Python model. Canonical Scala harnesses are in [scala/](scala/).
+The regeneration script temporarily installs them in the accelerator's Mill
+test-source tree, runs the simulations, then removes its temporary directory.
+No production RTL is modified.
 
-The harness is `src/test/scala/atlas/scalar/NpuModelScalarTraceTest.scala`, relative
-to the accelerator repository. It uses a synchronous instruction ROM, idle
-engines, an explicitly driven DMA channel busy signal, and a one-cycle memory
-response after the scalar LSU command. The response contains `0x12345678`.
-These traces validate the scalar frontend and its command/response registers;
-they do not validate the complete DMA, vector engines, or TileLink IMEM path.
-
-Cycle 1 is the first cycle following the host start edge. Signals are sampled
-before the edge, except `next_pc`, which is sampled after it. An instruction
-fetched in cycle 1 executes in cycle 2. CSR write data is sampled before scalar
-load writeback, which exposes the RTL's lack of load-result bypass.
-
-From the accelerator repository, with Java and Verilator on `PATH`, regenerate:
+From `npu-model`, with Java and Verilator on `PATH`:
 
 ```sh
-./mill --no-server atlas.test.testOnly atlas.scalar.NpuModelScalarTraceTest
-cd npu-model
-python -m pytest tests/test_rtl_scalar_traces.py
+python scripts/regenerate_rtl_fixtures.py
+python scripts/regenerate_rtl_fixtures.py --check
+python -m pytest tests/test_rtl_*traces.py tests/test_rtl_arithmetic.py tests/test_rtl_artifacts.py
 ```
 
-`ATLAS_SCALAR_TRACE_INPUT` and `ATLAS_SCALAR_TRACE_OUTPUT` optionally override
-the fixture paths. When changing cases, update their instruction words with
-the assembler before regenerating the trace.
+Regeneration also recreates the exhaustive unary BF16 tables in
+`npu_model/hardware/data/`. It takes several minutes, primarily compiling the
+full 32×32 MXUs. `provenance.json` fingerprints the RTL sources, harnesses and
+artifacts; Python tests detect stale fixtures when the adjacent RTL changes.
+The standalone Python checkout checks artifact hashes without requiring RTL.
+
+| Fixture | Real RTL instantiated | Signals compared / coverage |
+| --- | --- | --- |
+| `scalar_cases.json`, `scalar_traces.json` | `ScalarCore` | Fetch/S1 PCs, issue, halt, illegal, CSR write data; 14 branch, jump, delay, load and DMA-wait scenarios |
+| `vector_traces.json` | `VectorEngineTop` | Every MREG read/write cycle, address and output bit; 29 operations, special encodings, overlap, mirrored reads, in-place move and last-write handoff |
+| `sa_traces.json`, `ipt_traces.json` | `SystolicArrayTop`, `InnerProductTreesTop` | Every MREG read/write cycle/address/data; all seven commands, accumulator chaining and overlapping weight push/compute |
+| `memory_traces.json` | `LSU`, `XluEngine` | Concurrent scalar/VLOAD/VSTORE and transpose requests, write data, scalar writeback; VMEM and MREG accesses |
+| `arithmetic.json` | `E4M3FMA`, `AnchorAccumulationTree`, `FPUtils` converters | 512 seeded random/boundary cases, all 256 scale encodings and FP8 input encodings |
+| `hardware/data/*.bin.gz` (under `npu_model/`) | Actual `VectorEngineTop` lane boxes | All 65,536 BF16 encodings for each of 11 unary operations |
+
+Memory-facing harnesses supply synchronous one-cycle responses. They test the
+engines and their command/response pipeline, without instantiating TileLink or
+a complete AtlasTile. The scalar harness uses a synchronous instruction ROM,
+idle tensor engines, an explicitly driven DMA busy signal and a fixed scalar
+memory response (`0x12345678`). IMEM host arbitration and CSR counters have
+separate Python tests, rather than full-system RTL traces.
+
+Signals are sampled before the clock edge; `next_pc` in the scalar trace is
+sampled after it. Scalar cycle 1 follows the host start edge: the first fetched
+instruction executes in cycle 2. Engine cycle 1 is command issue. The memory
+harness includes ScalarCore's scalar command/response registers.
+
+Unary table files contain gzip-compressed little-endian uint16 results indexed
+by the raw BF16 input encoding. They deliberately retain the RTL's approximation,
+NaN, infinity, signed-zero and subnormal behavior. They are model datapath data;
+the trace fixtures separately verify indexing, scheduling and writeback.

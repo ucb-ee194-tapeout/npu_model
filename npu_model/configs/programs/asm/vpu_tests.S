@@ -29,9 +29,11 @@ dma.load.ch0 x1, x3, x5
 dma.wait.ch0
 
 # --- VMEM -> MRF ---
-vload m0, 0(x1)             # x h0
+srli x31, x1, 2   # VLS bases count words; DMA bases count bytes
+vload m0, 0(x31)             # x h0
 delay 34
-vload m1, 32(x1)            # x h1
+srli x31, x1, 2   # VLS bases count words; DMA bases count bytes
+vload m1, 8(x31)            # x h1
 delay 34
 
 # --- Compute ---
@@ -47,9 +49,11 @@ vmul.bf16 m10, m6, m8       # (m10, m11) = result
 delay 66
 
 # --- MRF -> VMEM -> DRAM ---
-vstore m10, 0(x2)
+srli x31, x2, 2   # VLS bases count words; DMA bases count bytes
+vstore m10, 0(x31)
 delay 34
-vstore m11, 32(x2)
+srli x31, x2, 2   # VLS bases count words; DMA bases count bytes
+vstore m11, 8(x31)
 delay 34
 dma.store.ch0 x4, x2, x5
 dma.wait.ch0

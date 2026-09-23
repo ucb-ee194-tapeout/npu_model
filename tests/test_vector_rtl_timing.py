@@ -220,3 +220,20 @@ def test_xlu_and_vpu_run_concurrently(vpu):
         tick(xlu)
     assert not xlu.has_in_flight
     assert not vpu.has_in_flight
+
+
+def test_abort_releases_vector_operation_for_error_recovery(vpu):
+    tick(vpu, VMOV(vd=m(4), vs1=m(0)))
+    vpu.abort()
+    assert not vpu.has_in_flight
+    tick(vpu, VMOV(vd=m(4), vs1=m(0)))
+    assert vpu.has_in_flight
+
+
+def test_abort_releases_transpose_operation_for_error_recovery(vpu):
+    unit = CrossLaneExecutionUnit('XLU', Mock(spec=Logger), vpu.arch_state, config=DefaultHardwareConfig())
+    tick(unit, VTRPOSE_XLU(vd=m(4), vs1=m(0)))
+    unit.abort()
+    assert not unit.has_in_flight
+    tick(unit, VTRPOSE_XLU(vd=m(4), vs1=m(0)))
+    assert unit.has_in_flight

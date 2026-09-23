@@ -4,13 +4,13 @@ Fuses an elementwise bf16 addition (x + bias) with an fp8 quantization
 (unit-scale bf16 → fp8_e4m3fn cast via vpack.bf16.fp8).
 
 DRAM layout (per _make_program):
-  [dram_x   ]  2 × 1024 B  — col-blocked bf16 x   (H0 then H1)
-  [dram_bias ]  2 × 1024 B  — col-blocked bf16 bias (H0 then H1)
+  [dram_x   ]  2 × 1024 B  — row-major bf16 x   (H0 then H1)
+  [dram_bias ]  2 × 1024 B  — row-major bf16 bias (H0 then H1)
   [dram_out  ]      1024 B  — fp8 output tile (32×32 × 1 B)
 
 VMEM slots:
-  0x2000  VMEM_X      2 KB  — x tile (H0 at 0x2000, H1 at 0x2400 via imm12=32)
-  0x2800  VMEM_BIAS   2 KB  — bias tile (H0 at 0x2800, H1 at 0x2C00 via imm12=32)
+  0x2000  VMEM_X      2 KB  — x tile (H0 at 0x2000, H1 at 0x2400 via imm12=8)
+  0x2800  VMEM_BIAS   2 KB  — bias tile (H0 at 0x2800, H1 at 0x2C00 via imm12=8)
   0x3000  VMEM_OUT    1 KB  — fp8 output
 
 MRF layout per tile:
@@ -42,12 +42,9 @@ VMEM_BIAS = 0x2800
 VMEM_OUT = 0x3000
 
 
-def _colblock_bf16(mat: torch.Tensor) -> torch.Tensor:
-    """Pack 32×32 bf16 into col-blocked layout: H0 (32×16) then H1 (32×16)."""
-    assert mat.shape == (TILE, TILE)
-    h0 = mat[:, : TILE // 2].contiguous()
-    h1 = mat[:, TILE // 2 :].contiguous()
-    return torch.cat([h0, h1], dim=0)  # (64, 16) bf16 = 2048 B
+def _rowmajor_bf16(mat: torch.Tensor) -> torch.Tensor:
+    """VPU pair stream: first 16 full rows, then the next 16 full rows."""
+    return mat.contiguous().reshape(-1)
 
 
 def _tile_fp8(mat: torch.Tensor) -> torch.Tensor:
@@ -57,8 +54,9 @@ def _tile_fp8(mat: torch.Tensor) -> torch.Tensor:
 
 
 def bias_add_cast_reference(x: torch.Tensor, bias: torch.Tensor) -> torch.Tensor:
-    """fp8(x + bias) with unit scale — matches vpack.bf16.fp8 seli=1 path."""
-    return (x.float() + bias.float()).to(torch.float8_e4m3fn)
+    """fp8(x + bias) with unit scale — matches vpack.bf16.fp8 seli=127 path."""
+    from npu_model.util.rtl_reference import quantize, add
+    return quantize(add(x, bias))
 
 
 def _make_program(seed: int):
@@ -73,8 +71,8 @@ def _make_program(seed: int):
     expected = bias_add_cast_reference(x, bias)
 
     regions = [
-        (dram_x, _colblock_bf16(x)),
-        (dram_bias, _colblock_bf16(bias)),
+        (dram_x, _rowmajor_bf16(x)),
+        (dram_bias, _rowmajor_bf16(bias)),
     ]
     golden = (dram_out, _tile_fp8(expected))
     return regions, golden

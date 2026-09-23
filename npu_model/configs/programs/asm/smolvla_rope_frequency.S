@@ -9,15 +9,19 @@ dma.config.ch0 x0
 dma.wait.ch0
 dma.load.ch0 x1, x4, x6
 dma.wait.ch0
-vload m0, 0(x1)
+srli x31, x1, 2   # VLS bases count words; DMA bases count bytes
+vload m0, 0(x31)
 delay 34
-vload m1, 32(x1)
+srli x31, x1, 2   # VLS bases count words; DMA bases count bytes
+vload m1, 8(x31)
 delay 34
 vcos.bf16 m2, m0
 delay 66
-vstore m2, 0(x1)
+srli x31, x1, 2   # VLS bases count words; DMA bases count bytes
+vstore m2, 0(x31)
 delay 34
-vstore m3, 32(x1)
+srli x31, x1, 2   # VLS bases count words; DMA bases count bytes
+vstore m3, 8(x31)
 delay 34
 dma.store.ch0 x5, x1, x6
 dma.wait.ch0

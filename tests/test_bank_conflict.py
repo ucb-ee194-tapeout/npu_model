@@ -13,19 +13,16 @@ from tests.helpers import run_simulation
 
 class _MrfConflictProgram(Program):
     instructions: list[Instruction] = [
-        VADD_BF16(vd=m(5), vs1=m(0), vs2=m(0)),
-        VMATMUL_MXU0(vd=acc(0), vs1=m(0), vs2=w(0)),
+        VADD_BF16(vd=m(4), vs1=m(0), vs2=m(0)),
+        VMATMUL_MXU0(vd=acc(0), vs1=m(4), vs2=w(0)),
     ]
     memory_regions: List[Tuple[int, torch.Tensor]] = []
 
 
 class _VmemConflictProgram(Program):
     instructions: list[Instruction] = [
-        ADDI(rd=x(2), rs1=x(0), imm=1024),
-        DMA_CONFIG_CH0(rs1=x(0)),
-        DMA_WAIT_CH0(),
-        DMA_LOAD_CH0(rd=x(0), rs1=x(0), rs2=x(2)),
         VLOAD(vd=m(0), imm=0, rs1=x(0)),
+        VSTORE(vd=m(2), imm=0, rs1=x(0)),
     ]
     memory_regions: List[Tuple[int, torch.Tensor]] = [
         (0, torch.zeros(1024, dtype=torch.uint8)),

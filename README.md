@@ -3,9 +3,12 @@
 [![Tests](https://github.com/ucb-ee194-tapeout/npu_model/actions/workflows/test.yml/badge.svg)](https://github.com/ucb-ee194-tapeout/npu_model/actions/workflows/test.yml)
 
 An execution-driven, tick-based model of the Atlas NPU.
-The scalar frontend, instruction addressing, and on-chip memory paths follow the
-RTL in `../src/main/scala`. See [RTL timing and validation](docs/rtl-timing.md)
-for cycle conventions, supported behavior, and remaining approximations.
+The scalar frontend, instruction memory, LSU, MXU, VPU and XLU follow the default
+RTL in `../src/main/scala`, with cycle/data regressions against actual Verilator
+traces. DMA retains its existing timing approximation. See
+[RTL timing and validation](docs/rtl-timing.md) for timing, layouts, numerical
+behavior and validation boundaries, and [trace regeneration](tests/rtl/README.md)
+for the reproducible RTL harnesses.
 
 ### Tick Based vs Event Based
 These two terms primarily discerns the execution model of the simulator.

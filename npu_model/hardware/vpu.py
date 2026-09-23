@@ -1,13 +1,13 @@
 """VectorFSM row schedules and its two software-scheduled issue slots.
 
-Timing follows the registered MREG read and lane-box valid pipelines. Numerical
-transcendentals still use PyTorch, rather than the RTL approximation tables.
+Timing follows the registered MREG read and lane-box valid pipelines. Unary arithmetic uses exhaustive RTL-generated BF16 tables.
 """
 from dataclasses import dataclass, field
 
 import torch
 
 from .exu import ExecutionUnit
+from .rtl_math import unary, minmax
 from ..logging.logger import LaneType
 from ..software.instruction import Uop
 from ..isa import EXU
@@ -24,6 +24,17 @@ _GROUPS = (
     {"vmaximum.bf16", "vredmax.bf16"},
     {"vminimum.bf16", "vredmin.bf16"},
     {"vli.all", "vli.row", "vli.col", "vli.one"},
+)
+
+# ScalarISA numbering (zero is VPU_NONE; sixteen is reserved FP8).
+_OP_ORDER = (
+    "vadd.bf16", "vsub.bf16", "vmul.bf16", "vrecip.bf16", "vsqrt.bf16",
+    "vsin.bf16", "vcos.bf16", "vtanh.bf16", "vlog2.bf16", "vexp.bf16",
+    "vexp2.bf16", "vsquare.bf16", "vcube.bf16", "vredsum.row.bf16",
+    "vredsum.bf16", "reserved.fp8", "vpack.bf16.fp8", "vunpack.fp8.bf16",
+    "vrelu.bf16", "vredmax.row.bf16", "vredmin.row.bf16", "vredmax.bf16",
+    "vredmin.bf16", "vmaximum.bf16", "vminimum.bf16", "vmov",
+    "vli.one", "vli.col", "vli.row", "vli.all",
 )
 
 # Inclusive issue-to-last-write cycles for the default 32-row geometry.
@@ -47,11 +58,18 @@ VPU_OP_LATENCIES = {
 
 def _truncated_bf16(value: torch.Tensor) -> torch.Tensor:
     """AddSubSumVec/ColAddVec take the upper 16 bits of FP32 results."""
-    return (value.float().contiguous().view(torch.int32) >> 16).to(torch.int16).view(torch.bfloat16)
+    raw = (value.float().contiguous().view(torch.int32) >> 16).to(torch.int16)
+    # HardFloat emits its default positive quiet NaN, without input payloads.
+    raw = torch.where(torch.isnan(value), 0x7FC0, raw).to(torch.int16)
+    return raw.view(torch.bfloat16)
 
 
-def pack_row(value: torch.Tensor, scale: int) -> torch.Tensor:
-    """FP8Pack's BF16/E8M0 conversion, including flush and saturation."""
+def pack_row(value: torch.Tensor, scale: int, *, mxu: bool = False) -> torch.Tensor:
+    """Literal converters: VPU divides by the scale, MXU multiplies by it.
+
+    BF16ScaleToE4M3 also emits 0x7f for rounded +480, whereas FP8Pack
+    clamps that encoding to 0x7e. Preserve this RTL difference.
+    """
     output = []
     shift = min(127, max(-128, int(scale) - 127))
     for raw in value.contiguous().view(torch.int16).tolist():
@@ -62,14 +80,14 @@ def pack_row(value: torch.Tensor, scale: int) -> torch.Tensor:
         elif exp == 255:
             out = (sign << 7) | 0x7E
         else:
-            adjusted = exp - 127 - shift
+            adjusted = exp - 127 + (shift if mxu else -shift)
             sig = 128 | mant
             rounded = (sig >> 4) + int(bool((sig & 8) and ((sig & 7) or ((sig >> 4) & 1))))
             if rounded == 16:
                 adjusted += 1
                 rounded = 8
             frac = (rounded - 8) & 7
-            if adjusted > 8 or (adjusted == 8 and frac == 7):
+            if adjusted > 8 or (not mxu and adjusted == 8 and frac == 7):
                 out = (sign << 7) | 0x7E
             elif adjusted < -6:
                 out = 0
@@ -134,6 +152,13 @@ class VectorExecutionUnit(ExecutionUnit):
     def in_flight(self) -> Uop | None:
         return self.operations[0].uop if self.operations else None
 
+    def abort(self) -> None:
+        for op in self.operations:
+            self.arch_state.conflict_checker.release_mreg(op.owner)
+        self.operations.clear()
+        self._pending_completions.clear()
+        self._complete_count = 0
+
     @staticmethod
     def _double(mnemonic: str) -> bool:
         return mnemonic in _TWO_INPUT | _ROW_REDUCE
@@ -141,6 +166,18 @@ class VectorExecutionUnit(ExecutionUnit):
     @staticmethod
     def _share_logic(left: str, right: str) -> bool:
         return left == right or any(left in group and right in group for group in _GROUPS)
+
+    def _issue_blocked(self, name: str, cycle: int) -> bool:
+        live = [op for op in self.operations if cycle - op.issued < op.write_last]
+        return bool(live and (len(live) == 2 or self._double(name)
+                    or any(self._double(op.uop.insn.mnemonic)
+                           or self._share_logic(name, op.uop.insn.mnemonic) for op in live)))
+
+    @property
+    def issue_busy_mask(self) -> int:
+        """RTL issueBusy for the next tick, before its command is accepted."""
+        return sum(1 << index for index, name in enumerate(_OP_ORDER, 1)
+                   if self._issue_blocked(name, self.cycle + 1))
 
     def can_handle(self, uop: Uop) -> bool:
         return uop.insn.exu == EXU.VECTOR
@@ -153,9 +190,7 @@ class VectorExecutionUnit(ExecutionUnit):
         name = insn.mnemonic
         # VectorFSM's done includes the final write in this cycle.
         live = [op for op in self.operations if self.cycle - op.issued < op.write_last]
-        if live and (len(live) == 2 or self._double(name)
-                     or any(self._double(op.uop.insn.mnemonic)
-                            or self._share_logic(name, op.uop.insn.mnemonic) for op in live)):
+        if self._issue_blocked(name, self.cycle):
             raise RuntimeError(f"VPU command {name} issued while its issue-busy bit is set")
         slot = next(index for index in (0, 1) if all(op.slot != index for op in live))
         vli = name.startswith("vli.")
@@ -211,19 +246,18 @@ class VectorExecutionUnit(ExecutionUnit):
         if name == "vmul.bf16":
             return a * b
         if name == "vminimum.bf16":
-            return torch.minimum(a, b)
+            return minmax(a, b, False)
         if name == "vmaximum.bf16":
-            return torch.maximum(a, b)
-        functions = {
-            "vmov": lambda x: x,
-            "vrecip.bf16": torch.reciprocal, "vexp.bf16": torch.exp,
-            "vexp2.bf16": torch.exp2, "vrelu.bf16": torch.relu,
-            "vsin.bf16": torch.sin, "vcos.bf16": torch.cos,
-            "vtanh.bf16": torch.tanh, "vlog2.bf16": torch.log2,
-            "vsqrt.bf16": torch.sqrt, "vsquare.bf16": lambda x: x * x,
-            "vcube.bf16": lambda x: x * x * x,
+            return minmax(a, b, True)
+        if name == "vmov":
+            return a
+        names = {
+            "vrecip.bf16": "rcp", "vexp.bf16": "exp", "vexp2.bf16": "exp2",
+            "vrelu.bf16": "relu", "vsin.bf16": "sin", "vcos.bf16": "cos",
+            "vtanh.bf16": "tanh", "vlog2.bf16": "log", "vsqrt.bf16": "sqrt",
+            "vsquare.bf16": "square", "vcube.bf16": "cube",
         }
-        return functions[name](a).to(torch.bfloat16)
+        return unary(names[name], a)
 
     def _advance(self, op: _VectorOperation) -> None:
         age = self.cycle - op.issued
@@ -247,10 +281,11 @@ class VectorExecutionUnit(ExecutionUnit):
                     while values.numel() > 1:
                         values = values[::2] + values[1::2]
                     value, latency = values[0].to(torch.bfloat16), 7
-                elif name == "vredmin.row.bf16":
-                    value, latency = values.min().to(torch.bfloat16), 2
                 else:
-                    value, latency = values.max().to(torch.bfloat16), 2
+                    values = torch.cat((lo, hi))
+                    while values.numel() > 1:
+                        values = minmax(values[::2], values[1::2], name == "vredmax.row.bf16")
+                    value, latency = values[0], 2
                 result = value.expand(16).contiguous()
                 self._queue(op, age + latency, age, result, bank=int(insn.vd))
                 self._queue(op, age + latency, age, result, bank=int(insn.vd) + 1)
@@ -266,13 +301,13 @@ class VectorExecutionUnit(ExecutionUnit):
                 if name in _COL_REDUCE:
                     if age < 64:
                         if op.reduction is None:
-                            op.reduction = a.float().clone()
+                            op.reduction = a.float().clone() if name == "vredsum.bf16" else a.clone()
                         elif name == "vredsum.bf16":
                             op.reduction += a.float()
                         elif name == "vredmin.bf16":
-                            op.reduction = torch.minimum(op.reduction, a.float())
+                            op.reduction = minmax(a, op.reduction, False)
                         else:
-                            op.reduction = torch.maximum(op.reduction, a.float())
+                            op.reduction = minmax(a, op.reduction, True)
                 elif name == "vpack.bf16.fp8":
                     packed = pack_row(a, op.scale)
                     if age % 2 == 0:

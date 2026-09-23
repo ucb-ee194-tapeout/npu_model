@@ -5,7 +5,7 @@ lui x3, 0x3
 lui x4, 0x1
 addi x4, x4, -2048
 addi x5, x0, 1024
-seli e0, 1
+seli e0, 127
 dma.config.ch0 x0
 dma.wait.ch0
 dma.config.ch1 x0
@@ -18,20 +18,25 @@ addi x7, x7, -2048
 dma.load.ch0 x1, x6, x4
 dma.load.ch1 x2, x7, x4
 dma.wait.ch0
-vload m0, 0(x1)
+srli x31, x1, 2   # VLS bases count words; DMA bases count bytes
+vload m0, 0(x31)
 delay 34
-vload m1, 32(x1)
+srli x31, x1, 2   # VLS bases count words; DMA bases count bytes
+vload m1, 8(x31)
 delay 34
 dma.wait.ch1
-vload m2, 0(x2)
+srli x31, x2, 2   # VLS bases count words; DMA bases count bytes
+vload m2, 0(x31)
 delay 34
-vload m3, 32(x2)
+srli x31, x2, 2   # VLS bases count words; DMA bases count bytes
+vload m3, 8(x31)
 delay 34
 vadd.bf16 m4, m0, m2
 delay 66
 vpack.bf16.fp8 m6, m4, e0
 delay 66
-vstore m6, 0(x3)
+srli x31, x3, 2   # VLS bases count words; DMA bases count bytes
+vstore m6, 0(x31)
 delay 34
 lui x8, 0x1
 dma.store.ch0 x8, x3, x5

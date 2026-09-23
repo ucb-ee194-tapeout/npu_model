@@ -67,8 +67,8 @@ def fused_matmul_bias_reference(
     bias: torch.Tensor,
 ) -> torch.Tensor:
     """(A_fp8 @ B_fp8) → bf16, then + bias.  Mirrors MXU semantics."""
-    mm = (a.to(torch.float32) @ b.to(torch.float32)).to(torch.bfloat16)
-    return (mm.float() + bias.float()).to(torch.bfloat16)
+    from npu_model.util.rtl_reference import sa_matmul, add
+    return add(sa_matmul(a, b), bias)
 
 
 def _make_program(M: int, N: int, seed: int):

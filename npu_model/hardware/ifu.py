@@ -184,7 +184,7 @@ class InstructionFetch(Module):
     def is_finished(self) -> bool:
         return (
             self.program is not None
-            and self.program.is_finished(self.arch_state.pc)
+            and self.memory.words[self.arch_state.pc & (self.memory.WORDS - 1)] is None
             and not self.output.is_valid()
         )
 
@@ -225,7 +225,7 @@ class InstructionFetch(Module):
         fetched_instruction = self.memory.fetch_data
         # Program exhaustion is a simulator convenience (hardware requires a
         # halt instruction). Still apply redirects at the end of a program.
-        if self.program.is_finished(pc) or fetched_instruction is None:
+        if fetched_instruction is None:
             self.output.prepare(None)
         else:
             uop = Uop(fetched_instruction, pc=pc)

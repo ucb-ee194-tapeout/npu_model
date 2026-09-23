@@ -29,6 +29,13 @@ class CrossLaneExecutionUnit(ExecutionUnit):
     def can_handle(self, uop: Uop) -> bool:
         return uop.insn.exu == EXU.XLU
 
+    def abort(self) -> None:
+        if self.owner:
+            self.arch_state.conflict_checker.release_mreg(self.owner)
+        self.in_flight = None
+        self._pending_completions.clear()
+        self._complete_count = 0
+
     def tick(self, idu_output: StageData[Uop | None]) -> None:
         self.cycle += 1
         checker = self.arch_state.conflict_checker

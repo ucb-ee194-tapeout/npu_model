@@ -69,27 +69,14 @@ def batch_matmul_reference(
     a: torch.Tensor,
     b: torch.Tensor,
 ) -> torch.Tensor:
-    """Hardware-faithful batch matmul: fp8 inputs, bf16 accumulation per K-tile.
+    """Default MXU0 arithmetic: round to BF16 after every custom FMA.
 
     a: (B, M, K) fp8 — activations
     b: (B, K, N) fp8 — weights
     Returns: (B, M, N) bf16
     """
-    B, M, K = a.shape
-    N = b.shape[2]
-    K_tiles = K // TILE
-    results = []
-    for bi in range(B):
-        acc = None
-        for k in range(K_tiles):
-            a_k = a[bi, :, k * TILE : (k + 1) * TILE].to(torch.float16)
-            b_k = b[bi, k * TILE : (k + 1) * TILE, :].to(torch.float16)
-            if acc is None:
-                acc = a_k @ b_k
-            else:
-                acc = acc.to(torch.bfloat16).to(torch.float16) + (a_k @ b_k)
-        results.append(acc.to(torch.bfloat16))
-    return torch.stack(results)
+    from npu_model.util.rtl_reference import sa_matmul
+    return torch.stack([sa_matmul(x, y) for x, y in zip(a, b)])
 
 
 def _batch_expected_stacked(result: torch.Tensor, B: int, M: int, N: int) -> torch.Tensor:

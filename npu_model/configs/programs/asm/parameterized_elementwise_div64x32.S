@@ -19,22 +19,28 @@ loop_1:
 dma.load.ch0 x1, x5, x4
 dma.load.ch1 x2, x6, x4
 dma.wait.ch0
-vload m0, 0(x1)
+srli x31, x1, 2   # VLS bases count words; DMA bases count bytes
+vload m0, 0(x31)
 delay 34
-vload m1, 32(x1)
+srli x31, x1, 2   # VLS bases count words; DMA bases count bytes
+vload m1, 8(x31)
 delay 34
 dma.wait.ch1
-vload m2, 0(x2)
+srli x31, x2, 2   # VLS bases count words; DMA bases count bytes
+vload m2, 0(x31)
 delay 34
-vload m3, 32(x2)
+srli x31, x2, 2   # VLS bases count words; DMA bases count bytes
+vload m3, 8(x31)
 delay 34
 vrecip.bf16 m4, m2
 delay 66
 vmul.bf16 m6, m0, m4
 delay 66
-vstore m6, 0(x3)
+srli x31, x3, 2   # VLS bases count words; DMA bases count bytes
+vstore m6, 0(x31)
 delay 34
-vstore m7, 32(x3)
+srli x31, x3, 2   # VLS bases count words; DMA bases count bytes
+vstore m7, 8(x31)
 delay 34
 dma.store.ch0 x7, x3, x4
 dma.wait.ch0

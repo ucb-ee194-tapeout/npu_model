@@ -1,18 +1,18 @@
 """Parameterized bf16→fp8 requantization kernel for arbitrary M×N.
 
-Reads col-blocked bf16 input tiles (32×16 halves) and packs them into
+Reads row-major bf16 input tiles (two contiguous 16×32 halves) and packs them into
 contiguous 32×32 fp8 output tiles via vpack.bf16.fp8 with unit scale.
 
 Constraints:
     - M and N must be multiples of 32.
 
 DRAM layout (per _make_program):
-  [dram_x  ]  M_tiles × N_tiles × 2 × 1024 B  — col-blocked bf16 input
+  [dram_x  ]  M_tiles × N_tiles × 2 × 1024 B  — row-major bf16 input
   [dram_out ]  M_tiles × N_tiles     × 1024 B  — fp8 output (32×32 × 1 B)
 
 VMEM slots:
-  0x2000  VMEM_X_H0  1 KB — bf16 H0 (cols 0–15)
-  0x2400  VMEM_X_H1  1 KB — bf16 H1 (cols 16–31)
+  0x2000  VMEM_X_H0  1 KB — bf16 H0 (rows 0–15)
+  0x2400  VMEM_X_H1  1 KB — bf16 H1 (rows 16–31)
   0x3000  VMEM_OUT   1 KB — fp8 tile (32×32 × 1 B)
 """
 
@@ -47,26 +47,16 @@ def _tile_fp8(mat: torch.Tensor, M: int, N: int) -> torch.Tensor:
     return torch.cat(parts)
 
 
-def _colblock_bf16(mat: torch.Tensor, M: int, N: int) -> torch.Tensor:
-    """Arrange M×N into tiled col-blocked format.
-
-    For tile (m, n): H0 (cols n*32 to n*32+15) then H1 (cols n*32+16 to n*32+31),
-    each as a contiguous (32, 16) bf16 slice.  Tile order: row-major over tiles.
-    """
-    M_tiles = M // TILE
-    N_tiles = N // TILE
-    parts = []
-    for mt in range(M_tiles):
-        for nt in range(N_tiles):
-            rows = mat[mt * TILE : (mt + 1) * TILE, nt * TILE : (nt + 1) * TILE]
-            parts.append(rows[:, : TILE // 2].contiguous())
-            parts.append(rows[:, TILE // 2 :].contiguous())
-    return torch.cat(parts, dim=0)
+def _rowmajor_bf16(mat: torch.Tensor, M: int, N: int) -> torch.Tensor:
+    """VPU pack consumes each BF16 tile as 64 consecutive 16-lane rows."""
+    return torch.cat([mat[r:r+32, c:c+32].contiguous().reshape(-1)
+                      for r in range(0, M, 32) for c in range(0, N, 32)])
 
 
 def requant_reference(x: torch.Tensor) -> torch.Tensor:
-    """bf16 → fp8_e4m3fn unit-scale cast.  Matches seli imm=1 path."""
-    return x.to(torch.float8_e4m3fn)
+    """bf16 → fp8_e4m3fn unit-scale cast.  Matches seli imm=127 path."""
+    from npu_model.util.rtl_reference import quantize
+    return quantize(x)
 
 
 def _make_program(M: int, N: int, seed: int):
@@ -82,7 +72,7 @@ def _make_program(M: int, N: int, seed: int):
     x = torch.randn(M, N, dtype=torch.bfloat16) * 0.5
     expected = requant_reference(x)
 
-    regions = [(dram_x, _colblock_bf16(x, M, N))]
+    regions = [(dram_x, _rowmajor_bf16(x, M, N))]
     golden = (dram_out, _tile_fp8(expected, M, N))
     return regions, golden
 

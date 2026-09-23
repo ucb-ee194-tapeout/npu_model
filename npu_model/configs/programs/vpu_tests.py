@@ -14,10 +14,11 @@ INPUT = torch.linspace(-4.0, 4.0, steps=32 * 32, dtype=torch.bfloat16).reshape(3
 
 
 def _bf16_arithmetic_reference(x: torch.Tensor) -> torch.Tensor:
+    from npu_model.hardware.rtl_math import unary
     x = x.to(torch.bfloat16)
     identity = ((x + x).to(torch.bfloat16) - x).to(torch.bfloat16)
-    square = (identity * identity).to(torch.bfloat16)
-    cube = (x * x * x).to(torch.bfloat16)
+    square = unary("square", identity)
+    cube = unary("cube", x)
     return (square * cube).to(torch.bfloat16)
 
 

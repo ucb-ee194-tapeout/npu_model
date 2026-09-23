@@ -20,14 +20,17 @@ add x10, x5, x3
 dma.load.ch0 x1, x5, x3
 dma.load.ch1 x4, x10, x3
 dma.wait.ch0
-vload m0, 0(x1)
+srli x31, x1, 2   # VLS bases count words; DMA bases count bytes
+vload m0, 0(x31)
 delay 34
 dma.wait.ch1
-vload m1, 32(x1)
+srli x31, x1, 2   # VLS bases count words; DMA bases count bytes
+vload m1, 8(x31)
 delay 34
 vredsum.row.bf16 m4, m0
 delay 39
-vstore m4, 0(x2)
+srli x31, x2, 2   # VLS bases count words; DMA bases count bytes
+vstore m4, 0(x31)
 delay 34
 dma.store.ch0 x6, x2, x3
 dma.wait.ch0

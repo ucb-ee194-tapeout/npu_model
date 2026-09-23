@@ -1,16 +1,17 @@
 """Port sequencers and row pipelines corresponding to the two RTL MXUs.
 
-The timing follows the default 32x32 geometry and two-stage IPT. Arithmetic
-uses torch BF16/FP8 and is not a bit-level implementation of the FP RTL.
+The timing follows the default 32x32 geometry and two-stage IPT. Integer
+arithmetic implements the default custom FMA and anchor accumulation datapaths.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-import math
 
 import torch
 
 from .exu import ExecutionUnit
+from .rtl_math import sa_fma, ipt_row
+from .vpu import pack_row, unpack_row
 from ..logging.logger import Logger, LaneType
 from .arch_state import ArchState
 from ..software.instruction import Uop
@@ -164,9 +165,7 @@ class _MatrixExecutionUnit(ExecutionUnit):
         if self.mxu == "mxu1":
             if 1 <= age <= 32:
                 row = age - 1
-                result = op.rows[row].float() @ weights.float().T
-                result += op.partials[row].float()
-                op.results[row] = result.to(torch.bfloat16)
+                op.results[row] = ipt_row(op.rows[row], weights, op.partials[row])
             return
         # SA PE(i,j) evaluates row r at T+1+r+i+j. Track each PE's
         # BF16 partial sum so wavefront-overlapped weight pushes see exactly
@@ -178,9 +177,10 @@ class _MatrixExecutionUnit(ExecutionUnit):
                 continue
             columns = torch.arange(first, last + 1)
             inner = age - 1 - row - columns
-            values = op.partials[row][columns].float()
-            values += activation.float()[inner] * weights.float()[columns, inner]
-            op.partials[row][columns] = values.to(torch.bfloat16)
+            op.partials[row][columns] = sa_fma(
+                activation.view(torch.uint8)[inner].view(torch.float8_e4m3fn),
+                weights.view(torch.uint8)[columns, inner].view(torch.float8_e4m3fn),
+                op.partials[row][columns])
         if self.compute_first <= age <= self.compute_first + 31:
             row = age - self.compute_first
             op.results[row] = op.partials[row].clone()
@@ -194,9 +194,7 @@ class _MatrixExecutionUnit(ExecutionUnit):
             state.read_mrf_bf16(op.mreg)[row] = data[:16]
             state.read_mrf_bf16(op.mreg + 1)[row] = data[16:]
         else:
-            scale = math.ldexp(1.0, op.scale - 127)
-            data = (data.float() / scale).to(torch.float8_e4m3fn)
-            state.read_mrf_u8(op.mreg)[row] = data.view(torch.uint8)
+            state.read_mrf_u8(op.mreg)[row] = pack_row(data, op.scale, mxu=True)
 
     def tick(self, idu_output: StageData[Uop | None]) -> None:
         self.cycle += 1
@@ -245,7 +243,9 @@ class _MatrixExecutionUnit(ExecutionUnit):
             self.arch_state.read_wb_u8(self.mxu, weight_push.weight)[row] = weight_push.rows.pop(row).view(torch.uint8)
         if acc_push is not None:
             row = self.cycle - acc_push.issued - 1
-            self.arch_state.acc[self.mxu][acc_push.acc][row] = acc_push.rows.pop(row).to(torch.bfloat16)
+            data = acc_push.rows.pop(row)
+            self.arch_state.acc[self.mxu][acc_push.acc][row] = (
+                unpack_row(data.view(torch.uint8), 127) if acc_push.kind == "push_fp8" else data)
         remaining = []
         for op in self._ops:
             age = self.cycle - op.issued

@@ -196,3 +196,24 @@ def test_redirect_at_program_end_is_not_lost() -> None:
 def test_ifu_rejects_non_rtl_fetch_width() -> None:
     with pytest.raises(ValueError, match="exactly one instruction"):
         InstructionFetch(2, Mock(spec=Logger), Mock())
+
+
+def test_host_written_instruction_beyond_initial_image_is_executable() -> None:
+    ifu, state = fetch_unit(10)
+    ifu.tick(host_request=ImemRequest(ifu.memory.BASE + 4, program(99)[0]))
+    ifu.output.claim()
+    assert not ifu.is_finished()
+    state.npc = 2
+    ifu.tick()
+    assert ifu.output.peek().insn.imm == 99
+    assert ifu.output.peek().pc == 1
+
+
+def test_ifu_fetches_high_pc_alias_without_truncating_architectural_pc() -> None:
+    ifu, state = fetch_unit(10, 20)
+    state.pc = InstructionMemory.WORDS + 1
+    state.npc = state.pc + 1
+    assert not ifu.is_finished()
+    ifu.tick()
+    assert ifu.output.peek().insn.imm == 20
+    assert ifu.output.peek().pc == InstructionMemory.WORDS + 1
