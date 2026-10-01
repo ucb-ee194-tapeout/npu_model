@@ -1,6 +1,4 @@
 import io
-import importlib.util
-from pathlib import Path
 
 import pytest
 
@@ -9,11 +7,35 @@ from npu_model.util.converter import input_to_program
 from npu_model.lsp.linter import lint_text
 
 
-_baremetal_path = Path(__file__).resolve().parents[2] / "baremetal" / "assembler.py"
-_baremetal_spec = importlib.util.spec_from_file_location("atlas_baremetal_assembler", _baremetal_path)
-assert _baremetal_spec is not None and _baremetal_spec.loader is not None
-_baremetal_assembler = importlib.util.module_from_spec(_baremetal_spec)
-_baremetal_spec.loader.exec_module(_baremetal_assembler)
+# Reference encoders built field-by-field from the RISC-V layouts, independent
+# of Instruction.to_bytecode(). Branch and JAL source offsets are instruction
+# words; the RTL decodes them directly from the imm[12:1] / imm[20:1] fields.
+_BRANCH_FUNCT3 = {"beq": 0b000, "bne": 0b001, "blt": 0b100, "bge": 0b101, "bltu": 0b110, "bgeu": 0b111}
+
+
+def _i_type(opcode: int, funct3: int, rd: int, rs1: int, imm: int) -> int:
+    return ((imm & 0xFFF) << 20) | (rs1 << 15) | (funct3 << 12) | (rd << 7) | opcode
+
+
+def _b_type(mnemonic: str, rs1: int, rs2: int, word_offset: int) -> int:
+    imm = (word_offset << 1) & 0x1FFF
+    return (
+        ((imm >> 12) & 1) << 31 | ((imm >> 5) & 0x3F) << 25 | rs2 << 20 | rs1 << 15
+        | _BRANCH_FUNCT3[mnemonic] << 12 | ((imm >> 1) & 0xF) << 8 | ((imm >> 11) & 1) << 7
+        | 0b1100011
+    )
+
+
+def _jal(rd: int, word_offset: int) -> int:
+    imm = (word_offset << 1) & 0x1FFFFF
+    return (
+        ((imm >> 20) & 1) << 31 | ((imm >> 1) & 0x3FF) << 21 | ((imm >> 11) & 1) << 20
+        | ((imm >> 12) & 0xFF) << 12 | rd << 7 | 0b1101111
+    )
+
+
+def _jalr(rd: int, rs1: int, imm: int) -> int:
+    return _i_type(0b1100111, 0b000, rd, rs1, imm)
 
 
 def test_li_expands_to_valid_addi_and_lui_addi_sequences() -> None:
@@ -117,7 +139,7 @@ def test_matrix_transfer_and_matmul_parse_correctly() -> None:
 def test_branch_source_word_offsets_match_rtl_assembler(mnemonic: str, offset: int) -> None:
     source = f"{mnemonic} x1, x2, {offset}"
     insn = input_to_program(io.StringIO(source)).instructions[0]
-    expected = getattr(_baremetal_assembler, mnemonic.upper())(1, 2, offset)
+    expected = _b_type(mnemonic, 1, 2, offset)
     assert insn.imm == offset * 2
     assert insn.to_bytecode() == expected
     assert lint_text(source) == []
@@ -128,7 +150,7 @@ def test_jal_source_word_offsets_match_rtl_assembler(offset: int) -> None:
     source = f"jal x1, {offset}"
     insn = input_to_program(io.StringIO(source)).instructions[0]
     assert insn.imm == offset * 2
-    assert insn.to_bytecode() == _baremetal_assembler.JAL(1, offset)
+    assert insn.to_bytecode() == _jal(1, offset)
     assert lint_text(source) == []
 
 
@@ -137,7 +159,7 @@ def test_jalr_uses_unscaled_word_offset_and_accepts_odd_values(offset: int) -> N
     source = f"jalr x1, x2, {offset}"
     insn = input_to_program(io.StringIO(source)).instructions[0]
     assert insn.imm == offset
-    assert insn.to_bytecode() == _baremetal_assembler.JALR(1, 2, offset)
+    assert insn.to_bytecode() == _jalr(1, 2, offset)
     assert lint_text(source) == []
 
 
@@ -151,8 +173,8 @@ def test_control_flow_labels_account_for_li_expansion_in_word_units() -> None:
         jal x4, start
         nop
     """))
-    assert program.instructions[2].to_bytecode() == _baremetal_assembler.BEQ(1, 2, 2)
-    assert program.instructions[4].to_bytecode() == _baremetal_assembler.JAL(4, -4)
+    assert program.instructions[2].to_bytecode() == _b_type("beq", 1, 2, 2)
+    assert program.instructions[4].to_bytecode() == _jal(4, -4)
 
 
 @pytest.mark.parametrize("source", [
@@ -166,18 +188,18 @@ def test_source_control_flow_offsets_outside_rtl_range_are_rejected(source: str)
 
 
 def test_instruction_constructors_retain_raw_encoded_immediate_convention() -> None:
-    assert BEQ(rs1=1, rs2=2, imm=-4096).to_bytecode() == _baremetal_assembler.BEQ(1, 2, -2048)
-    assert JAL(rd=1, imm=-1048576).to_bytecode() == _baremetal_assembler.JAL(1, -524288)
+    assert BEQ(rs1=1, rs2=2, imm=-4096).to_bytecode() == _b_type("beq", 1, 2, -2048)
+    assert JAL(rd=1, imm=-1048576).to_bytecode() == _jal(1, -524288)
     assert BEQ.from_asm(["beq", "x1", "x2", "3"]).imm == 6
     assert JAL.from_asm(["jal", "x1", "3"]).imm == 6
 
 
 @pytest.mark.parametrize("source, expected", [
-    ("addi x3, x1, 17", _baremetal_assembler.ADDI(3, 1, 17)),
-    ("lw x7, 16(x2)", _baremetal_assembler.LW(7, 2, 16)),
-    ("jalr x3, x2, 5", _baremetal_assembler.JALR(3, 2, 5)),
-    ("delay 7", _baremetal_assembler.DELAY_INSN(7)),
-    ("seli e3, 127", _baremetal_assembler.SELI(3, 127)),
+    ("addi x3, x1, 17", _i_type(0b0010011, 0b000, 3, 1, 17)),
+    ("lw x7, 16(x2)", _i_type(0b0000011, 0b010, 7, 2, 16)),
+    ("jalr x3, x2, 5", _jalr(3, 2, 5)),
+    ("delay 7", _i_type(0b1100111, 0b001, 0, 0, 7)),
+    ("seli e3, 127", _i_type(0b0000011, 0b111, 3, 0, 127)),
 ])
 def test_i_type_encoding_keeps_destination_separate_from_immediate(source: str, expected: int) -> None:
     assert input_to_program(io.StringIO(source)).assemble() == [expected]
