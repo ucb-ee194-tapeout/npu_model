@@ -13,7 +13,6 @@ from npu_model.configs.isa_definition import (
 )
 from npu_model.hardware.arch_state import ArchState
 from npu_model.hardware.bank_conflict import BankConflictError
-from npu_model.hardware.stage_data import StageData
 from npu_model.hardware.vpu import VectorExecutionUnit, pack_row, unpack_row
 from npu_model.hardware.xlu import CrossLaneExecutionUnit
 from npu_model.logging.logger import Logger
@@ -32,11 +31,7 @@ def vpu():
 
 
 def tick(unit, insn=None):
-    stage = StageData(None)
-    if insn is not None:
-        stage.prepare(Uop(insn))
-    unit.tick(stage)
-    assert not stage.is_valid()
+    unit.tick(Uop(insn) if insn is not None else None)
 
 
 def row(state, bank, index):

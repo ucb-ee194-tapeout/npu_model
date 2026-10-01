@@ -1,12 +1,11 @@
 import math
 
 from ..isa import EXU, RType, is_scalar_itype
-from ..logging.logger import LaneType, Logger
+from ..logging.logger import Logger
 from ..software.instruction import Uop
 from .arch_state import ArchState
 from .config import HardwareConfig
 from .exu import ExecutionUnit
-from .stage_data import StageData
 from .bank_conflict import vmem_accesses
 
 
@@ -44,10 +43,10 @@ class DmaExecutionUnit(ExecutionUnit):
     bandwidth (vmem_bytes_per_cycle), with a minimum of 1 cycle.
     Config ops (dma.config.ch<N>) are treated as fixed 1-cycle control ops.
 
-    Completion logging is deferred by one cycle so that the Kanata trace
+    Completion logging is deferred by one cycle so that the trace
     reflects the cycle in which results become visible, and the corresponding
     channel flag is cleared on completion to unblock any waiting dma.wait.ch<N>
-    instructions held in the DIU.
+    instructions held in S1.
     """
 
     def _bytes_for_dma_uop(self, uop: Uop) -> int:
@@ -89,18 +88,18 @@ class DmaExecutionUnit(ExecutionUnit):
         self._total_instructions = 0
         self._busy_cycles = 0
 
-    def tick(self, idu_output: StageData[Uop | None]) -> None:
+    def tick(self, uop: Uop | None) -> None:
         self.cycle += 1
         # Log deferred completions from last cycle
-        for uop in self._pending_completions:
-            if not (is_scalar_itype(uop.insn) or isinstance(uop.insn, RType)):
+        for done in self._pending_completions:
+            if not (is_scalar_itype(done.insn) or isinstance(done.insn, RType)):
                 raise ValueError("Invalid Instruction format provided to DMA.")
 
-            self.logger.log_stage_end(uop.id, "E", lane=self.lane_id, cycle=self.cycle)
-            self.logger.log_retire(uop.id)
+            self.logger.log_stage_end(done.id, "E", lane=self.lane_id, cycle=self.cycle)
+            self.logger.log_retire(done.id)
             # clear the flag
-            self.arch_state.clear_flag(uop.insn.funct3)
-            print(f"DMA {self.name} cleared flag {uop.insn.funct3}")
+            self.arch_state.clear_flag(done.insn.funct3)
+            print(f"DMA {self.name} cleared flag {done.insn.funct3}")
 
             if len(self.in_flight) != 0:
                 # Log: start execute
@@ -115,55 +114,41 @@ class DmaExecutionUnit(ExecutionUnit):
 
         self._complete_count = 0
 
-        # If there are less than 8 instructions queued, check if we can queue more.
-        if len(self.in_flight) < 8:
-            uop = None
-            if len(self.in_flight) < 8:
-                uop = idu_output.peek()
+        # Accept new instruction into the 8-entry in-order queue.
+        if uop is not None:
+            if len(self.in_flight) >= 8:
+                raise RuntimeError(
+                    f"DMA {self.name} queue full when S1 launched uop {uop.id} "
+                    f"{uop.insn} on cycle {self.cycle}"
+                )
+            assert uop.insn.exu == EXU.DMA, "Invalid arguments passed to DMA Engine"
+            # Check and acquire VMEM banks before accepting.
+            mnemonic = uop.insn.mnemonic
+            label = f"{self.name}:{mnemonic}"
+            banks = vmem_accesses(uop.insn, self.arch_state)
+            self.arch_state.conflict_checker.acquire_vmem(banks, label)
+            self._in_flight_vmem_banks.append(banks)
+            # tag instruction with execution delay
+            if mnemonic == "dma.config.ch<N>":
+                # Config is a control op; keep it fixed-latency.
+                uop.execute_delay = 1
+            else:
+                nbytes = self._bytes_for_dma_uop(uop)
+                uop.execute_delay = max(
+                    1,
+                    dma_transfer_cycles(self.config, nbytes),
+                )
+            self.in_flight.append(uop)
+            self._total_instructions += 1
 
-            # Accept new instruction
-            if uop is not None:
-                assert uop.insn.exu == EXU.DMA, "Invalid arguments passed to DMA Engine"
-                # Check and acquire VMEM banks before accepting.
-                mnemonic = uop.insn.mnemonic
-                label = f"{self.name}:{mnemonic}"
-                banks = vmem_accesses(uop.insn, self.arch_state)
-                self.arch_state.conflict_checker.acquire_vmem(banks, label)
-                self._in_flight_vmem_banks.append(banks)
-                # tag instruction with execution delay
-                if mnemonic == "dma.config.ch<N>":
-                    # Config is a control op; keep it fixed-latency.
-                    uop.execute_delay = 1
-                else:
-                    nbytes = self._bytes_for_dma_uop(uop)
-                    uop.execute_delay = max(
-                        1,
-                        dma_transfer_cycles(self.config, nbytes),
-                    )
-                self.in_flight.append(uop)
-                self._total_instructions += 1
-
-                # claim the uop from the DIU
-                # I think this needs to happen here since our entire goal
-                # with doing this is to not block. Not 100% sure.
-                idu_output.claim()
-
-                # Log: End dispatch
-                self.logger.log_stage_end(
+            if len(self.in_flight) == 1:
+                # Log: start execute
+                self.logger.log_stage_start(
                     uop.id,
-                    "D",
-                    lane=LaneType.DIU.value,
+                    "E",
+                    lane=self.lane_id,
                     cycle=self.cycle,
                 )
-
-                if len(self.in_flight) == 1:
-                    # Log: start execute
-                    self.logger.log_stage_start(
-                        uop.id,
-                        "E",
-                        lane=self.lane_id,
-                        cycle=self.cycle,
-                    )
 
         # Track if EXU was busy
         if self.is_busy():

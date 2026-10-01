@@ -29,7 +29,6 @@ class AsmError(ValueError):
 class EXU(StrEnum):
     CORE = "Core"
     IFU = "InstructionFetch"
-    IDU = "InstructionDecode"
     SCALAR = "ScalarExecutionUnit"
     VECTOR = "VectorExecutionUnit"
     XLU = "CrossLaneExecutionUnit"

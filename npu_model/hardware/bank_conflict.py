@@ -109,7 +109,7 @@ def vmem_accesses(insn: Instruction, arch_state: ArchState) -> frozenset[int]:
     """
     Return the set of VMEM bank indices accessed by an instruction.
 
-    Bank indices are computed from the byte address and length at dispatch
+    Bank indices are computed from the byte address and length at launch
     time by reading the current scalar register file.
     """
 

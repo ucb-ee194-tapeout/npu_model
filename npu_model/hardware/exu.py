@@ -1,8 +1,7 @@
 from abc import abstractmethod
 
 from .hardware import Module
-from .stage_data import StageData
-from ..logging.logger import Logger, LaneType
+from ..logging.logger import Logger
 from ..hardware.arch_state import ArchState
 from ..software.instruction import Uop
 from ..isa import EXU
@@ -15,7 +14,7 @@ class ExecutionUnit(Module):
 
     Defines the interface that all execution units must implement.
     Subclass SimpleExecutionUnit for a ready-to-use implementation
-    with latency modeling and Kanata logging.
+    with latency modeling and trace logging.
     """
 
     def __init__(
@@ -52,8 +51,8 @@ class ExecutionUnit(Module):
         pass
 
     @abstractmethod
-    def tick(self, idu_output: StageData[Uop | None]) -> None:
-        """Execute one cycle, claiming instruction from DIU output."""
+    def tick(self, uop: Uop | None) -> None:
+        """Execute one cycle; ``uop`` is the command S1 launched to this unit, if any."""
         pass
 
     @abstractmethod
@@ -139,7 +138,7 @@ class ScalarExecutionUnit(ExecutionUnit):
         self._total_instructions = 0
         self._busy_cycles = 0
 
-    def tick(self, idu_output: StageData[Uop | None]) -> None:
+    def tick(self, uop: Uop | None) -> None:
         self.cycle += 1
         # Log deferred completions from last cycle
         if self._pending_completion_uop is not None:
@@ -155,9 +154,6 @@ class ScalarExecutionUnit(ExecutionUnit):
         # reset cycle states
         self._complete_count = 0
 
-        # Claim instruction from DIU
-        uop = idu_output.claim()
-
         # Accept new instruction
         if uop is not None:
             assert uop.insn.exu == EXU.SCALAR, "Attempted to pass non-scalar args to Scalar Excution Unit."
@@ -165,13 +161,7 @@ class ScalarExecutionUnit(ExecutionUnit):
             uop.execute_delay = 1
             self._pending_completion_uop = uop
             self._total_instructions += 1
-            # Log: end dispatch, start execute
-            self.logger.log_stage_end(
-                uop.id,
-                "D",
-                lane=LaneType.DIU.value,
-                cycle=self.cycle,
-            )
+            # Log: start execute
             self.logger.log_stage_start(
                 uop.id,
                 "E",

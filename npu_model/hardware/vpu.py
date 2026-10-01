@@ -8,10 +8,8 @@ import torch
 
 from .exu import ExecutionUnit
 from .rtl_math import unary, minmax
-from ..logging.logger import LaneType
 from ..software.instruction import Uop
 from ..isa import EXU
-from .stage_data import StageData
 
 _TWO_INPUT = {"vadd.bf16", "vsub.bf16", "vmul.bf16", "vminimum.bf16", "vmaximum.bf16"}
 _ROW_REDUCE = {"vredsum.row.bf16", "vredmin.row.bf16", "vredmax.row.bf16"}
@@ -222,7 +220,6 @@ class VectorExecutionUnit(ExecutionUnit):
         self.operations.append(op)
         uop.execute_delay = latency
         self._total_instructions += 1
-        self.logger.log_stage_end(uop.id, "D", lane=LaneType.DIU.value, cycle=self.cycle)
         self.logger.log_stage_start(uop.id, "E", lane=self.lane_id, cycle=self.cycle)
 
     def _read(self, op: _VectorOperation, bank: int, row: int) -> torch.Tensor:
@@ -333,13 +330,12 @@ class VectorExecutionUnit(ExecutionUnit):
             self._pending_completions.append(op.uop)
             self._complete_count += 1
 
-    def tick(self, idu_output: StageData[Uop | None]) -> None:
+    def tick(self, uop: Uop | None) -> None:
         self.cycle += 1
         self.arch_state.conflict_checker.begin_cycle(self.cycle)
         self.flush_completions()
         self._complete_count = 0
         self._read_cache = {}
-        uop = idu_output.claim()
         if uop is not None:
             self._accept(uop)
         if self.operations:

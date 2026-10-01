@@ -7,8 +7,7 @@ from typing import Any
 
 class LaneType(Enum):
     IFU = 0
-    DIU = 1
-    EXU_BASE = 2
+    EXU_BASE = 1
 
 
 class RetireType(Enum):

@@ -11,11 +11,10 @@ from dataclasses import dataclass, field
 import torch
 
 from .exu import ExecutionUnit
-from ..logging.logger import Logger, LaneType
+from ..logging.logger import Logger
 from .arch_state import ArchState
 from ..software.instruction import Uop
 from ..isa import EXU
-from .stage_data import StageData
 from .config import HardwareConfig
 from .bank_conflict import BankConflictError
 
@@ -135,7 +134,6 @@ class LoadStoreUnit(ExecutionUnit):
             raise ValueError(f"Unknown LSU instruction {mnemonic}")
         uop.execute_delay = self._get_latency(uop)
         self._total_instructions += 1
-        self.logger.log_stage_end(uop.id, "D", lane=LaneType.DIU.value, cycle=self.cycle)
         self.logger.log_stage_start(uop.id, "E", lane=self.lane_id, cycle=self.cycle)
 
     def _check_vmem_ports(self) -> None:
@@ -240,12 +238,11 @@ class LoadStoreUnit(ExecutionUnit):
             else:
                 self._vstore = None
 
-    def tick(self, idu_output: StageData[Uop | None]) -> None:
+    def tick(self, uop: Uop | None) -> None:
         self.cycle += 1
         self.arch_state.conflict_checker.begin_cycle(self.cycle)
         self.flush_completions()
         self._complete_count = 0
-        uop = idu_output.claim()
         # Validate against pre-edge busy flags, including the final row cycle.
         if uop is not None:
             assert uop.insn.exu == EXU.LSU, "Non-LSU instruction passed to LSU"

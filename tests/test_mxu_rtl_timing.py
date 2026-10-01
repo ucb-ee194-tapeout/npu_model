@@ -9,7 +9,6 @@ from npu_model.configs.hardware.default import DefaultHardwareConfig
 from npu_model.configs import isa_definition as isa
 from npu_model.hardware.arch_state import ArchState
 from npu_model.hardware.mxu import MatrixExecutionUnitSystolic, MatrixExecutionUnitInner
-from npu_model.hardware.stage_data import StageData
 from npu_model.logging.logger import Logger
 from npu_model.software import acc, m, w
 from npu_model.software.instruction import Uop
@@ -31,11 +30,7 @@ def instruction(unit, name, **kwargs):
 
 
 def tick(unit, insn=None):
-    stage = StageData(None)
-    if insn is not None:
-        stage.prepare(Uop(insn))
-    unit.tick(stage)
-    assert not stage.is_valid(), "MXU commands consume their issue slot immediately"
+    unit.tick(Uop(insn) if insn is not None else None)
 
 
 def put_fp8(state, reg, values):

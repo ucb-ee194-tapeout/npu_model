@@ -12,11 +12,10 @@ import torch
 from .exu import ExecutionUnit
 from .rtl_math import sa_fma, ipt_row
 from .vpu import pack_row, unpack_row
-from ..logging.logger import Logger, LaneType
+from ..logging.logger import Logger
 from .arch_state import ArchState
 from ..software.instruction import Uop
 from ..isa import EXU
-from .stage_data import StageData
 from .config import HardwareConfig
 
 MXU_OP_LATENCIES = {
@@ -141,7 +140,6 @@ class _MatrixExecutionUnit(ExecutionUnit):
             self._last_compute[weight] = self.cycle
         uop.execute_delay = self._execution_latency(uop)
         self._total_instructions += 1
-        self.logger.log_stage_end(uop.id, "D", lane=LaneType.DIU.value, cycle=self.cycle)
         self.logger.log_stage_start(uop.id, "E", lane=self.lane_id, cycle=self.cycle)
 
     def _sample(self, op: _Operation, row: int) -> None:
@@ -196,12 +194,11 @@ class _MatrixExecutionUnit(ExecutionUnit):
         else:
             state.read_mrf_u8(op.mreg)[row] = pack_row(data, op.scale, mxu=True)
 
-    def tick(self, idu_output: StageData[Uop | None]) -> None:
+    def tick(self, uop: Uop | None) -> None:
         self.cycle += 1
         self.arch_state.conflict_checker.begin_cycle(self.cycle)
         self.flush_completions()
         self._complete_count = 0
-        uop = idu_output.claim()
         if uop is not None:
             self._accept(uop)
         if self._ops:

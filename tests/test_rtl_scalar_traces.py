@@ -39,7 +39,7 @@ def test_scalar_core_matches_recorded_rtl_cycle_trace(name: str, tmp_path: Path)
                 state.set_flag(0)
             else:
                 state.clear_flag(0)
-            s1 = core.idu.uop or core.ifu.output.peek()
+            s1 = core.s1_uop or core.ifu.output.peek()
             assert state.pc == row["fetch_pc"], (name, row)
             if s1 is not None:
                 assert s1.pc == row["s1_pc"], (name, row)

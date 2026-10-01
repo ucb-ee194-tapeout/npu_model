@@ -10,7 +10,6 @@ from npu_model.configs.isa_definition import ADDI, LB, LH, LHU, LW, SELD, SELI, 
 from npu_model.hardware.arch_state import ArchState
 from npu_model.hardware.bank_conflict import BankConflictError
 from npu_model.hardware.lsu import LoadStoreUnit
-from npu_model.hardware.stage_data import StageData
 from npu_model.logging.logger import Logger
 from npu_model.software import e, m, x
 from npu_model.software.instruction import Uop
@@ -27,13 +26,9 @@ def lsu():
 
 
 def tick(unit, insn=None, *, scalar=None):
-    stage = StageData(None)
     uop = Uop(insn) if insn is not None else None
-    if uop is not None:
-        stage.prepare(uop)
     unit.arch_state.current_uop = Uop(scalar) if scalar is not None else uop
-    unit.tick(stage)
-    assert not stage.is_valid()
+    unit.tick(uop)
 
 
 def word(state, address, value):

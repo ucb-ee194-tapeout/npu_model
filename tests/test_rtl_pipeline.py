@@ -90,7 +90,7 @@ def test_delay_retires_then_stalls_following_instruction(make_core, delay):
     core = make_core([DELAY(delay), ADDI(x(1), x(0), 9)])
     step(core, 2)
     assert core.total_completed == 1
-    assert core.idu.delay_counter == delay
+    assert core.delay_counter == delay
     assert core.arch_state.pc == 2
     for _ in range(delay):
         step(core)

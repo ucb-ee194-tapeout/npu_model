@@ -93,7 +93,5 @@ class Uop():
         # current fetch PC (which can redirect or remain stalled).
         self.pc = pc
 
-        self.dispatch_delay: int = 0
-        """the number of dispatch stalling cycles left"""
         self.execute_delay: int = 0
         """the number of execute stalling cycles left"""

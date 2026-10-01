@@ -2,10 +2,8 @@
 import torch
 
 from .exu import ExecutionUnit
-from .stage_data import StageData
 from ..software.instruction import Uop
 from ..isa import EXU
-from ..logging.logger import LaneType
 
 
 class CrossLaneExecutionUnit(ExecutionUnit):
@@ -36,13 +34,12 @@ class CrossLaneExecutionUnit(ExecutionUnit):
         self._pending_completions.clear()
         self._complete_count = 0
 
-    def tick(self, idu_output: StageData[Uop | None]) -> None:
+    def tick(self, uop: Uop | None) -> None:
         self.cycle += 1
         checker = self.arch_state.conflict_checker
         checker.begin_cycle(self.cycle)
         self.flush_completions()
         self._complete_count = 0
-        uop = idu_output.claim()
         if uop is not None:
             if self.in_flight is not None:
                 raise RuntimeError("XLU command issued while transpose engine is busy")
@@ -53,7 +50,6 @@ class CrossLaneExecutionUnit(ExecutionUnit):
                                  frozenset({int(uop.insn.vd)}))
             self._total_instructions += 1
             uop.execute_delay = 66
-            self.logger.log_stage_end(uop.id, "D", lane=LaneType.DIU.value, cycle=self.cycle)
             self.logger.log_stage_start(uop.id, "E", lane=self.lane_id, cycle=self.cycle)
         if self.in_flight is None:
             return
