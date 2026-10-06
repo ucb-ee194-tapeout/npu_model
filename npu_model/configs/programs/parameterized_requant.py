@@ -55,8 +55,7 @@ def _rowmajor_bf16(mat: torch.Tensor, M: int, N: int) -> torch.Tensor:
 
 def requant_reference(x: torch.Tensor) -> torch.Tensor:
     """bf16 → fp8_e4m3fn unit-scale cast.  Matches seli imm=127 path."""
-    from npu_model.util.rtl_reference import quantize
-    return quantize(x)
+    return x.to(torch.float8_e4m3fn)
 
 
 def _make_program(M: int, N: int, seed: int):

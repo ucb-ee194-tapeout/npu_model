@@ -115,6 +115,7 @@ uv run scripts/run.py --hardware_config DefaultHardwareConfig -p AddiProgram -o 
 - `-p, --program`: Program to execute (default: `AddiProgram`)
 - `-o, --output`: Output trace file (default: `trace.json`)
 - `--max-cycles`: Maximum simulation cycles (default: `1000`)
+- `--numerics`: Instruction arithmetic, `pytorch` or `rtl` (bit-exact with the RTL); timing is identical (default: `pytorch`)
 
 ### Viewing Traces
 

@@ -1,4 +1,8 @@
 from abc import abstractmethod
+from typing import Iterable
+import copy
+
+import torch
 
 from .hardware import Module
 from ..logging.logger import Logger
@@ -6,6 +10,164 @@ from ..hardware.arch_state import ArchState
 from ..software.instruction import Uop
 from ..isa import EXU
 from ..hardware.config import HardwareConfig
+
+Location = tuple
+"""Storage a unit samples or commits: a tile, ("mrf", reg), ("acc", mxu, slot)
+or ("wb", mxu, slot); a register, ("xrf", reg), ("erf", reg) or ("base",); or
+a whole byte memory, ("vmem",) or ("dram",)."""
+
+_MEMORIES = ("vmem", "dram")
+# Control state only S1 and the scalar unit change; staged exec must not.
+_FIXED = ("pc", "npc", "redirect_requested", "halted", "halt_reason", "in_delay_slot",
+          "flags", "csrf", "_csr_values", "_csr_written")
+
+
+def _tiles(state: ArchState) -> dict[Location, torch.Tensor]:
+    """Every tensor an instruction can read or write, as row-indexed views."""
+    tiles: dict[Location, torch.Tensor] = {
+        ("mrf", reg): state.read_mrf_u8(reg) for reg in range(len(state.mrf))
+    }
+    for mxu in state.acc:
+        tiles.update({("acc", mxu, slot): data for slot, data in enumerate(state.acc[mxu])})
+        tiles.update({("wb", mxu, slot): state.read_wb_u8(mxu, slot) for slot in range(len(state.wb[mxu]))})
+    return tiles
+
+
+def _bits(tensor: torch.Tensor) -> torch.Tensor:
+    """Integer encodings, so NaN payloads and signed zeros compare exactly."""
+    return tensor.view(torch.int16) if tensor.dtype == torch.bfloat16 else tensor
+
+
+def _name(location: Location) -> str:
+    kind, *index = location
+    if kind in ("mrf", "xrf", "erf"):
+        return f"{kind[0]}{index[0]}"
+    return kind + "".join(f"[{part}]" for part in index)
+
+
+class _Memory:
+    """A byte memory as staged exec sees it.
+
+    Reads return sampled regions, sampling live memory on first use; writes
+    are captured for the unit to commit. Only regions exec touches are copied.
+    """
+
+    def __init__(self, live: torch.Tensor, reads: dict[int, torch.Tensor]) -> None:
+        self.live = live
+        self.reads = reads
+        self.writes: dict[int, torch.Tensor] = {}
+
+    def __getitem__(self, key: slice) -> torch.Tensor:
+        for regions in (self.writes, self.reads):
+            for start, data in regions.items():
+                if start <= key.start and key.stop <= start + len(data):
+                    return data[key.start - start:key.stop - start].clone()
+        self.reads[key.start] = self.live[key].clone()
+        return self.reads[key.start].clone()
+
+    def __setitem__(self, key: slice, value: torch.Tensor) -> None:
+        self.writes[key.start] = value.flatten().clone()
+
+
+class StagedExecution:
+    """Instruction.exec evaluated on operands as an execution unit samples them.
+
+    exec runs against private copies, so nothing becomes architecturally
+    visible until the unit commits ``result`` on its RTL write cycles. Scalar
+    registers are the values S1 read at launch. Sampling data that changed
+    since it was copied (VLOAD may write during a read window, a weight push
+    may lead a matmul) re-runs exec before the next commit. That is exact
+    because the RTL writes each result only after reading the inputs it
+    depends on.
+    """
+
+    def __init__(self, uop: Uop, state: ArchState, reads: Iterable[Location],
+                 writes: Iterable[Location], unit: str) -> None:
+        self.uop = uop
+        self.state = state
+        self.unit = unit
+        self.writes = frozenset(writes)
+        tiles = _tiles(state)
+        self.operands: dict[Location, torch.Tensor] = {
+            ("xrf",): torch.tensor(state.xrf, dtype=torch.int64),
+            ("erf",): torch.tensor(state.erf, dtype=torch.int64),
+            ("base",): torch.tensor(state.base, dtype=torch.int64),
+            **{location: tiles[location].clone() for location in reads},
+        }
+        # Memory operands are the regions exec reads, keyed by start address.
+        self.memory_reads: dict[str, dict[int, torch.Tensor]] = {kind: {} for kind in _MEMORIES}
+        self._execute()
+
+    def _execute(self) -> None:
+        state, operands = self.state, self.operands
+        sources = {location: operands.get(location, data) for location, data in _tiles(state).items()}
+        copies = {location: data.clone() for location, data in sources.items()}
+        xrf, erf = operands[("xrf",)].tolist(), operands[("erf",)].tolist()
+        base = int(operands[("base",)])
+        memories = {kind: _Memory(getattr(state, kind), self.memory_reads[kind]) for kind in _MEMORIES}
+        view = copy.copy(state)
+        # Instance-level overrides (instrumentation) would reach live state.
+        for name in [name for name, value in vars(view).items() if callable(value)]:
+            delattr(view, name)
+        view.logger = None  # The unit logs architectural values as it commits them.
+        view.mrf = [copies[("mrf", reg)].view(-1) for reg in range(len(view.mrf))]
+        view.acc = {mxu: [copies[("acc", mxu, slot)] for slot in range(len(slots))]
+                    for mxu, slots in view.acc.items()}
+        view.wb = {mxu: [copies[("wb", mxu, slot)].view(-1) for slot in range(len(slots))]
+                   for mxu, slots in view.wb.items()}
+        view.xrf, view.erf, view.base = list(xrf), list(erf), base
+        view.vmem, view.dram = memories["vmem"], memories["dram"]
+        for name in _FIXED:
+            setattr(view, name, copy.copy(getattr(state, name)))
+        self.uop.insn.exec(view)
+        values: dict[Location, object] = {
+            **copies,
+            **{("xrf", reg): value for reg, value in enumerate(view.xrf)},
+            **{("erf", reg): value for reg, value in enumerate(view.erf)},
+            ("base",): view.base,
+            **{(kind,): memory.writes for kind, memory in memories.items()},
+        }
+        written = [location for location, before in sources.items()
+                   if not torch.equal(_bits(before), _bits(copies[location]))]
+        written += [("xrf", reg) for reg, value in enumerate(xrf) if view.xrf[reg] != value]
+        written += [("erf", reg) for reg, value in enumerate(erf) if view.erf[reg] != value]
+        written += [("base",)] * (view.base != base)
+        written += [(kind,) for kind, memory in memories.items() if memory.writes]
+        written += [(name,) for name in _FIXED if getattr(view, name) != getattr(state, name)]
+        for location in written:
+            if location not in self.writes:
+                raise RuntimeError(f"{self.uop.insn.mnemonic} exec wrote {_name(location)}, "
+                                   f"which {self.unit} does not write")
+        self._results = {location: values[location] for location in self.writes}
+        self._stale = False
+
+    def _region(self, kind: str, index: slice) -> tuple[int, torch.Tensor]:
+        for start, data in self.memory_reads[kind].items():
+            if start <= index.start and index.stop <= start + len(data):
+                return start, data
+        raise RuntimeError(f"{self.unit} reads {kind}[{index.start}:{index.stop}], "
+                           f"which {self.uop.insn.mnemonic} exec does not read")
+
+    def sample(self, location: Location, index, value: torch.Tensor) -> None:
+        """Record ``value`` as what the unit read from ``location[index]``.
+
+        A memory index is an absolute slice inside a region exec read.
+        """
+        if location[0] in _MEMORIES:
+            start, operand = self._region(location[0], index)
+            index = slice(index.start - start, index.stop - start)
+        else:
+            operand = self.operands[location]
+        operand, value = _bits(operand), _bits(value)
+        if not torch.equal(operand[index], value):
+            operand[index] = value
+            self._stale = True
+
+    def result(self, location: Location):
+        """A committed tile, a register value, or a memory's {start: bytes}."""
+        if self._stale:
+            self._execute()
+        return self._results[location]
 
 
 class ExecutionUnit(Module):

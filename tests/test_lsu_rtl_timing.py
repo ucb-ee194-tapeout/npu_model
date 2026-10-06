@@ -18,7 +18,7 @@ from npu_model.software.instruction import Uop
 @pytest.fixture
 def lsu():
     cfg = DefaultHardwareConfig()
-    cfg.arch_state_config = replace(cfg.arch_state_config, dram_size=4096)
+    cfg.arch_state_config = replace(cfg.arch_state_config, dram_size=4096, numerics="rtl")
     state = ArchState(cfg.arch_state_config)
     unit = LoadStoreUnit("LSU", Mock(spec=Logger), state, config=cfg)
     yield unit

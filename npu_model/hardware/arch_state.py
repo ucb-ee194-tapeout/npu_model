@@ -2,6 +2,7 @@ import torch
 from ..logging.logger import Logger
 from .config import ArchStateConfig
 from .bank_conflict import BankConflictChecker
+from ..configs.numerics import NUMERICS
 
 class ArchState:
     def __init__(
@@ -11,6 +12,7 @@ class ArchState:
     ) -> None:
         self.cfg = config
         self.logger = logger
+        self.math = NUMERICS[config.numerics]
 
         self.initialize_buffers()
         self.reset()

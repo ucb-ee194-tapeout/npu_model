@@ -15,7 +15,7 @@ python -m pytest tests/test_rtl_*traces.py tests/test_rtl_arithmetic.py tests/te
 ```
 
 Regeneration also recreates the exhaustive unary BF16 tables in
-`npu_model/hardware/data/`. It takes several minutes, primarily compiling the
+`npu_model/configs/data/`. It takes several minutes, primarily compiling the
 full 32×32 MXUs. `provenance.json` fingerprints the RTL sources, harnesses and
 artifacts; Python tests detect stale fixtures when the adjacent RTL changes.
 The standalone Python checkout checks artifact hashes without requiring RTL.
@@ -27,7 +27,7 @@ The standalone Python checkout checks artifact hashes without requiring RTL.
 | `sa_traces.json`, `ipt_traces.json` | `SystolicArrayTop`, `InnerProductTreesTop` | Every MREG read/write cycle/address/data; all seven commands, accumulator chaining and overlapping weight push/compute |
 | `memory_traces.json` | `LSU`, `XluEngine` | Concurrent scalar/VLOAD/VSTORE and transpose requests, write data, scalar writeback; VMEM and MREG accesses |
 | `arithmetic.json` | `E4M3FMA`, `AnchorAccumulationTree`, `FPUtils` converters | 512 seeded random/boundary cases, all 256 scale encodings and FP8 input encodings |
-| `hardware/data/*.bin.gz` (under `npu_model/`) | Actual `VectorEngineTop` lane boxes | All 65,536 BF16 encodings for each of 11 unary operations |
+| `configs/data/*.bin.gz` (under `npu_model/`) | Actual `VectorEngineTop` lane boxes | All 65,536 BF16 encodings for each of 11 unary operations |
 
 Memory-facing harnesses supply synchronous one-cycle responses. They test the
 engines and their command/response pipeline, without instantiating TileLink or

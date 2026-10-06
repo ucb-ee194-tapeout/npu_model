@@ -1,7 +1,8 @@
-"""Independent XluEngine read-buffer-transpose-write state machine."""
-import torch
+"""Independent XluEngine read-buffer-transpose-write state machine.
 
-from .exu import ExecutionUnit
+Values come from Instruction.exec; this unit decides only when rows move.
+"""
+from .exu import ExecutionUnit, StagedExecution
 from ..software.instruction import Uop
 from ..isa import EXU
 
@@ -18,7 +19,7 @@ class CrossLaneExecutionUnit(ExecutionUnit):
         self.in_flight: Uop | None = None
         self.issued = 0
         self.owner = ""
-        self.buffer = torch.zeros((32, 32), dtype=torch.uint8)
+        self.staged: StagedExecution | None = None
         self._pending_completions: list[Uop] = []
         self._complete_count = 0
         self._total_instructions = 0
@@ -46,8 +47,10 @@ class CrossLaneExecutionUnit(ExecutionUnit):
             self.in_flight = uop
             self.issued = self.cycle
             self.owner = f"{self.name}:{uop.id}:vtrpose.xlu"
-            checker.reserve_mreg(self.owner, frozenset({int(uop.insn.vs1)}),
-                                 frozenset({int(uop.insn.vd)}))
+            source, destination = int(uop.insn.vs1), int(uop.insn.vd)
+            checker.reserve_mreg(self.owner, frozenset({source}), frozenset({destination}))
+            self.staged = StagedExecution(uop, self.arch_state, [("mrf", source)],
+                                          [("mrf", destination)], "XluEngine")
             self._total_instructions += 1
             uop.execute_delay = 66
             self.logger.log_stage_start(uop.id, "E", lane=self.lane_id, cycle=self.cycle)
@@ -61,13 +64,15 @@ class CrossLaneExecutionUnit(ExecutionUnit):
             checker.access_mreg(self.cycle, int(insn.vs1), row, False, self.owner)
             # Capture the value at the request edge; the response appears one
             # cycle later. The last response changes ReadMreg to WriteMreg.
-            self.buffer[row] = self.arch_state.mrf[int(insn.vs1)][row * 32:(row + 1) * 32]
+            source = int(insn.vs1)
+            self.staged.sample(("mrf", source), row, self.arch_state.read_mrf_u8(source)[row])
         if age == 33:
             checker.release_mreg(self.owner, reads=True, writes=False)
         if 34 <= age <= 65:
             row = age - 34
-            checker.access_mreg(self.cycle, int(insn.vd), row, True, self.owner)
-            self.arch_state.mrf[int(insn.vd)][row * 32:(row + 1) * 32] = self.buffer[:, row]
+            destination = int(insn.vd)
+            checker.access_mreg(self.cycle, destination, row, True, self.owner)
+            self.arch_state.read_mrf_u8(destination)[row] = self.staged.result(("mrf", destination))[row]
         self.in_flight.execute_delay = max(0, 65 - age)
         if age == 65:
             checker.release_mreg(self.owner)

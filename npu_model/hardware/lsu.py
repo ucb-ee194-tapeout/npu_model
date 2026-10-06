@@ -3,14 +3,13 @@
 Cycles name the combinational work before the clock edge. An instruction issued
 at T writes scalar stores at T+1, scalar load results at T+3, and vector rows at
 T+3 through T+34. ScalarCore's command and response registers are included.
+Values come from Instruction.exec; this unit decides only when they move.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
-import torch
-
-from .exu import ExecutionUnit
+from .exu import ExecutionUnit, StagedExecution
 from ..logging.logger import Logger
 from .arch_state import ArchState
 from ..software.instruction import Uop
@@ -34,9 +33,7 @@ class _Operation:
     uop: Uop
     issued: int
     address: int
-    store_value: int = 0
-    load_word: int = 0
-    rows: dict[int, torch.Tensor] = field(default_factory=dict)
+    staged: StagedExecution
 
 
 class LoadStoreUnit(ExecutionUnit):
@@ -104,15 +101,14 @@ class LoadStoreUnit(ExecutionUnit):
         else:
             address = alu_address & addr_mask
         assert address < self.arch_state.cfg.vmem_size, "LSU address exceeds VMEM capacity"
-        op = _Operation(uop, self.cycle, address)
+        reads: list[tuple] = []
         if mnemonic in _SCALAR_LOADS:
             if any(old.uop.insn.mnemonic in _SCALAR_LOADS and self.cycle - old.issued < 3
                    for old in self._scalar):
                 raise RuntimeError("scalar load issued while prior load response pending")
-            self._scalar.append(op)
+            writes = [("erf" if mnemonic == "seld" else "xrf", int(insn.rd))]
         elif mnemonic in _SCALAR_STORES:
-            op.store_value = int(self.arch_state.read_xrf(insn.rs2)) & 0xFFFFFFFF
-            self._scalar.append(op)
+            writes = [("vmem",)]
         elif vector:
             tile_bytes = self.arch_state.cfg.mrf_depth * self.arch_state.cfg.mrf_width
             bank_bytes = self.config.vmem_bank_bytes
@@ -129,9 +125,16 @@ class LoadStoreUnit(ExecutionUnit):
                 writes=banks if mnemonic == "vload" else frozenset(),
                 allow_write_during_read=mnemonic == "vload",
             )
-            setattr(self, path, op)
+            reads = [] if mnemonic == "vload" else [("mrf", int(insn.vd))]
+            writes = [("mrf", int(insn.vd))] if mnemonic == "vload" else [("vmem",)]
         else:
             raise ValueError(f"Unknown LSU instruction {mnemonic}")
+        op = _Operation(uop, self.cycle, address,
+                        StagedExecution(uop, self.arch_state, reads, writes, "LSU"))
+        if vector:
+            setattr(self, path, op)
+        else:
+            self._scalar.append(op)
         uop.execute_delay = self._get_latency(uop)
         self._total_instructions += 1
         self.logger.log_stage_start(uop.id, "E", lane=self.lane_id, cycle=self.cycle)
@@ -166,6 +169,14 @@ class LoadStoreUnit(ExecutionUnit):
             if hasattr(insn, "rd") and int(insn.rd) != 0:
                 raise RuntimeError("scalar load response collides with scalar register writeback")
 
+    def _vmem_write(self, op: _Operation, start: int, length: int):
+        """The bytes exec stored, which must be the region this unit addresses."""
+        (address, data), = op.staged.result(("vmem",)).items()
+        if (address, len(data)) != (start, length):
+            raise RuntimeError(f"{op.uop.insn.mnemonic} exec wrote vmem[{address}:{address + len(data)}], "
+                               f"but the LSU addresses vmem[{start}:{start + length}]")
+        return data
+
     def _tick_scalar(self) -> None:
         remaining: list[_Operation] = []
         for op in self._scalar:
@@ -176,30 +187,19 @@ class LoadStoreUnit(ExecutionUnit):
                 size = {"sb": 1, "sh": 2, "sw": 4}[mnemonic]
                 # Hardware ignores bit 0 for halfwords and bits 1:0 for words.
                 address = op.address & ~(size - 1)
-                raw = (op.store_value & ((1 << (size * 8)) - 1)).to_bytes(size, "little")
-                self.arch_state.write_vmem(address, 0, torch.tensor(list(raw), dtype=torch.uint8))
+                self.arch_state.write_vmem(address, 0, self._vmem_write(op, address, size))
                 self._finish(op)
                 continue
             if mnemonic in _SCALAR_LOADS:
                 if age == 1:
-                    raw = self.arch_state.read_vmem(op.address & ~3, 0, 4)
-                    op.load_word = int.from_bytes(bytes(raw.tolist()), "little")
+                    word = op.address & ~3
+                    op.staged.sample(("vmem",), slice(word, word + 4), self.arch_state.read_vmem(word, 0, 4))
                 if age == 3:
                     self._check_writeback()
-                    value = op.load_word
-                    if mnemonic in {"lb", "lbu"}:
-                        value = (value >> ((op.address & 3) * 8)) & 0xFF
-                        if mnemonic == "lb" and value & 0x80:
-                            value |= 0xFFFFFF00
-                    elif mnemonic in {"lh", "lhu"}:
-                        value = (value >> ((op.address & 2) * 8)) & 0xFFFF
-                        if mnemonic == "lh" and value & 0x8000:
-                            value |= 0xFFFF0000
                     if mnemonic == "seld":
-                        # ScalarCore selects memWord[7:0], without byte shifting.
-                        self.arch_state.write_erf(insn.rd, value & 0xFF)
+                        self.arch_state.write_erf(insn.rd, op.staged.result(("erf", int(insn.rd))))
                     else:
-                        self.arch_state.write_xrf(insn.rd, value)
+                        self.arch_state.write_xrf(insn.rd, op.staged.result(("xrf", int(insn.rd))))
                     self._finish(op)
                     continue
             remaining.append(op)
@@ -210,28 +210,26 @@ class LoadStoreUnit(ExecutionUnit):
             return
         age = self.cycle - op.issued
         rows, width = self.arch_state.cfg.mrf_depth, self.arch_state.cfg.mrf_width
-        reg = op.uop.insn.vd
+        reg = int(op.uop.insn.vd)
+        owner = f"{self.name}:{op.uop.id}"
         if 1 <= age <= rows:
             row = age - 1
             if load:
-                op.rows[row] = self.arch_state.read_vmem(op.address + row * width, 0, width).clone()
+                start = op.address + row * width
+                op.staged.sample(("vmem",), slice(start, start + width), self.arch_state.read_vmem(start, 0, width))
             else:
-                self.arch_state.conflict_checker.access_mreg(
-                    self.cycle, reg, row, False, f"{self.name}:{op.uop.id}"
-                )
-                op.rows[row] = self.arch_state.read_mrf_u8(reg)[row].clone()
+                self.arch_state.conflict_checker.access_mreg(self.cycle, reg, row, False, owner)
+                op.staged.sample(("mrf", reg), row, self.arch_state.read_mrf_u8(reg)[row])
         if 3 <= age <= rows + 2:
             row = age - 3
-            data = op.rows.pop(row)
             if load:
-                self.arch_state.conflict_checker.access_mreg(
-                    self.cycle, reg, row, True, f"{self.name}:{op.uop.id}"
-                )
-                self.arch_state.mrf[reg][row * width:(row + 1) * width] = data
+                self.arch_state.conflict_checker.access_mreg(self.cycle, reg, row, True, owner)
+                self.arch_state.read_mrf_u8(reg)[row] = op.staged.result(("mrf", reg))[row]
             else:
-                self.arch_state.write_vmem(op.address + row * width, 0, data)
+                data = self._vmem_write(op, op.address, rows * width)
+                self.arch_state.write_vmem(op.address + row * width, 0, data[row * width:(row + 1) * width])
         if age == rows + 2:
-            self.arch_state.conflict_checker.release_mreg(f"{self.name}:{op.uop.id}")
+            self.arch_state.conflict_checker.release_mreg(owner)
             self._finish(op)
             if load:
                 self._vload = None

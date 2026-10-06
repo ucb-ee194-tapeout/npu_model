@@ -55,8 +55,7 @@ def _tile_fp8(mat: torch.Tensor) -> torch.Tensor:
 
 def bias_add_cast_reference(x: torch.Tensor, bias: torch.Tensor) -> torch.Tensor:
     """fp8(x + bias) with unit scale — matches vpack.bf16.fp8 seli=127 path."""
-    from npu_model.util.rtl_reference import quantize, add
-    return quantize(add(x, bias))
+    return (x.float() + bias.float()).to(torch.float8_e4m3fn)
 
 
 def _make_program(seed: int):

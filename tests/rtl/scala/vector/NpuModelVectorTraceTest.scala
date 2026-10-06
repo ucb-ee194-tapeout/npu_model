@@ -111,7 +111,7 @@ class NpuModelVectorTraceTest extends AnyFlatSpec {
 class NpuModelUnaryTableTest extends AnyFlatSpec {
   it should "enumerate every BF16 input through the real vector lane boxes" in {
     val root = Paths.get(sys.env.getOrElse("MILL_WORKSPACE_ROOT", sys.props("user.dir")))
-    val dest = root.resolve("npu-model/npu_model/hardware/data")
+    val dest = root.resolve("npu-model/npu_model/configs/data")
     Files.createDirectories(dest)
     val ops = Seq("rcp" -> 4, "sqrt" -> 5, "sin" -> 6, "cos" -> 7,
       "tanh" -> 8, "log" -> 9, "exp" -> 10, "exp2" -> 11,

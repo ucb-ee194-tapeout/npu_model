@@ -42,8 +42,7 @@ func.func @elementwise_div(
 
 def elementwise_div_reference(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     # Kernel computes via vrecip + vmul in bf16; mirror the rounding.
-    from npu_model.hardware.rtl_math import unary
-    inv_b = unary("rcp", b.to(torch.bfloat16))
+    inv_b = (1.0 / b.float()).to(torch.bfloat16)
     return (a * inv_b).to(a.dtype)
 
 

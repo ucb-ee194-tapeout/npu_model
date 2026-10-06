@@ -19,6 +19,13 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         help="Hardware configuration class to use for program execution tests.",
     )
     parser.addoption(
+        "--numerics",
+        action="store",
+        choices=("pytorch", "rtl"),
+        default="pytorch",
+        help="Instruction arithmetic for program golden checks; the goldens are PyTorch.",
+    )
+    parser.addoption(
         "--sim-verbose",
         action="store_true",
         default=False,
@@ -29,6 +36,11 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 @pytest.fixture
 def max_cycles(pytestconfig: pytest.Config) -> int:
     return pytestconfig.getoption("max_cycles")
+
+
+@pytest.fixture
+def numerics(pytestconfig: pytest.Config) -> str:
+    return pytestconfig.getoption("numerics")
 
 
 @pytest.fixture

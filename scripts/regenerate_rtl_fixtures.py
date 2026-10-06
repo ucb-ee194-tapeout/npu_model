@@ -31,7 +31,7 @@ def source_paths():
 
 def artifact_paths():
     return sorted([p for p in (MODEL/'tests/rtl').glob('*.json') if p != MANIFEST]
-                  + list((MODEL/'npu_model/hardware/data').glob('*.bin.gz')))
+                  + list((MODEL/'npu_model/configs/data').glob('*.bin.gz')))
 
 
 def write_manifest():

@@ -23,7 +23,7 @@ def make_core(tmp_path):
     cores = []
     def make(instructions):
         config = DefaultHardwareConfig()
-        config.arch_state_config = replace(config.arch_state_config, dram_size=4096)
+        config.arch_state_config = replace(config.arch_state_config, dram_size=4096, numerics="rtl")
         logger = Logger(LoggerConfig(filename=str(tmp_path / f"trace{len(cores)}.json")))
         core = Core(config, logger)
         core.load_program(InstantiableProgram(instructions))

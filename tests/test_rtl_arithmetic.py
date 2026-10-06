@@ -4,8 +4,7 @@ from pathlib import Path
 
 import torch
 
-from npu_model.hardware.rtl_math import fma_bits, ipt_row
-from npu_model.hardware.vpu import pack_row, unpack_row
+from npu_model.configs.rtl_math import fma_bits, ipt_row, pack_row, unpack_row
 
 
 def test_mxu_arithmetic_encodings_against_rtl():

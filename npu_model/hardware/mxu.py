@@ -1,17 +1,15 @@
 """Port sequencers and row pipelines corresponding to the two RTL MXUs.
 
-The timing follows the default 32x32 geometry and two-stage IPT. Integer
-arithmetic implements the default custom FMA and anchor accumulation datapaths.
+The timing follows the default 32x32 geometry and two-stage IPT. Values come
+from Instruction.exec; this unit decides only when rows are read and written.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import torch
 
-from .exu import ExecutionUnit
-from .rtl_math import sa_fma, ipt_row
-from .vpu import pack_row, unpack_row
+from .exu import ExecutionUnit, StagedExecution
 from ..logging.logger import Logger
 from .arch_state import ArchState
 from ..software.instruction import Uop
@@ -24,6 +22,7 @@ MXU_OP_LATENCIES = {
     for op in ("vmatpush.weight", "vmatpush.acc.fp8", "vmatpush.acc.bf16",
                "vmatmul.acc", "vmatmul", "vmatpop.fp8.acc", "vmatpop.bf16.acc")
 }
+_GRID = torch.arange(32)
 
 
 @dataclass
@@ -35,12 +34,13 @@ class _Operation:
     mreg: int
     acc: int
     weight: int
-    scale: int
     owner: str
-    rows: dict[int, torch.Tensor] = field(default_factory=dict)
-    partials: dict[int, torch.Tensor] = field(default_factory=dict)
-    results: dict[int, torch.Tensor] = field(default_factory=dict)
+    staged: StagedExecution
     mreg_released: bool = False
+
+    @property
+    def banks(self) -> tuple[int, ...]:
+        return (self.mreg, self.mreg + 1) if self.kind in {"push_bf16", "pop_bf16"} else (self.mreg,)
 
 
 class _MatrixExecutionUnit(ExecutionUnit):
@@ -134,8 +134,19 @@ class _MatrixExecutionUnit(ExecutionUnit):
         banks = frozenset({mreg, mreg + 1}) if kind in {"push_bf16", "pop_bf16"} else frozenset({mreg})
         self.arch_state.conflict_checker.reserve_mreg(owner, reads=frozenset() if pop else banks,
                                                      writes=banks if pop else frozenset())
-        scale = self.arch_state.read_erf(insn.es1) if kind == "pop_fp8" else 127
-        self._ops.append(_Operation(uop, self.cycle, kind, ports, mreg, acc, weight, scale, owner))
+        mregs = [("mrf", bank) for bank in sorted(banks)]
+        accumulator, weights = ("acc", self.mxu, acc), ("wb", self.mxu, weight)
+        if pop:
+            reads, writes = [accumulator], mregs
+        elif kind == "weight":
+            reads, writes = mregs, [weights]
+        elif kind == "compute":
+            reads = mregs + [weights] + ([accumulator] if ".acc." in insn.mnemonic else [])
+            writes = [accumulator]
+        else:
+            reads, writes = mregs, [accumulator]
+        staged = StagedExecution(uop, self.arch_state, reads, writes, self.mxu)
+        self._ops.append(_Operation(uop, self.cycle, kind, ports, mreg, acc, weight, owner, staged))
         if kind == "compute":
             self._last_compute[weight] = self.cycle
         uop.execute_delay = self._execution_latency(uop)
@@ -144,55 +155,44 @@ class _MatrixExecutionUnit(ExecutionUnit):
 
     def _sample(self, op: _Operation, row: int) -> None:
         state = self.arch_state
+        accumulator = ("acc", self.mxu, op.acc)
+        if accumulator in op.staged.operands:
+            op.staged.sample(accumulator, row, state.acc[self.mxu][op.acc][row])
         if op.kind.startswith("pop"):
-            op.rows[row] = state.acc[self.mxu][op.acc][row].clone()
             return
-        checker = state.conflict_checker
-        checker.access_mreg(self.cycle, op.mreg, row, False, op.owner)
-        if op.kind == "push_bf16":
-            checker.access_mreg(self.cycle, op.mreg + 1, row, False, op.owner)
-            op.rows[row] = torch.cat((state.read_mrf_bf16(op.mreg)[row], state.read_mrf_bf16(op.mreg + 1)[row])).clone()
-        else:
-            op.rows[row] = state.read_mrf_fp8(op.mreg)[row].clone()
-        if op.kind == "compute":
-            op.partials[row] = (state.acc[self.mxu][op.acc][row].clone()
-                                if ".acc." in op.uop.insn.mnemonic else torch.zeros(32, dtype=torch.bfloat16))
+        for bank in op.banks:
+            state.conflict_checker.access_mreg(self.cycle, bank, row, False, op.owner)
+            op.staged.sample(("mrf", bank), row, state.read_mrf_u8(bank)[row])
 
-    def _compute(self, op: _Operation, age: int) -> None:
-        weights = self.arch_state.read_wb_fp8(self.mxu, op.weight)
+    def _weight_uses(self, age: int) -> tuple[torch.Tensor, torch.Tensor]:
+        """(output column, inner) weights read at this age, and which are row 0's."""
         if self.mxu == "mxu1":
-            if 1 <= age <= 32:
-                row = age - 1
-                op.results[row] = ipt_row(op.rows[row], weights, op.partials[row])
-            return
-        # SA PE(i,j) evaluates row r at T+1+r+i+j. Track each PE's
-        # BF16 partial sum so wavefront-overlapped weight pushes see exactly
-        # the weight column present at that PE's use cycle.
-        for row, activation in op.rows.items():
-            first = max(0, age - 1 - row - 31)
-            last = min(31, age - 1 - row)
-            if first > last:
-                continue
-            columns = torch.arange(first, last + 1)
-            inner = age - 1 - row - columns
-            op.partials[row][columns] = sa_fma(
-                activation.view(torch.uint8)[inner].view(torch.float8_e4m3fn),
-                weights.view(torch.uint8)[columns, inner].view(torch.float8_e4m3fn),
-                op.partials[row][columns])
-        if self.compute_first <= age <= self.compute_first + 31:
-            row = age - self.compute_first
-            op.results[row] = op.partials[row].clone()
+            # Each IPT row reads the whole tile, row r at age r + 1.
+            used = torch.full((32, 32), 1 <= age <= 32)
+            return used, used & (age == 1)
+        # SA PE(i, j) evaluates row r at T+1+r+i+j, reading the weight
+        # present at that PE's use cycle.
+        row = age - 1 - _GRID[:, None] - _GRID[None, :]
+        return (row >= 0) & (row <= 31), row == 0
+
+    def _sample_weights(self, op: _Operation, age: int) -> None:
+        """Every use of a weight follows row 0's, so a change seen there is
+        exact to re-run; any later change would give rows different weights,
+        which no legal push schedule produces."""
+        location = ("wb", self.mxu, op.weight)
+        live = self.arch_state.read_wb_u8(self.mxu, op.weight)
+        used, first = self._weight_uses(age)
+        changed = used & (live != op.staged.operands[location])
+        if (changed & ~first).any():
+            raise RuntimeError(f"{self.mxu}: weights changed while a matmul was using them")
+        if changed.any():
+            op.staged.sample(location, changed, live[changed])
 
     def _pop_row(self, op: _Operation, row: int) -> None:
-        state, checker = self.arch_state, self.arch_state.conflict_checker
-        data = op.rows.pop(row)
-        checker.access_mreg(self.cycle, op.mreg, row, True, op.owner)
-        if op.kind == "pop_bf16":
-            checker.access_mreg(self.cycle, op.mreg + 1, row, True, op.owner)
-            state.read_mrf_bf16(op.mreg)[row] = data[:16]
-            state.read_mrf_bf16(op.mreg + 1)[row] = data[16:]
-        else:
-            state.read_mrf_u8(op.mreg)[row] = pack_row(data, op.scale, mxu=True)
+        for bank in op.banks:
+            self.arch_state.conflict_checker.access_mreg(self.cycle, bank, row, True, op.owner)
+        for bank in op.banks:
+            self.arch_state.read_mrf_u8(bank)[row] = op.staged.result(("mrf", bank))[row]
 
     def tick(self, uop: Uop | None) -> None:
         self.cycle += 1
@@ -215,7 +215,7 @@ class _MatrixExecutionUnit(ExecutionUnit):
                 self._sample(op, age)
         for op in self._ops:
             if op.kind == "compute":
-                self._compute(op, self.cycle - op.issued)
+                self._sample_weights(op, self.cycle - op.issued)
         # A shared sequencer output mux prefers ReadP1 over ReadP0 for pushes.
         weight_push = None
         acc_push = None
@@ -234,15 +234,15 @@ class _MatrixExecutionUnit(ExecutionUnit):
         if acc_push is not None and any(op.acc == acc_push.acc for op, _ in compute_writes):
             raise RuntimeError(f"{self.mxu}: compute and push write the same accumulator")
         for op, row in compute_writes:
-            self.arch_state.acc[self.mxu][op.acc][row] = op.results.pop(row)
+            self.arch_state.acc[self.mxu][op.acc][row] = op.staged.result(("acc", self.mxu, op.acc))[row]
         if weight_push is not None:
             row = self.cycle - weight_push.issued - 1
-            self.arch_state.read_wb_u8(self.mxu, weight_push.weight)[row] = weight_push.rows.pop(row).view(torch.uint8)
+            location = ("wb", self.mxu, weight_push.weight)
+            self.arch_state.read_wb_u8(self.mxu, weight_push.weight)[row] = weight_push.staged.result(location)[row]
         if acc_push is not None:
             row = self.cycle - acc_push.issued - 1
-            data = acc_push.rows.pop(row)
-            self.arch_state.acc[self.mxu][acc_push.acc][row] = (
-                unpack_row(data.view(torch.uint8), 127) if acc_push.kind == "push_fp8" else data)
+            location = ("acc", self.mxu, acc_push.acc)
+            self.arch_state.acc[self.mxu][acc_push.acc][row] = acc_push.staged.result(location)[row]
         remaining = []
         for op in self._ops:
             age = self.cycle - op.issued

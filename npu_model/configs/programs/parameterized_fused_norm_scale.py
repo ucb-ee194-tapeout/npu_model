@@ -46,9 +46,8 @@ def _tile_matrix_bf16(mat: torch.Tensor, M: int, N: int) -> torch.Tensor:
 def fused_norm_scale_reference(
     variance: torch.Tensor, matrix: torch.Tensor
 ) -> torch.Tensor:
-    from npu_model.hardware.rtl_math import unary
-    sqrt_v = unary("sqrt", variance.to(torch.bfloat16))
-    rsqrt_v = unary("rcp", sqrt_v)
+    sqrt_v = torch.sqrt(variance.float()).to(torch.bfloat16)
+    rsqrt_v = (1.0 / sqrt_v.float()).to(torch.bfloat16)
     return (matrix.float() * rsqrt_v.float()).to(matrix.dtype)
 
 

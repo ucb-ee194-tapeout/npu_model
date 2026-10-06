@@ -13,7 +13,8 @@ from npu_model.configs.isa_definition import (
 )
 from npu_model.hardware.arch_state import ArchState
 from npu_model.hardware.bank_conflict import BankConflictError
-from npu_model.hardware.vpu import VectorExecutionUnit, pack_row, unpack_row
+from npu_model.configs.rtl_math import pack_row, unpack_row
+from npu_model.hardware.vpu import VectorExecutionUnit
 from npu_model.hardware.xlu import CrossLaneExecutionUnit
 from npu_model.logging.logger import Logger
 from npu_model.software import e, m
@@ -23,7 +24,7 @@ from npu_model.software.instruction import Uop
 @pytest.fixture
 def vpu():
     cfg = DefaultHardwareConfig()
-    cfg.arch_state_config = replace(cfg.arch_state_config, dram_size=4096)
+    cfg.arch_state_config = replace(cfg.arch_state_config, dram_size=4096, numerics="rtl")
     state = ArchState(cfg.arch_state_config)
     unit = VectorExecutionUnit("VPU", Mock(spec=Logger), state, config=cfg)
     yield unit

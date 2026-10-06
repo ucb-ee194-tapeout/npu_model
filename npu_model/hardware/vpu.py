@@ -1,13 +1,14 @@
 """VectorFSM row schedules and its two software-scheduled issue slots.
 
-Timing follows the registered MREG read and lane-box valid pipelines. Unary arithmetic uses exhaustive RTL-generated BF16 tables.
+Timing follows the registered MREG read and lane-box valid pipelines. Values
+come from Instruction.exec; this unit decides only which rows are read and
+written on which cycle.
 """
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import torch
 
-from .exu import ExecutionUnit
-from .rtl_math import unary, minmax
+from .exu import ExecutionUnit, StagedExecution
 from ..software.instruction import Uop
 from ..isa import EXU
 
@@ -54,64 +55,6 @@ VPU_OP_LATENCIES = {
 }
 
 
-def _truncated_bf16(value: torch.Tensor) -> torch.Tensor:
-    """AddSubSumVec/ColAddVec take the upper 16 bits of FP32 results."""
-    raw = (value.float().contiguous().view(torch.int32) >> 16).to(torch.int16)
-    # HardFloat emits its default positive quiet NaN, without input payloads.
-    raw = torch.where(torch.isnan(value), 0x7FC0, raw).to(torch.int16)
-    return raw.view(torch.bfloat16)
-
-
-def pack_row(value: torch.Tensor, scale: int, *, mxu: bool = False) -> torch.Tensor:
-    """Literal converters: VPU divides by the scale, MXU multiplies by it.
-
-    BF16ScaleToE4M3 also emits 0x7f for rounded +480, whereas FP8Pack
-    clamps that encoding to 0x7e. Preserve this RTL difference.
-    """
-    output = []
-    shift = min(127, max(-128, int(scale) - 127))
-    for raw in value.contiguous().view(torch.int16).tolist():
-        raw &= 0xFFFF
-        sign, exp, mant = raw >> 15, (raw >> 7) & 255, raw & 127
-        if exp == 0 or (exp == 255 and mant):
-            out = 0
-        elif exp == 255:
-            out = (sign << 7) | 0x7E
-        else:
-            adjusted = exp - 127 + (shift if mxu else -shift)
-            sig = 128 | mant
-            rounded = (sig >> 4) + int(bool((sig & 8) and ((sig & 7) or ((sig >> 4) & 1))))
-            if rounded == 16:
-                adjusted += 1
-                rounded = 8
-            frac = (rounded - 8) & 7
-            if adjusted > 8 or (not mxu and adjusted == 8 and frac == 7):
-                out = (sign << 7) | 0x7E
-            elif adjusted < -6:
-                out = 0
-            else:
-                out = (sign << 7) | ((adjusted + 7) << 3) | frac
-        output.append(out)
-    return torch.tensor(output, dtype=torch.uint8)
-
-
-def unpack_row(value: torch.Tensor, scale: int) -> torch.Tensor:
-    """FP8Unpack's E4M3/E8M0 conversion, preserving signed flushed zero."""
-    output = []
-    shift = min(127, max(-128, int(scale) - 127))
-    for raw in value.tolist():
-        sign, exp, mant = raw >> 7, (raw >> 3) & 15, raw & 7
-        adjusted = exp - 7 + shift + 127
-        if exp == 0 or (exp == 15 and mant == 7) or adjusted <= 0:
-            out = sign << 15
-        elif adjusted >= 255:
-            out = (sign << 15) | 0x7F7F
-        else:
-            out = (sign << 15) | (adjusted << 7) | (mant << 4)
-        output.append(out)
-    return torch.tensor(output, dtype=torch.uint16).view(torch.bfloat16)
-
-
 @dataclass
 class _VectorOperation:
     uop: Uop
@@ -122,10 +65,7 @@ class _VectorOperation:
     writes: frozenset[int]
     read_last: int
     write_last: int
-    scale: int = 127
-    pending: dict[int, list[tuple[int, int, torch.Tensor]]] = field(default_factory=dict)
-    packed_low: torch.Tensor | None = None
-    reduction: torch.Tensor | None = None
+    staged: StagedExecution
 
 
 class VectorExecutionUnit(ExecutionUnit):
@@ -213,117 +153,69 @@ class VectorExecutionUnit(ExecutionUnit):
                                     else 127 if name in _COL_REDUCE else 63)
         owner = f"{self.name}:{uop.id}:{name}"
         self.arch_state.conflict_checker.reserve_mreg(owner, frozenset(reads), writes)
-        scale = self.arch_state.read_erf(insn.es1) if hasattr(insn, "es1") else 127
         latency = self._execution_latency(uop)
+        staged = StagedExecution(uop, self.arch_state, [("mrf", bank) for bank in reads],
+                                 [("mrf", bank) for bank in writes], "VectorFSM")
         op = _VectorOperation(uop, self.cycle, slot, owner, frozenset(reads), writes,
-                              read_last, latency - 1, scale)
+                              read_last, latency - 1, staged)
         self.operations.append(op)
         uop.execute_delay = latency
         self._total_instructions += 1
         self.logger.log_stage_start(uop.id, "E", lane=self.lane_id, cycle=self.cycle)
 
-    def _read(self, op: _VectorOperation, bank: int, row: int) -> torch.Tensor:
+    def _read(self, op: _VectorOperation, bank: int, row: int, *, sample: bool) -> None:
         key = (bank, row)
         if key not in self._read_cache:
             self.arch_state.conflict_checker.access_mreg(self.cycle, bank, row, False, op.owner)
             self._read_cache[key] = self.arch_state.mrf[bank][row * 32:(row + 1) * 32].clone()
-        return self._read_cache[key]
+        if sample:
+            op.staged.sample(("mrf", bank), row, self._read_cache[key])
 
-    def _queue(self, op: _VectorOperation, age: int, index: int, data: torch.Tensor,
-               *, bank: int | None = None) -> None:
-        if bank is None:
-            bank = int(op.uop.insn.vd) + index // 32
-        op.pending.setdefault(age, []).append((bank, index % 32, data.contiguous().view(torch.uint8).clone()))
+    @staticmethod
+    def _reads(op: _VectorOperation, age: int) -> list[tuple[int, int]]:
+        """(bank, row) requests VectorFSM issues at this age."""
+        if not 0 <= age <= op.read_last:
+            return []
+        insn, name = op.uop.insn, op.uop.insn.mnemonic
+        if name in _ROW_REDUCE:
+            return [(int(insn.vs1), age), (int(insn.vs1) + 1, age)]
+        if name == "vunpack.fp8.bf16":
+            return [(int(insn.vs2), age)]
+        # Column reductions keep reading for 128 cycles, wrapping the pair.
+        source = int(insn.vs2 if name == "vpack.bf16.fp8" else insn.vs1)
+        reads = [(source + ((age // 32) & 1), age % 32)]
+        if name in _TWO_INPUT:
+            reads.append((int(insn.vs2) + age // 32, age % 32))
+        return reads
 
-    def _elementwise(self, name: str, a: torch.Tensor, b: torch.Tensor | None) -> torch.Tensor:
-        if name == "vadd.bf16":
-            return _truncated_bf16(a.float() + b.float())
-        if name == "vsub.bf16":
-            return _truncated_bf16(a.float() - b.float())
-        if name == "vmul.bf16":
-            return a * b
-        if name == "vminimum.bf16":
-            return minmax(a, b, False)
-        if name == "vmaximum.bf16":
-            return minmax(a, b, True)
-        if name == "vmov":
-            return a
-        names = {
-            "vrecip.bf16": "rcp", "vexp.bf16": "exp", "vexp2.bf16": "exp2",
-            "vrelu.bf16": "relu", "vsin.bf16": "sin", "vcos.bf16": "cos",
-            "vtanh.bf16": "tanh", "vlog2.bf16": "log", "vsqrt.bf16": "sqrt",
-            "vsquare.bf16": "square", "vcube.bf16": "cube",
-        }
-        return unary(names[name], a)
+    @staticmethod
+    def _writes(op: _VectorOperation, age: int) -> list[tuple[int, int]]:
+        """(bank, row) results committed at this age."""
+        name, vd = op.uop.insn.mnemonic, int(op.uop.insn.vd)
+        if name in _ROW_REDUCE:
+            # Both halves of row r land together, after the reduction tree.
+            row = age - (7 if name == "vredsum.row.bf16" else 2)
+            return [(vd, row), (vd + 1, row)] if 0 <= row < 32 else []
+        if name == "vpack.bf16.fp8":
+            # FP8 row k packs BF16 rows 2k and 2k + 1, two cycles after the second.
+            return [(vd, (age - 3) // 2)] if 3 <= age <= 65 and age % 2 else []
+        # The rest write one row per cycle across the pair, starting at `first`.
+        first = (1 if name.startswith("vli.") else 3 if name == "vunpack.fp8.bf16"
+                 else 66 if name in _COL_REDUCE else 2)
+        index = age - first
+        count = 32 if name in {"vli.col", "vli.one"} else 64
+        return [(vd + index // 32, index % 32)] if 0 <= index < count else []
 
     def _advance(self, op: _VectorOperation) -> None:
         age = self.cycle - op.issued
-        insn = op.uop.insn
-        name = insn.mnemonic
-        if name.startswith("vli.") and 1 <= age <= op.write_last:
-            index = age - 1
-            raw = torch.zeros(16, dtype=torch.uint16)
-            if name == "vli.all" or (name == "vli.row" and index % 32 == 0):
-                raw.fill_(int(insn.imm) & 0xFFFF)
-            elif name == "vli.col" or (name == "vli.one" and index == 0):
-                raw[0] = int(insn.imm) & 0xFFFF
-            self._queue(op, age, index, raw)
-        elif 0 <= age <= op.read_last:
-            if name in _ROW_REDUCE:
-                lo = self._read(op, int(insn.vs1), age).view(torch.bfloat16)
-                hi = self._read(op, int(insn.vs1) + 1, age).view(torch.bfloat16)
-                values = torch.cat((lo, hi)).float()
-                if name == "vredsum.row.bf16":
-                    # Balanced FP32 tree mirrors ReduSumRec's five add stages.
-                    while values.numel() > 1:
-                        values = values[::2] + values[1::2]
-                    value, latency = values[0].to(torch.bfloat16), 7
-                else:
-                    values = torch.cat((lo, hi))
-                    while values.numel() > 1:
-                        values = minmax(values[::2], values[1::2], name == "vredmax.row.bf16")
-                    value, latency = values[0], 2
-                result = value.expand(16).contiguous()
-                self._queue(op, age + latency, age, result, bank=int(insn.vd))
-                self._queue(op, age + latency, age, result, bank=int(insn.vd) + 1)
-            elif name == "vunpack.fp8.bf16":
-                raw = self._read(op, int(insn.vs2), age)
-                values = unpack_row(raw, op.scale)
-                self._queue(op, 3 + 2 * age, 2 * age, values[:16])
-                self._queue(op, 4 + 2 * age, 2 * age + 1, values[16:])
-            else:
-                source = int(insn.vs2 if name == "vpack.bf16.fp8" else insn.vs1)
-                # Column reductions keep reading for 128 cycles, wrapping the pair.
-                a = self._read(op, source + ((age // 32) & 1), age % 32).view(torch.bfloat16)
-                if name in _COL_REDUCE:
-                    if age < 64:
-                        if op.reduction is None:
-                            op.reduction = a.float().clone() if name == "vredsum.bf16" else a.clone()
-                        elif name == "vredsum.bf16":
-                            op.reduction += a.float()
-                        elif name == "vredmin.bf16":
-                            op.reduction = minmax(a, op.reduction, False)
-                        else:
-                            op.reduction = minmax(a, op.reduction, True)
-                elif name == "vpack.bf16.fp8":
-                    packed = pack_row(a, op.scale)
-                    if age % 2 == 0:
-                        op.packed_low = packed
-                    else:
-                        self._queue(op, age + 2, age // 2, torch.cat((op.packed_low, packed)))
-                else:
-                    b = None
-                    if name in _TWO_INPUT:
-                        b = self._read(op, int(insn.vs2) + age // 32, age % 32).view(torch.bfloat16)
-                    self._queue(op, age + 2, age, self._elementwise(name, a, b))
-            if age == op.read_last:
-                self.arch_state.conflict_checker.release_mreg(op.owner, reads=True, writes=False)
-        if name in _COL_REDUCE and 66 <= age <= 129:
-            result = _truncated_bf16(op.reduction) if name == "vredsum.bf16" else op.reduction.to(torch.bfloat16)
-            self._queue(op, age, age - 66, result)
-        for bank, row, data in op.pending.pop(age, []):
+        for bank, row in self._reads(op, age):
+            # Only the first pass over the pair feeds the result.
+            self._read(op, bank, row, sample=age < 64)
+        if age == op.read_last:
+            self.arch_state.conflict_checker.release_mreg(op.owner, reads=True, writes=False)
+        for bank, row in self._writes(op, age):
             self.arch_state.conflict_checker.access_mreg(self.cycle, bank, row, True, op.owner)
-            self.arch_state.mrf[bank][row * 32:(row + 1) * 32] = data
+            self.arch_state.read_mrf_u8(bank)[row] = op.staged.result(("mrf", bank))[row]
         op.uop.execute_delay = max(0, op.write_last - age)
         if age == op.write_last:
             self.arch_state.conflict_checker.release_mreg(op.owner)

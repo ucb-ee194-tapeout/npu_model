@@ -1,11 +1,13 @@
 import math
 
+import torch
+
 from ..isa import EXU, RType, is_scalar_itype
 from ..logging.logger import Logger
 from ..software.instruction import Uop
 from .arch_state import ArchState
 from .config import HardwareConfig
-from .exu import ExecutionUnit
+from .exu import ExecutionUnit, StagedExecution
 from .bank_conflict import vmem_accesses
 
 
@@ -47,7 +49,13 @@ class DmaExecutionUnit(ExecutionUnit):
     reflects the cycle in which results become visible, and the corresponding
     channel flag is cleared on completion to unblock any waiting dma.wait.ch<N>
     instructions held in S1.
+
+    Values come from Instruction.exec, committed when a transfer completes.
+    Its register operands are those S1 read at launch.
     """
+
+    # What each command's exec may change.
+    _WRITES = {"dma.load": [("vmem",)], "dma.store": [("dram",)], "dma.config": [("base",)]}
 
     def _bytes_for_dma_uop(self, uop: Uop) -> int:
         """
@@ -83,6 +91,7 @@ class DmaExecutionUnit(ExecutionUnit):
     def reset(self) -> None:
         self.in_flight: list[Uop] = []
         self._in_flight_vmem_banks: list[frozenset[int]] = []
+        self._staged: dict[int, StagedExecution] = {}
         self._complete_count = 0
         self._pending_completions: list[Uop] = []
         self._total_instructions = 0
@@ -129,7 +138,7 @@ class DmaExecutionUnit(ExecutionUnit):
             self.arch_state.conflict_checker.acquire_vmem(banks, label)
             self._in_flight_vmem_banks.append(banks)
             # tag instruction with execution delay
-            if mnemonic == "dma.config.ch<N>":
+            if mnemonic.startswith("dma.config"):
                 # Config is a control op; keep it fixed-latency.
                 uop.execute_delay = 1
             else:
@@ -138,6 +147,8 @@ class DmaExecutionUnit(ExecutionUnit):
                     1,
                     dma_transfer_cycles(self.config, nbytes),
                 )
+            writes = self._WRITES.get(mnemonic.rsplit(".", 1)[0], [])
+            self._staged[uop.id] = StagedExecution(uop, self.arch_state, [], writes, self.name)
             self.in_flight.append(uop)
             self._total_instructions += 1
 
@@ -158,8 +169,7 @@ class DmaExecutionUnit(ExecutionUnit):
         if len(self.in_flight) != 0:
             self.in_flight[0].execute_delay -= 1
             if self.in_flight[0].execute_delay <= 0:
-                # execute the instruction
-                self.in_flight[0].insn.exec(self.arch_state)
+                self._commit(self._staged.pop(self.in_flight[0].id))
                 self._complete_count = 1
                 # Release acquired VMEM banks before retiring the instruction.
                 self.arch_state.conflict_checker.release_vmem(
@@ -169,6 +179,25 @@ class DmaExecutionUnit(ExecutionUnit):
                 # Defer completion logging to next tick
                 self._pending_completions.append(self.in_flight[0])
                 self.in_flight = self.in_flight[1:]
+
+    def _commit(self, staged: StagedExecution) -> None:
+        """Move the data as the transfer completes."""
+        state = self.arch_state
+        # dma.base is engine state, updated by configs ahead in this queue.
+        staged.sample(("base",), ..., torch.tensor(state.base))
+        for kind in ("vmem", "dram"):
+            memory = getattr(state, kind)
+            for start, data in list(staged.memory_reads[kind].items()):
+                span = slice(start, start + len(data))
+                staged.sample((kind,), span, memory[span])
+        for location in staged.writes:
+            value = staged.result(location)
+            if location == ("base",):
+                state.base = value
+                continue
+            memory = getattr(state, location[0])
+            for start, data in value.items():
+                memory[start:start + len(data)] = data
 
     def flush_completions(self) -> None:
         """Flush any pending completions (call at end of simulation)."""

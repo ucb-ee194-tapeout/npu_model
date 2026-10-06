@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import pytest
 import torch
 
@@ -22,15 +24,18 @@ def test_program_registry_is_not_empty() -> None:
 def test_registered_program_executes(
     program_name: str,
     hardware_config_cls,
+    numerics: str,
     max_cycles: int,
     sim_verbose: bool,
 ) -> None:
     program_cls = getattr(program_configs, program_name)
     program = program_cls()
     effective_max_cycles = getattr(program, "kernel_max_cycles", max_cycles)
+    hardware_config = hardware_config_cls()
+    hardware_config.arch_state_config = replace(hardware_config.arch_state_config, numerics=numerics)
     sim = run_simulation(
         program,
-        hardware_config_cls(),
+        hardware_config,
         max_cycles=effective_max_cycles,
         verbose=sim_verbose,
     )

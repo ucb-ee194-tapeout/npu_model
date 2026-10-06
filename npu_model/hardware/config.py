@@ -29,6 +29,8 @@ class ArchStateConfig:
     """ Initialize architectural storage with deterministic pseudo-random data. """
     init_seed: int = 42
     """ Seed used when randomize_init is enabled. """
+    numerics: str = "pytorch"
+    """ Arithmetic used by Instruction.exec: "pytorch" or "rtl" (bit-exact with the RTL). """
 
 
 class HardwareConfig:

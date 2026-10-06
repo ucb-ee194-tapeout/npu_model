@@ -16,9 +16,8 @@ from npu_model.software.program import Program, ASM_FOLDER
 
 
 def requant_reference(x: torch.Tensor) -> torch.Tensor:
-    # Unit E8M0 scale, with RTL flush/saturation behavior.
-    from npu_model.util.rtl_reference import quantize
-    return quantize(x)
+    # Naive cast — kernel's seli=127 is the unit-scale path.
+    return x.to(torch.float8_e4m3fn)
 
 
 # ═══════════════════════════════════════════════════════════════════════════

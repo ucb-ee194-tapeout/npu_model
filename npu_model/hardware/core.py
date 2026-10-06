@@ -199,9 +199,8 @@ class Core(Module):
                     f"in a delay-slot position on cycle {self.cycle_count}"
                 )
             if mnemonic in {"ecall", "ebreak"}:
-                state.halted = True
-                state.halt_reason = mnemonic
                 state.execute_pc = self.s1_uop.pc
+                self.s1_uop.insn.exec(state)
                 self.s1_uop = None
                 self.delay_counter = 0
                 return None
@@ -225,6 +224,7 @@ class Core(Module):
         self.s1_uop = None
         target: ExecutionUnit | None = None
         if insn.mnemonic.startswith("dma.wait"):
+            insn.exec(state)
             self.logger.log_retire(self.issued_uop.id)
         else:
             target = self.exu_map[insn.exu]

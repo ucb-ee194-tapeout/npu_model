@@ -17,7 +17,7 @@ from npu_model.software.instruction import Uop
 @pytest.fixture(params=[0, 1], ids=["SA", "IPT"])
 def mxu(request):
     cfg = DefaultHardwareConfig()
-    cfg.arch_state_config = replace(cfg.arch_state_config, dram_size=4096, vmem_size=4096)
+    cfg.arch_state_config = replace(cfg.arch_state_config, dram_size=4096, vmem_size=4096, numerics="rtl")
     state = ArchState(cfg.arch_state_config)
     cls = (MatrixExecutionUnitSystolic, MatrixExecutionUnitInner)[request.param]
     unit = cls(f"Matrix{request.param}", Mock(spec=Logger), state, config=cfg)

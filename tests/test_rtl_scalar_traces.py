@@ -27,7 +27,7 @@ def test_scalar_core_matches_recorded_rtl_cycle_trace(name: str, tmp_path: Path)
     program = input_to_program(io.StringIO(scenario["source"]))
     assert program.assemble() == [int(word, 16) for word in scenario["words"]]
     config = DefaultHardwareConfig()
-    config.arch_state_config = replace(config.arch_state_config, dram_size=4096)
+    config.arch_state_config = replace(config.arch_state_config, dram_size=4096, numerics="rtl")
     logger = Logger(LoggerConfig(filename=str(tmp_path / "trace.json")))
     core = Core(config, logger)
     core.load_program(program)
