@@ -71,7 +71,11 @@ def test_operation_write_edges(vpu, op, first, last, count):
             writes.append((cycle - 1, bank, index))
 
     state.conflict_checker.access_mreg = record
-    tick(vpu, op)
+    uop = Uop(op)
+    vpu.tick(uop)
+    # The issue cycle itself is included in the latency class, so after this
+    # tick the remaining delay equals the age of the final write edge.
+    assert uop.execute_delay == last
     for age in range(1, last + 1):
         assert vpu.has_in_flight
         tick(vpu)
@@ -194,7 +198,9 @@ def test_xlu_transposes_with_independent_read_and_write_phases(vpu):
     xlu = CrossLaneExecutionUnit("XLU", Mock(spec=Logger), state, config=vpu.config)
     source = torch.arange(1024, dtype=torch.int32).to(torch.uint8).reshape(32, 32)
     state.mrf[8][:] = source.flatten()
-    tick(xlu, VTRPOSE_XLU(vd=m(10), vs1=m(8)))
+    uop = Uop(VTRPOSE_XLU(vd=m(10), vs1=m(8)))
+    xlu.tick(uop)
+    assert uop.execute_delay == 65
     for _ in range(33):
         tick(xlu)
     assert torch.count_nonzero(state.mrf[10]) == 0

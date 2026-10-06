@@ -60,6 +60,17 @@ For a command issued at T (default 32 rows):
 | VLI column/one | T+1 | T+32 |
 | XLU transpose | T+34 | T+65 |
 
+The MXU table lists row-write edges; command issue checks can impose additional
+spacing when operations reuse a port or accumulator. In the bank-conflict
+regressions, a weight push from `m0` followed by an MXU0 matmul reading `m0`,
+or a `vadd.bf16` reading `m0` followed by that matmul, needs a `delay 30` to
+avoid overlapping reads from the same physical MRF bank. An XLU transpose
+reading `m0` followed by that matmul needs `delay 31`. An MXU0 matmul followed
+by a pop from its accumulator needs `delay 62` before row zero is available.
+`tests/test_bank_conflict.py` checks that each minimum delay passes and that
+one cycle less fails. These values use the `delay N` stall semantics described
+above.
+
 Scalar loads have no same-cycle bypass. Scalar, vector-load and vector-store
 paths progress independently. Sources are sampled at their row-read edges;
 results become visible row by row. Software scheduling violations raise errors.
@@ -118,5 +129,6 @@ the head progressing. For N bytes, the default transfer estimate is:
 Thus a 1024-byte transfer takes 516 modeled execution cycles. Data moves as a
 whole at completion, and the channel flag clears on the following tick.
 The model does not simulate TileLink readiness, variable response latency or
-beat-by-beat arbitration. DMA operands are read by its existing functional
-implementation at completion; software must account for that limitation.
+beat-by-beat arbitration. Register operands are the values S1 read at launch;
+`dma.base` and source memory are read, and the destination written, at
+completion. `dma.config` takes one cycle.

@@ -117,9 +117,9 @@ Baseline intent:
 Shared requirements:
 
 - whole-register activation source
-- resident local weight-slot source
+- two resident local weight slots per MXU
 - `BF16` architectural accumulation
-- one local `32 x 32 BF16` accumulation buffer per MXU
+- two local `32 x 32 BF16` accumulation buffers per MXU
 - tensor-register-only accumulator preload and spill path
 - local quantization path for `vmatpop.fp8.acc.*`
 - ability to overlap with scalar and other long-chime units
@@ -128,55 +128,74 @@ Shared requirements:
 
 - internal `32 x 32` systolic fabric
 - architectural `32 x 32` matmul implemented directly by that fabric
-- deterministic launch latency class of `96` cycles
+- matmul operations use the `95`-cycle latency class
+- weight push, accumulator push and accumulator pop operations use the
+  `33`-cycle latency class
 
 `mxu1` requirements:
 
 - internal `32 x 32` reduction-tree or equivalent throughput-matched fabric
-- deterministic launch latency class of `35` cycles
+- matmul operations use the `35`-cycle latency class
+- weight push, accumulator push and accumulator pop operations use the
+  `33`-cycle latency class
+
+Scheduling constraints verified by the bank-conflict tests:
+
+- when an MXU0 weight push from `m0` is followed by a matmul that reads `m0`,
+  insert at least `delay 30` to avoid overlapping reads from the same physical
+  MRF bank; `delay 29` still conflicts
+- when an MXU0 matmul is followed by a pop from its accumulator, insert at
+  least `delay 62` so accumulator row zero is available; `delay 61` is too short
+- when `vadd.bf16` reading `m0` is followed by an MXU0 matmul reading `m0`,
+  insert at least `delay 30`; `delay 29` still conflicts
+- when `vtrpose.xlu` reading `m0` is followed by an MXU0 matmul reading `m0`,
+  insert at least `delay 31`; `delay 30` still conflicts
+
+These values are the immediate values of the `delay` instruction, which stalls
+the following instruction by that many cycles. The minimums are covered by
+`tests/test_bank_conflict.py`.
 
 ## Vector Processing Unit
 
-The VPU baseline implements the following operations:
+The VPU baseline implements:
 
-- `vadd.bf16`
-- `vredsum.bf16`
-- `vsub.bf16`
-- `vminimum.bf16`
-- `vmaximum.bf16`
-- `vmul.bf16`
-- `vmov`
-- `vrecip.bf16`
-- `vexp.bf16`
-- `vrelu.bf16`
-- `vsquare.bf16`
-- `vcube.bf16`
+- binary BF16 operations: `vadd.bf16`, `vsub.bf16`, `vmul.bf16`,
+  `vminimum.bf16`, `vmaximum.bf16`
+- unary BF16 operations: `vmov`, `vrecip.bf16`, `vsqrt.bf16`, `vsin.bf16`,
+  `vcos.bf16`, `vtanh.bf16`, `vlog2.bf16`, `vexp.bf16`, `vexp2.bf16`,
+  `vrelu.bf16`, `vsquare.bf16`, `vcube.bf16`
+- BF16 reductions: `vredsum.bf16`, `vredmin.bf16`, `vredmax.bf16`,
+  `vredsum.row.bf16`, `vredmin.row.bf16`, `vredmax.row.bf16`
+- format conversion: `vpack.bf16.fp8`, `vunpack.fp8.bf16`
+- immediate writes: `vli.all`, `vli.row`, `vli.col`, `vli.one`
 
-Architectural BF16 operand model:
-
-- each BF16 VPU instruction consumes a full `32 x 32 BF16` tile from the named
-  source register pair `{m[vs], m[vs + 1]}`
-- each BF16 VPU destination names the low register of the destination pair
-  `{m[vd], m[vd + 1]}`
-- this makes BF16 VPU register-pair usage match the existing
-  `vmatpop.bf16.acc.*` / `vmatpush.acc.bf16.*` accumulator transfer convention
+Ordinary BF16 tile operations read their input from a register pair
+`{m[vs], m[vs + 1]}` and write their result to a destination pair
+`{m[vd], m[vd + 1]}`. There are operation-specific exceptions: VLI operations
+have no source, `vli.col` and `vli.one` write a single register, `vpack` reads a
+BF16 pair and writes one FP8 register, and `vunpack` reads one FP8 register and
+writes a BF16 pair. Pair fields name the low register; encoding register 63 as
+the low half of a pair is illegal.
 
 Timing requirements:
 
-- pipelineable BF16 operations (binary, unary, transcendentals, `vmov`,
-  `vpack` / `vunpack`) use the `66`-cycle latency class
+- pipelineable BF16 arithmetic, moves and transcendentals use the `66`-cycle
+  latency class
+- `vpack.bf16.fp8` uses the `66`-cycle latency class
+- FP8-to-BF16 `vunpack.fp8.bf16` uses the `67`-cycle latency class
 - non-pipelineable BF16 column-reduction operations (`vredsum.bf16`,
   `vredmin.bf16`, `vredmax.bf16`) use the `130`-cycle latency class
 - BF16 row-reduction operations use the row latency classes:
   `vredsum.row.bf16` is `39` cycles, `vredmin.row.bf16` and
   `vredmax.row.bf16` are `34` cycles
 - BF16 vector load-immediate operations (`vli.all`, `vli.row`,
-  `vli.col`, `vli.one`) use the `65`-cycle latency class
+  `vli.col`, `vli.one`) use operation-specific latency classes: `65` cycles
+  for `vli.all` and `vli.row`, and `33` cycles for `vli.col` and `vli.one`
 - the baseline lane count is `16 BF16` lanes
-- the `16`-lane datapath completes one BF16 VPU instruction as two internal
-  half-tile passes over the architectural `32 x 32 BF16` tile
+- operations that stream a full tile through the `16`-lane BF16 datapath use
+  two internal half-tile passes over the architectural `32 x 32 BF16` tile
 
-## Tensor Transform / Reduction Unit
+## Tensor Transform Unit
 
 The XLU baseline implements:
 
@@ -184,14 +203,13 @@ The XLU baseline implements:
 
 Timing requirement:
 
-- each XLU operation uses the `66`-cycle latency class
+- each XLU operation uses the `66`-cycle latency class, reading source rows
+  from T+1 through T+32 and writing destination rows from T+34 through T+65
 
 ## Structural-Conflict Handling
 
-Structural conflicts shall be handled by stalls or arbitration.
-
-They shall not create:
-
-- partial architectural row retirement
-- partial architectural tile retirement
-- architecturally visible younger-over-older preemption
+Resource conflicts are software-scheduled. In the current model, an illegal
+overlap raises a conflict or scheduling error; units do not dynamically stall
+or arbitrate to resolve it. `DELAY` provides explicit frontend spacing. While
+an operation is in flight, each unit commits rows on its scheduled write edges
+and holds its register reservations through the required access window.
