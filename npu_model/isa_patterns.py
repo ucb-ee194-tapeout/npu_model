@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Callable, ClassVar, Self, Any, get_type_hints
 
 from .isa import UJType, SBType
-from .isa_types import Named, Bundled, AsmError, BoundedInt, ScalarReg, ExponentReg, MatrixReg, WeightBuffer, Accumulator, Shamt, Imm12, SBImm12, Imm16, Imm20
+from .isa_types import Named, Bundled, AsmError, BoundedInt, ScalarReg, ExponentReg, MatrixReg, WeightBuffer, Accumulator, Shamt, Imm12, SBImm12, Imm16, Imm20, Imm21
 
 # - Named Args ----------------------------------------------
 # Used to significantly clean up linting and assembling code
@@ -126,6 +126,19 @@ class InstructionPattern(ABC, metaclass=InstructionPatternMeta):
         return len(cls.params) + 1
 
     @classmethod
+    def _word_offset_errors(cls, token: str, labels: list[str], index: int) -> list[AsmError]:
+        if Named.is_label.fullmatch(token):
+            return [] if token in labels else [AsmError(f"Undefined label '{token}'", token_index=index)]
+        try:
+            offset = int(token, 0)
+        except ValueError:
+            return [AsmError(f"Expected instruction-word offset or label, got '{token}'", token_index=index)]
+        limit = 2048 if issubclass(cls, SBType) else 524288
+        if -limit <= offset < limit:
+            return []
+        return [AsmError(f"Instruction-word offset {offset} is out of range [{-limit}, {limit})", token_index=index)]
+
+    @classmethod
     def from_asm(
         cls, tokens: list[str], resolve: Callable[[str], int] = lambda x: int(x, 0)
     ) -> Self:
@@ -150,7 +163,15 @@ class InstructionPattern(ABC, metaclass=InstructionPatternMeta):
         
         kwargs: dict[str, BoundedInt] = {}
         for i, param in enumerate(cls.params):
-            kwargs = kwargs | param.parse_token(tokens[i + 1], resolve)
+            token = tokens[i + 1]
+            if issubclass(cls, (SBType, UJType)) and param.repr == "imm":
+                word_offset = resolve(token) if Named.is_label.fullmatch(token) else int(token, 0)
+                if errors := cls._word_offset_errors(str(word_offset), [], i + 1):
+                    raise ExceptionGroup("Invalid control-flow offset", errors)
+                immediate_type = SBImm12 if issubclass(cls, SBType) else Imm21
+                kwargs["imm"] = immediate_type(word_offset * 2)
+            else:
+                kwargs = kwargs | param.parse_token(token, resolve)
         return cls(**kwargs)
 
     @classmethod
@@ -182,7 +203,11 @@ class InstructionPattern(ABC, metaclass=InstructionPatternMeta):
             )
 
         for i in range(1, min(len(tokens),cls.num_toks())):
-            exceptions.extend(cls.params[i-1].lint(tokens[i], labels, tok_idx=i, allow_label=issubclass(cls, (UJType, SBType))))
+            param = cls.params[i-1]
+            if issubclass(cls, (SBType, UJType)) and param.repr == "imm":
+                exceptions.extend(cls._word_offset_errors(tokens[i], labels, i))
+            else:
+                exceptions.extend(param.lint(tokens[i], labels, tok_idx=i, allow_label=issubclass(cls, (UJType, SBType))))
 
         return exceptions
 
@@ -296,7 +321,7 @@ class ScalarImm(InstructionPattern):
 
     def __init__(self, rd: ScalarReg, imm: int):
         self.rd = rd
-        self.imm = Imm20(imm)
+        self.imm = Imm21(imm) if isinstance(self, UJType) else Imm20(imm)
 
 @dataclass(init=False)
 class ExponentImm(InstructionPattern):
@@ -347,22 +372,22 @@ class JalrPattern(InstructionPattern):
     Instruction pattern for JALR.
 
     Matches assembly patterns of the form `jalr x(rd), x(rs1), imm`.
-    The immediate must be 2-byte aligned (even), matching RISC-V SB convention.
+    The signed immediate is an instruction-word offset, including odd offsets.
 
     Attributes:
         rd: The destination scalar register (return address).
         rs1: The base scalar register.
-        imm: A 12-bit even immediate offset.
+        imm: A 12-bit immediate offset.
     """
     rd: ScalarReg
     rs1: ScalarReg
-    imm: SBImm12
-    params = [x_rd, x_rs1, sbimm12]
+    imm: Imm12
+    params = [x_rd, x_rs1, imm12]
 
     def __init__(self, rd: ScalarReg, rs1: ScalarReg, imm: int):
         self.rd = rd
         self.rs1 = rs1
-        self.imm = SBImm12(imm)
+        self.imm = Imm12(imm)
 
 @dataclass(init=False)
 class ScalarComputeShamt(InstructionPattern):

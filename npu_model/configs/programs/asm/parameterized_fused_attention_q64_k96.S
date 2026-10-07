@@ -1,4 +1,4 @@
-seli e0, 1
+seli e0, 127
 addi x1, x0, 0
 lui x2, 0x1
 lui x3, 0x2
@@ -24,40 +24,44 @@ dma.wait.ch0
 dma.wait.ch1
 dma.load.ch0 x4, x7, x10
 dma.wait.ch0
-vload m2, 0(x4)
+srli x31, x4, 2   # VLS bases count words; DMA bases count bytes
+vload m2, 0(x31)
 delay 34
-vload m3, 0(x4)
+srli x31, x4, 2   # VLS bases count words; DMA bases count bytes
+vload m3, 0(x31)
 delay 34
 loop_2:
 dma.load.ch0 x1, x6, x9
 dma.wait.ch0
-vload m12, 0(x1)
+srli x31, x1, 2   # VLS bases count words; DMA bases count bytes
+vload m12, 0(x31)
 delay 34
-vload m13, 32(x1)
+srli x31, x1, 2   # VLS bases count words; DMA bases count bytes
+vload m13, 8(x31)
 delay 34
-vpack.bf16.fp8 m0, m12, e0
-delay 66
-vload m12, 64(x1)
+# Quantize a column-blocked BF16 pair into row-major FP8 via acc1.
+vmatpush.acc.bf16.mxu0 acc1, m12
+delay 32
+vmatpop.fp8.acc.mxu0 m0, acc1, e0
+delay 32
+srli x31, x1, 2   # VLS bases count words; DMA bases count bytes
+vload m12, 16(x31)
 delay 34
-vload m13, 96(x1)
+srli x31, x1, 2   # VLS bases count words; DMA bases count bytes
+vload m13, 24(x31)
 delay 34
-vpack.bf16.fp8 m1, m12, e0
-delay 66
+# Quantize a column-blocked BF16 pair into row-major FP8 via acc1.
+vmatpush.acc.bf16.mxu0 acc1, m12
+delay 32
+vmatpop.fp8.acc.mxu0 m1, acc1, e0
+delay 32
 vli.all m4,  0xC2C8
-delay 65
-vli.all m5,  0xC2C8
 delay 65
 vli.all m6, 0
 delay 65
-vli.all m7, 0
-delay 65
 vli.all m8, 0
 delay 65
-vli.all m9, 0
-delay 65
 vli.all m10, 0
-delay 65
-vli.all m11, 0
 delay 65
 addi x11, x13, 0
 addi x12, x14, 0
@@ -67,21 +71,35 @@ dma.load.ch0 x2, x11, x9
 dma.load.ch1 x3, x12, x9
 dma.wait.ch0
 dma.wait.ch1
-vload m12, 0(x2)
+srli x31, x2, 2   # VLS bases count words; DMA bases count bytes
+vload m12, 0(x31)
 delay 34
-vload m13, 32(x2)
+srli x31, x2, 2   # VLS bases count words; DMA bases count bytes
+vload m13, 8(x31)
 delay 34
-vpack.bf16.fp8 m14, m12, e0
+# Quantize a column-blocked BF16 pair into row-major FP8 via acc1.
+vmatpush.acc.bf16.mxu0 acc1, m12
+delay 32
+vmatpop.fp8.acc.mxu0 m14, acc1, e0
+delay 32
+vtrpose.xlu m14, m14   # MXU weights are streamed as columns
 delay 66
 vmatpush.weight.mxu0 w0, m14
 delay 32
 vmatmul.mxu0 acc0, m0, w0
 delay 96
-vload m12, 64(x2)
+srli x31, x2, 2   # VLS bases count words; DMA bases count bytes
+vload m12, 16(x31)
 delay 34
-vload m13, 96(x2)
+srli x31, x2, 2   # VLS bases count words; DMA bases count bytes
+vload m13, 24(x31)
 delay 34
-vpack.bf16.fp8 m14, m12, e0
+# Quantize a column-blocked BF16 pair into row-major FP8 via acc1.
+vmatpush.acc.bf16.mxu0 acc1, m12
+delay 32
+vmatpop.fp8.acc.mxu0 m14, acc1, e0
+delay 32
+vtrpose.xlu m14, m14   # MXU weights are streamed as columns
 delay 66
 vmatpush.weight.mxu0 w0, m14
 delay 32
@@ -107,13 +125,23 @@ vsub.bf16 m28, m22, m26
 delay 66
 vexp.bf16 m28, m28
 delay 66
-vpack.bf16.fp8 m30, m28, e0
-delay 66
-vload m16, 0(x3)
+# Quantize a column-blocked BF16 pair into row-major FP8 via acc1.
+vmatpush.acc.bf16.mxu0 acc1, m28
+delay 32
+vmatpop.fp8.acc.mxu0 m30, acc1, e0
+delay 32
+srli x31, x3, 2   # VLS bases count words; DMA bases count bytes
+vload m16, 0(x31)
 delay 34
-vload m17, 32(x3)
+srli x31, x3, 2   # VLS bases count words; DMA bases count bytes
+vload m17, 8(x31)
 delay 34
-vpack.bf16.fp8 m18, m16, e0
+# Quantize a column-blocked BF16 pair into row-major FP8 via acc1.
+vmatpush.acc.bf16.mxu0 acc1, m16
+delay 32
+vmatpop.fp8.acc.mxu0 m18, acc1, e0
+delay 32
+vtrpose.xlu m18, m18   # MXU weights are streamed as columns
 delay 66
 vmatpush.weight.mxu0 w0, m18
 delay 32
@@ -123,11 +151,18 @@ vmatpop.bf16.acc.mxu0 m32, acc0
 delay 32
 vadd.bf16 m8, m8, m32
 delay 66
-vload m16, 64(x3)
+srli x31, x3, 2   # VLS bases count words; DMA bases count bytes
+vload m16, 16(x31)
 delay 34
-vload m17, 96(x3)
+srli x31, x3, 2   # VLS bases count words; DMA bases count bytes
+vload m17, 24(x31)
 delay 34
-vpack.bf16.fp8 m18, m16, e0
+# Quantize a column-blocked BF16 pair into row-major FP8 via acc1.
+vmatpush.acc.bf16.mxu0 acc1, m16
+delay 32
+vmatpop.fp8.acc.mxu0 m18, acc1, e0
+delay 32
+vtrpose.xlu m18, m18   # MXU weights are streamed as columns
 delay 66
 vmatpush.weight.mxu0 w0, m18
 delay 32
@@ -145,8 +180,6 @@ vadd.bf16 m6, m34, m36
 delay 66
 vmov m4, m26
 delay 66
-vmov m5, m27
-delay 66
 add x11, x11, x9
 add x12, x12, x9
 addi x18, x18, 1
@@ -159,13 +192,17 @@ vmul.bf16 m8, m8, m34
 delay 66
 vmul.bf16 m10, m10, m34
 delay 66
-vstore m8, 0(x5)
+srli x31, x5, 2   # VLS bases count words; DMA bases count bytes
+vstore m8, 0(x31)
 delay 34
-vstore m9, 32(x5)
+srli x31, x5, 2   # VLS bases count words; DMA bases count bytes
+vstore m9, 8(x31)
 delay 34
-vstore m10, 64(x5)
+srli x31, x5, 2   # VLS bases count words; DMA bases count bytes
+vstore m10, 16(x31)
 delay 34
-vstore m11, 96(x5)
+srli x31, x5, 2   # VLS bases count words; DMA bases count bytes
+vstore m11, 24(x31)
 delay 34
 dma.store.ch0 x8, x5, x9
 dma.wait.ch0

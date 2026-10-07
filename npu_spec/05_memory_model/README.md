@@ -9,36 +9,17 @@ The baseline memory system keeps the asynchronous boundary narrow:
 - `DRAM` access is off-chip and asynchronous
 - DMA is the only `DRAM <-> VMEM` path
 
-## Blocking On-Chip Transfers
+## On-Chip Transfers
 
-The following instructions are architecturally blocking:
+The RTL uses software-scheduled, independently progressing scalar, VLOAD, and
+VSTORE paths. These operations do not block the frontend. Scheduling violations
+assert. For an S1 issue at cycle T, scalar stores write at T+1, scalar loads write
+back at T+3, and vector transfers write rows at T+3 through T+34.
 
-- scalar `lb`, `lh`, `lw`, `lbu`, `lhu`, `sb`, `sh`, `sw`
-- `seld`
-- `vload`
-- `vstore`
-- `vmatpush.weight.mxu0`
-- `vmatpush.weight.mxu1`
-- `vmatpush.acc.fp8.mxu0`
-- `vmatpush.acc.fp8.mxu1`
-- `vmatpush.acc.bf16.mxu0`
-- `vmatpush.acc.bf16.mxu1`
-- `vmatpop.fp8.acc.mxu0`
-- `vmatpop.fp8.acc.mxu1`
-- `vmatpop.bf16.acc.mxu0`
-- `vmatpop.bf16.acc.mxu1`
-
-The intent is to keep on-chip movement deterministic and straightforward to verify.
-
-## VMEM Ordering Rules
-
-The cycle-accurate model shall preserve VMEM ordering across units:
-
-- a VMEM reader shall not observe data older than the most recent completed VMEM writer
-- `dma.store.chN` shall not complete before older blocking VMEM writes make their data
-  architecturally visible
-- this ordering is modeled with fixed completion timing and program order, not with a
-  general architectural dependency scoreboard
+Scalar LSU addresses are bytes. VLOAD/VSTORE bases are word addresses and their
+12-bit immediate contributes 32 words per unit. The resulting line address is
+`(x[rs1] + (sign_extend(imm12) << 5)) >> 3`, matching ScalarCore's wiring.
+VMEM comprises six contiguous 256 KiB banks.
 
 ## Asynchronous DMA
 
@@ -62,16 +43,8 @@ arbitration, provided the architecture-visible channel behavior is preserved.
   then the instruction retires directly from decode
 - younger instructions shall not issue past that decode fence until the wait retires
 
-Scalar `delay` follows the current scalar-path implementation rather than the
-DMA-wait decode-only path:
-
-- when `delay N` reaches decode, the frontend loads `N` into the instruction's
-  dispatch-delay countdown
-- while that countdown is non-zero, decode remains occupied and younger
-  instructions shall not issue
-- once the countdown reaches zero, `delay` issues to the scalar execution unit
-- `delay` then consumes the normal one-cycle scalar execute slot and retires
-  through the ordinary execute completion path
+`delay N` issues and retires immediately, then holds the following instruction
+in S1 for N cycles. Halt/illegal detection precedes this stall in the RTL.
 
 ## DMA Addressing and Regions
 

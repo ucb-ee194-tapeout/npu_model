@@ -1,0 +1,283 @@
+{
+  "taken_branch": {
+    "source": "addi x1, x0, 1\nbeq x1, x1, target\naddi x2, x0, 11\naddi x2, x0, 99\necall\ntarget:\naddi x3, x2, 1\ncsrrw x0, x3, 0x7c0\necall\n",
+    "words": [
+      "00100093",
+      "00108463",
+      "00b00113",
+      "06300113",
+      "00000073",
+      "00110193",
+      "7c019073",
+      "00000073"
+    ]
+  },
+  "delay_branch_and_delay_slot": {
+    "source": "addi x1, x0, 7\ndelay 3\nbeq x1, x1, target\ndelay 2\necall\ntarget:\ncsrrw x0, x1, 0x7c0\necall\n",
+    "words": [
+      "00700093",
+      "00301067",
+      "00108363",
+      "00201067",
+      "00000073",
+      "7c009073",
+      "00000073"
+    ]
+  },
+  "not_taken_then_taken": {
+    "source": "addi x1, x0, 1\nbne x1, x1, target\nbeq x0, x0, target\nnop\necall\ntarget:\ncsrrw x0, x1, 0x7c0\necall\n",
+    "words": [
+      "00100093",
+      "00109463",
+      "00000363",
+      "00000013",
+      "00000073",
+      "7c009073",
+      "00000073"
+    ]
+  },
+  "jalr_same_register_and_auipc": {
+    "source": "addi x1, x0, 5\njalr x1, x1, 0\naddi x2, x1, 8\necall\necall\ncsrrw x0, x2, 0x7c0\nauipc x3, 0\ncsrrw x0, x3, 0x7c0\necall\n",
+    "words": [
+      "00500093",
+      "000080e7",
+      "00808113",
+      "00000073",
+      "00000073",
+      "7c011073",
+      "00000197",
+      "7c019073",
+      "00000073"
+    ]
+  },
+  "dma_wait": {
+    "source": "addi x1, x0, 9\ndma.wait.ch0\ncsrrw x0, x1, 0x7c0\necall\n",
+    "dma_busy_cycles": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+    ],
+    "words": [
+      "00900093",
+      "0200007f",
+      "7c009073",
+      "00000073"
+    ]
+  },
+  "halt_during_delay": {
+    "source": "delay 10\necall\n",
+    "words": [
+      "00a01067",
+      "00000073"
+    ]
+  },
+  "illegal_branch_delay_slot": {
+    "source": "jal x0, target\njal x0, target\nnop\ntarget:\necall\n",
+    "words": [
+      "0060006f",
+      "0040006f",
+      "00000013",
+      "00000073"
+    ]
+  },
+  "load_response_no_bypass": {
+    "source": "addi x2, x0, 7\nlw x2, 0(x0)\nnop\nnop\ncsrrw x0, x2, 0x7c0\ncsrrw x0, x2, 0x7c0\necall\n",
+    "words": [
+      "00700113",
+      "00002103",
+      "00000013",
+      "00000013",
+      "7c011073",
+      "7c011073",
+      "00000073"
+    ]
+  },
+  "backward_branch_loop": {
+    "source": "li x1, 3\nli x2, 0\nloop:\naddi x2, x2, 1\naddi x1, x1, -1\nbne x1, x0, loop\naddi x2, x2, 10\ncsrrw x0, x2, 0x7c0\necall\n",
+    "words": [
+      "00300093",
+      "00000113",
+      "00110113",
+      "fff08093",
+      "fe009ee3",
+      "00a10113",
+      "7c011073",
+      "00000073"
+    ]
+  },
+  "jal_word_link": {
+    "source": "addi x1, x0, 1\njal x2, target\naddi x3, x2, 40\necall\ntarget:\ncsrrw x0, x3, 0x7c0\ncsrrw x0, x2, 0x7c0\necall\n",
+    "words": [
+      "00100093",
+      "0060016f",
+      "02810193",
+      "00000073",
+      "7c019073",
+      "7c011073",
+      "00000073"
+    ]
+  },
+  "rv32_wrap_shift_compare": {
+    "source": "li x1, 0xffffffff\naddi x1, x1, 1\nlui x2, 0x80000\nslt x3, x2, x1\nsltu x4, x2, x1\nsrl x5, x2, x3\nsra x6, x2, x3\nli x7, 33\nsll x8, x3, x7\nsrai x9, x2, 31\nsrli x10, x2, 31\ncsrrw x0, x1, 0x7c0\ncsrrw x0, x2, 0x7c0\ncsrrw x0, x3, 0x7c0\ncsrrw x0, x4, 0x7c0\ncsrrw x0, x5, 0x7c0\ncsrrw x0, x6, 0x7c0\ncsrrw x0, x7, 0x7c0\ncsrrw x0, x8, 0x7c0\ncsrrw x0, x9, 0x7c0\ncsrrw x0, x10, 0x7c0\necall\n",
+    "words": [
+      "fff00093",
+      "00108093",
+      "80000137",
+      "001121b3",
+      "00113233",
+      "003152b3",
+      "40315333",
+      "02100393",
+      "00719433",
+      "41f15493",
+      "01f15513",
+      "7c009073",
+      "7c011073",
+      "7c019073",
+      "7c021073",
+      "7c029073",
+      "7c031073",
+      "7c039073",
+      "7c041073",
+      "7c049073",
+      "7c051073",
+      "00000073"
+    ]
+  },
+  "signed_unsigned_branches": {
+    "source": "li x1, -1\nli x2, 1\nblt x1, x2, signed\nnop\necall\nsigned:\nbltu x1, x2, wrong\nli x3, 9\nbgeu x1, x2, unsigned\nnop\nwrong:\necall\nunsigned:\ncsrrw x0, x3, 0x7c0\necall\n",
+    "words": [
+      "fff00093",
+      "00100113",
+      "0020c363",
+      "00000013",
+      "00000073",
+      "0020e463",
+      "00900193",
+      "0020f363",
+      "00000013",
+      "00000073",
+      "7c019073",
+      "00000073"
+    ]
+  },
+  "random_scalar_194": {
+    "source": "li x1, 3499932497\nli x2, 2588121217\nli x3, 288682417\nli x4, 2497013488\nli x5, 654775828\nli x6, 1513272398\nsrl x3, x5, x6\ncsrrw x0, x3, 0x7c0\nsrl x6, x6, x3\ncsrrw x0, x6, 0x7c0\nslt x4, x3, x2\ncsrrw x0, x4, 0x7c0\nxor x6, x0, x5\ncsrrw x0, x6, 0x7c0\nxor x6, x3, x0\ncsrrw x0, x6, 0x7c0\nsltu x2, x4, x0\ncsrrw x0, x2, 0x7c0\nslt x2, x6, x2\ncsrrw x0, x2, 0x7c0\nsra x3, x0, x1\ncsrrw x0, x3, 0x7c0\nor x4, x5, x3\ncsrrw x0, x4, 0x7c0\nxor x4, x1, x3\ncsrrw x0, x4, 0x7c0\nor x6, x0, x2\ncsrrw x0, x6, 0x7c0\nsrl x6, x4, x4\ncsrrw x0, x6, 0x7c0\nsrl x3, x3, x5\ncsrrw x0, x3, 0x7c0\nsra x6, x4, x6\ncsrrw x0, x6, 0x7c0\nxor x4, x5, x4\ncsrrw x0, x4, 0x7c0\nsra x3, x4, x5\ncsrrw x0, x3, 0x7c0\nsll x4, x6, x4\ncsrrw x0, x4, 0x7c0\nslt x3, x1, x2\ncsrrw x0, x3, 0x7c0\nsll x4, x3, x2\ncsrrw x0, x4, 0x7c0\nslt x1, x2, x5\ncsrrw x0, x1, 0x7c0\necall\n",
+    "words": [
+      "d09cc0b7",
+      "b5108093",
+      "9a43a137",
+      "88110113",
+      "1134f1b7",
+      "1b118193",
+      "94d56237",
+      "6f020213",
+      "270712b7",
+      "61428293",
+      "5a32b337",
+      "44e30313",
+      "0062d1b3",
+      "7c019073",
+      "00335333",
+      "7c031073",
+      "0021a233",
+      "7c021073",
+      "00504333",
+      "7c031073",
+      "0001c333",
+      "7c031073",
+      "00023133",
+      "7c011073",
+      "00232133",
+      "7c011073",
+      "401051b3",
+      "7c019073",
+      "0032e233",
+      "7c021073",
+      "0030c233",
+      "7c021073",
+      "00206333",
+      "7c031073",
+      "00425333",
+      "7c031073",
+      "0051d1b3",
+      "7c019073",
+      "40625333",
+      "7c031073",
+      "0042c233",
+      "7c021073",
+      "405251b3",
+      "7c019073",
+      "00431233",
+      "7c021073",
+      "0020a1b3",
+      "7c019073",
+      "00219233",
+      "7c021073",
+      "005120b3",
+      "7c009073",
+      "00000073"
+    ]
+  },
+  "random_scalar_2609": {
+    "source": "li x1, 185903060\nli x2, 2037551487\nli x3, 2312196622\nli x4, 3350121379\nli x5, 1919861753\nli x6, 2075794910\nsltu x6, x6, x1\ncsrrw x0, x6, 0x7c0\nadd x6, x0, x1\ncsrrw x0, x6, 0x7c0\nsrl x5, x5, x1\ncsrrw x0, x5, 0x7c0\nslt x2, x0, x6\ncsrrw x0, x2, 0x7c0\nadd x3, x3, x0\ncsrrw x0, x3, 0x7c0\nand x6, x1, x1\ncsrrw x0, x6, 0x7c0\nor x2, x0, x0\ncsrrw x0, x2, 0x7c0\nsub x5, x2, x3\ncsrrw x0, x5, 0x7c0\nadd x4, x1, x4\ncsrrw x0, x4, 0x7c0\nsra x2, x5, x3\ncsrrw x0, x2, 0x7c0\nadd x4, x5, x3\ncsrrw x0, x4, 0x7c0\nand x6, x3, x2\ncsrrw x0, x6, 0x7c0\nxor x1, x5, x3\ncsrrw x0, x1, 0x7c0\nsltu x3, x5, x3\ncsrrw x0, x3, 0x7c0\nsltu x3, x5, x5\ncsrrw x0, x3, 0x7c0\nor x3, x6, x3\ncsrrw x0, x3, 0x7c0\nsub x3, x2, x4\ncsrrw x0, x3, 0x7c0\nsub x2, x5, x6\ncsrrw x0, x2, 0x7c0\nsll x3, x3, x5\ncsrrw x0, x3, 0x7c0\nsll x1, x2, x1\ncsrrw x0, x1, 0x7c0\necall\n",
+    "words": [
+      "0b14a0b7",
+      "7d408093",
+      "79729137",
+      "17f10113",
+      "89d151b7",
+      "20e18193",
+      "c7aed237",
+      "ba320213",
+      "726ec2b7",
+      "3f928293",
+      "7bba2337",
+      "dde30313",
+      "00133333",
+      "7c031073",
+      "00100333",
+      "7c031073",
+      "0012d2b3",
+      "7c029073",
+      "00602133",
+      "7c011073",
+      "000181b3",
+      "7c019073",
+      "0010f333",
+      "7c031073",
+      "00006133",
+      "7c011073",
+      "403102b3",
+      "7c029073",
+      "00408233",
+      "7c021073",
+      "4032d133",
+      "7c011073",
+      "00328233",
+      "7c021073",
+      "0021f333",
+      "7c031073",
+      "0032c0b3",
+      "7c009073",
+      "0032b1b3",
+      "7c019073",
+      "0052b1b3",
+      "7c019073",
+      "003361b3",
+      "7c019073",
+      "404101b3",
+      "7c019073",
+      "40628133",
+      "7c011073",
+      "005191b3",
+      "7c019073",
+      "001110b3",
+      "7c009073",
+      "00000073"
+    ]
+  }
+}

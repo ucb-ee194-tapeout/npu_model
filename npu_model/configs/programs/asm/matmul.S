@@ -27,12 +27,16 @@ dma.wait.ch0
 dma.wait.ch1
 
 # --- VMEM -> MRF ---
-vload m0, 0(x1)     # activations
+srli x31, x1, 2   # VLS bases count words; DMA bases count bytes
+vload m0, 0(x31)     # activations
 delay 34
-vload m1, 0(x2)     # weights
+srli x31, x2, 2   # VLS bases count words; DMA bases count bytes
+vload m1, 0(x31)     # weights
 delay 34
 
 # --- Matmul ---
+vtrpose.xlu m1, m1   # MXU weights are streamed as columns
+delay 66
 vmatpush.weight.mxu0 w0, m1
 # VPU local transfer (1KB) is ~16 cycles at 64B/cycle
 delay 32
@@ -42,9 +46,11 @@ vmatpop.bf16.acc.mxu0 m2, acc0
 delay 32
 
 # --- MRF -> VMEM ---
-vstore m2, 0(x3)
+srli x31, x3, 2   # VLS bases count words; DMA bases count bytes
+vstore m2, 0(x31)
 delay 34
-vstore m3, 32(x3)
+srli x31, x3, 2   # VLS bases count words; DMA bases count bytes
+vstore m3, 8(x31)
 # two vstores are ~2x16 cycles; add slack before DMA reads VMEM
 delay 34
 

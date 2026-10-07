@@ -39,16 +39,23 @@ dma.wait.ch1
 dma.wait.ch2
 
 # --- VMEM -> MRF (weights + activation) ---
-vload m0, 0(x1)     # gate W (fp8)
+srli x31, x1, 2   # VLS bases count words; DMA bases count bytes
+vload m0, 0(x31)     # gate W (fp8)
 delay 34
-vload m1, 0(x2)     # up W (fp8)
+srli x31, x2, 2   # VLS bases count words; DMA bases count bytes
+vload m1, 0(x31)     # up W (fp8)
 delay 34
-vload m2, 0(x3)     # act (fp8)
+srli x31, x3, 2   # VLS bases count words; DMA bases count bytes
+vload m2, 0(x31)     # act (fp8)
 delay 34
 
 # --- Push weights to MXU0 WB slots 0 and 1 ---
+vtrpose.xlu m0, m0   # MXU weights are streamed as columns
+delay 66
 vmatpush.weight.mxu0 w0, m0
 delay 32
+vtrpose.xlu m1, m1   # MXU weights are streamed as columns
+delay 66
 vmatpush.weight.mxu0 w1, m1
 delay 32
 
@@ -69,9 +76,11 @@ vmul.bf16 m8, m4, m6
 delay 66
 
 # --- Store Results ---
-vstore m8, 0(x4)
+srli x31, x4, 2   # VLS bases count words; DMA bases count bytes
+vstore m8, 0(x31)
 delay 34
-vstore m9, 32(x4)
+srli x31, x4, 2   # VLS bases count words; DMA bases count bytes
+vstore m9, 8(x31)
 delay 34
 dma.store.ch0 x8, x4, x10
 dma.wait.ch0

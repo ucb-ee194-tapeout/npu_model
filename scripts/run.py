@@ -9,9 +9,11 @@ Options:
     -o, --output    Output trace file
     --logger        Logger backend: kanata or perfetto
     --max-cycles    Maximum cycles to simulate
+    --numerics      Instruction arithmetic: pytorch (default) or rtl (bit-exact)
 """
 
 import argparse
+from dataclasses import replace
 from typing import Any
 
 import npu_model
@@ -55,6 +57,12 @@ Examples:
         "--max-cycles", type=int, default=10000, help="Maximum cycles to simulate"
     )
     parser.add_argument(
+        "--numerics",
+        choices=("pytorch", "rtl"),
+        default="pytorch",
+        help="Instruction arithmetic: PyTorch or bit-exact RTL (timing is identical)",
+    )
+    parser.add_argument(
         "--ignore-runtime-errors",
         action="store_true",
         help="Bypass runtime assertions/exceptions, print bright red warnings, and continue execution",
@@ -74,6 +82,9 @@ Examples:
         print("available options are:")
         print(f"  {', '.join(npu_model.configs.hardware.__all__)}") # type: ignore
         return
+    hardware_config.arch_state_config = replace(
+        hardware_config.arch_state_config, numerics=args.numerics
+    )
     try:
         program = eval(args.program)()
     except NameError:

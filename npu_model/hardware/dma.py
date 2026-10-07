@@ -1,12 +1,13 @@
 import math
 
+import torch
+
 from ..isa import EXU, RType, is_scalar_itype
-from ..logging.logger import LaneType, Logger
+from ..logging.logger import Logger
 from ..software.instruction import Uop
 from .arch_state import ArchState
 from .config import HardwareConfig
-from .exu import ExecutionUnit
-from .stage_data import StageData
+from .exu import ExecutionUnit, StagedExecution
 from .bank_conflict import vmem_accesses
 
 
@@ -44,11 +45,17 @@ class DmaExecutionUnit(ExecutionUnit):
     bandwidth (vmem_bytes_per_cycle), with a minimum of 1 cycle.
     Config ops (dma.config.ch<N>) are treated as fixed 1-cycle control ops.
 
-    Completion logging is deferred by one cycle so that the Kanata trace
+    Completion logging is deferred by one cycle so that the trace
     reflects the cycle in which results become visible, and the corresponding
     channel flag is cleared on completion to unblock any waiting dma.wait.ch<N>
-    instructions held in the DIU.
+    instructions held in S1.
+
+    Values come from Instruction.exec, committed when a transfer completes.
+    Its register operands are those S1 read at launch.
     """
+
+    # What each command's exec may change.
+    _WRITES = {"dma.load": [("vmem",)], "dma.store": [("dram",)], "dma.config": [("base",)]}
 
     def _bytes_for_dma_uop(self, uop: Uop) -> int:
         """
@@ -84,23 +91,24 @@ class DmaExecutionUnit(ExecutionUnit):
     def reset(self) -> None:
         self.in_flight: list[Uop] = []
         self._in_flight_vmem_banks: list[frozenset[int]] = []
+        self._staged: dict[int, StagedExecution] = {}
         self._complete_count = 0
         self._pending_completions: list[Uop] = []
         self._total_instructions = 0
         self._busy_cycles = 0
 
-    def tick(self, idu_output: StageData[Uop | None]) -> None:
+    def tick(self, uop: Uop | None) -> None:
         self.cycle += 1
         # Log deferred completions from last cycle
-        for uop in self._pending_completions:
-            if not (is_scalar_itype(uop.insn) or isinstance(uop.insn, RType)):
+        for done in self._pending_completions:
+            if not (is_scalar_itype(done.insn) or isinstance(done.insn, RType)):
                 raise ValueError("Invalid Instruction format provided to DMA.")
 
-            self.logger.log_stage_end(uop.id, "E", lane=self.lane_id, cycle=self.cycle)
-            self.logger.log_retire(uop.id)
+            self.logger.log_stage_end(done.id, "E", lane=self.lane_id, cycle=self.cycle)
+            self.logger.log_retire(done.id)
             # clear the flag
-            self.arch_state.clear_flag(uop.insn.funct3)
-            print(f"DMA {self.name} cleared flag {uop.insn.funct3}")
+            self.arch_state.clear_flag(done.insn.funct3)
+            print(f"DMA {self.name} cleared flag {done.insn.funct3}")
 
             if len(self.in_flight) != 0:
                 # Log: start execute
@@ -115,55 +123,43 @@ class DmaExecutionUnit(ExecutionUnit):
 
         self._complete_count = 0
 
-        # If there are less than 8 instructions queued, check if we can queue more.
-        if len(self.in_flight) < 8:
-            uop = None
-            if len(self.in_flight) < 8:
-                uop = idu_output.peek()
+        # Accept new instruction into the 8-entry in-order queue.
+        if uop is not None:
+            if len(self.in_flight) >= 8:
+                raise RuntimeError(
+                    f"DMA {self.name} queue full when S1 launched uop {uop.id} "
+                    f"{uop.insn} on cycle {self.cycle}"
+                )
+            assert uop.insn.exu == EXU.DMA, "Invalid arguments passed to DMA Engine"
+            # Check and acquire VMEM banks before accepting.
+            mnemonic = uop.insn.mnemonic
+            label = f"{self.name}:{mnemonic}"
+            banks = vmem_accesses(uop.insn, self.arch_state)
+            self.arch_state.conflict_checker.acquire_vmem(banks, label)
+            self._in_flight_vmem_banks.append(banks)
+            # tag instruction with execution delay
+            if mnemonic.startswith("dma.config"):
+                # Config is a control op; keep it fixed-latency.
+                uop.execute_delay = 1
+            else:
+                nbytes = self._bytes_for_dma_uop(uop)
+                uop.execute_delay = max(
+                    1,
+                    dma_transfer_cycles(self.config, nbytes),
+                )
+            writes = self._WRITES.get(mnemonic.rsplit(".", 1)[0], [])
+            self._staged[uop.id] = StagedExecution(uop, self.arch_state, [], writes, self.name)
+            self.in_flight.append(uop)
+            self._total_instructions += 1
 
-            # Accept new instruction
-            if uop is not None:
-                assert uop.insn.exu == EXU.DMA, "Invalid arguments passed to DMA Engine"
-                # Check and acquire VMEM banks before accepting.
-                mnemonic = uop.insn.mnemonic
-                label = f"{self.name}:{mnemonic}"
-                banks = vmem_accesses(uop.insn, self.arch_state)
-                self.arch_state.conflict_checker.acquire_vmem(banks, label)
-                self._in_flight_vmem_banks.append(banks)
-                # tag instruction with execution delay
-                if mnemonic == "dma.config.ch<N>":
-                    # Config is a control op; keep it fixed-latency.
-                    uop.execute_delay = 1
-                else:
-                    nbytes = self._bytes_for_dma_uop(uop)
-                    uop.execute_delay = max(
-                        1,
-                        dma_transfer_cycles(self.config, nbytes),
-                    )
-                self.in_flight.append(uop)
-                self._total_instructions += 1
-
-                # claim the uop from the DIU
-                # I think this needs to happen here since our entire goal
-                # with doing this is to not block. Not 100% sure.
-                idu_output.claim()
-
-                # Log: End dispatch
-                self.logger.log_stage_end(
+            if len(self.in_flight) == 1:
+                # Log: start execute
+                self.logger.log_stage_start(
                     uop.id,
-                    "D",
-                    lane=LaneType.DIU.value,
+                    "E",
+                    lane=self.lane_id,
                     cycle=self.cycle,
                 )
-
-                if len(self.in_flight) == 1:
-                    # Log: start execute
-                    self.logger.log_stage_start(
-                        uop.id,
-                        "E",
-                        lane=self.lane_id,
-                        cycle=self.cycle,
-                    )
 
         # Track if EXU was busy
         if self.is_busy():
@@ -173,8 +169,7 @@ class DmaExecutionUnit(ExecutionUnit):
         if len(self.in_flight) != 0:
             self.in_flight[0].execute_delay -= 1
             if self.in_flight[0].execute_delay <= 0:
-                # execute the instruction
-                self.in_flight[0].insn.exec(self.arch_state)
+                self._commit(self._staged.pop(self.in_flight[0].id))
                 self._complete_count = 1
                 # Release acquired VMEM banks before retiring the instruction.
                 self.arch_state.conflict_checker.release_vmem(
@@ -184,6 +179,25 @@ class DmaExecutionUnit(ExecutionUnit):
                 # Defer completion logging to next tick
                 self._pending_completions.append(self.in_flight[0])
                 self.in_flight = self.in_flight[1:]
+
+    def _commit(self, staged: StagedExecution) -> None:
+        """Move the data as the transfer completes."""
+        state = self.arch_state
+        # dma.base is engine state, updated by configs ahead in this queue.
+        staged.sample(("base",), ..., torch.tensor(state.base))
+        for kind in ("vmem", "dram"):
+            memory = getattr(state, kind)
+            for start, data in list(staged.memory_reads[kind].items()):
+                span = slice(start, start + len(data))
+                staged.sample((kind,), span, memory[span])
+        for location in staged.writes:
+            value = staged.result(location)
+            if location == ("base",):
+                state.base = value
+                continue
+            memory = getattr(state, location[0])
+            for start, data in value.items():
+                memory[start:start + len(data)] = data
 
     def flush_completions(self) -> None:
         """Flush any pending completions (call at end of simulation)."""

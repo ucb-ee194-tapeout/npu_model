@@ -21,13 +21,13 @@ class Program:
 
     def get_instruction(self, pc: int) -> Instruction:
         """
-        Get the instruction at byte address `pc`.
+        Get the instruction at RTL word-index program counter `pc`.
         """
-        return self.instructions[pc // 4]
+        return self.instructions[pc]
 
     def is_finished(self, pc: int) -> bool:
         """Check if program execution is complete."""
-        return pc >= len(self.instructions) * 4
+        return pc >= len(self.instructions)
 
     def assemble(self) -> list[int]:
         bytecode: list[int] = []

@@ -1,7 +1,7 @@
 """SmolVLA requant kernel.
 
-bf16 → fp8 requantization with unit scale (seli imm=1).
-Reads two 32x16 bf16 halves and packs to a contiguous 32x32
+bf16 → fp8 requantization with unit scale (seli imm=127).
+Reads two contiguous 16x32 bf16 halves and packs to a contiguous 32x32
 fp8 tile via vpack.bf16.fp8.
 """
 
@@ -16,7 +16,7 @@ from npu_model.software.program import Program, ASM_FOLDER
 
 
 def requant_reference(x: torch.Tensor) -> torch.Tensor:
-    # Naive cast — kernel's seli=1 is the unit-scale path.
+    # Naive cast — kernel's seli=127 is the unit-scale path.
     return x.to(torch.float8_e4m3fn)
 
 
@@ -25,7 +25,7 @@ def requant_reference(x: torch.Tensor) -> torch.Tensor:
 # ═══════════════════════════════════════════════════════════════════════════
 
 # ───────────────────────────────────────────────────────────────────────
-# MLIR: bf16 → fp8 → bf16 round-trip (matches kernel's seli=1 unit-scale
+# MLIR: bf16 → fp8 → bf16 round-trip (matches kernel's seli=127 unit-scale
 # cast). Output dtype is bf16 so IREE doesn't need fp8 buffer support
 # at the runtime boundary; the fp8 round happens via arith.truncf inside
 # the linalg body.
@@ -107,8 +107,8 @@ class SmolVLARequantProgram(Program):
     instructions: list[Instruction] = load_asm(ASM_FOLDER / 'smolvla_requant.S')
 
     memory_regions: list[tuple[int, torch.Tensor]] = [
-        (DRAM_X_H0, INPUT[:, :16].contiguous()),
-        (DRAM_X_H1, INPUT[:, 16:].contiguous()),
+        (DRAM_X_H0, INPUT[:16, :].contiguous()),
+        (DRAM_X_H1, INPUT[16:, :].contiguous()),
     ]
 
     golden_result: tuple[int, torch.Tensor] = (DRAM_OUT, EXPECTED)

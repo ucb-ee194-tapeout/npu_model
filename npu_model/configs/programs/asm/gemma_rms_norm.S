@@ -28,13 +28,17 @@ dma.wait.ch0
 dma.wait.ch1
 
 # --- VMEM -> MRF ---
-vload m0, 0(x1)     # x low half
+srli x31, x1, 2   # VLS bases count words; DMA bases count bytes
+vload m0, 0(x31)     # x low half
 delay 34
-vload m1, 32(x1)    # x high half
+srli x31, x1, 2   # VLS bases count words; DMA bases count bytes
+vload m1, 8(x31)    # x high half
 delay 34
-vload m2, 0(x2)     # eps low
+srli x31, x2, 2   # VLS bases count words; DMA bases count bytes
+vload m2, 0(x31)     # eps low
 delay 34
-vload m3, 32(x2)    # eps high
+srli x31, x2, 2   # VLS bases count words; DMA bases count bytes
+vload m3, 8(x31)    # eps high
 delay 34
 
 # --- RMS Norm Compute ---
@@ -46,8 +50,6 @@ vredsum.row.bf16 m6, m4
 delay 39
 # mean_sq = sum_sq * (1/ROW_SIZE)
 vli.all m8, 0x4200
-delay 65
-vli.all m9, 0x4200
 delay 65
 vrecip.bf16 m10, m8
 delay 66
@@ -66,9 +68,11 @@ vmul.bf16 m20, m0, m18
 delay 66
 
 # --- MRF -> VMEM -> DRAM ---
-vstore m20, 0(x3)
+srli x31, x3, 2   # VLS bases count words; DMA bases count bytes
+vstore m20, 0(x31)
 delay 34
-vstore m21, 32(x3)
+srli x31, x3, 2   # VLS bases count words; DMA bases count bytes
+vstore m21, 8(x31)
 delay 34
 dma.store.ch0 x6, x3, x7
 dma.wait.ch0

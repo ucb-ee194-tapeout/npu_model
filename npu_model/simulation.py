@@ -2,6 +2,7 @@ from dataclasses import dataclass
 import sys
 from npu_model.hardware.config import HardwareConfig
 from npu_model.logging import LoggerConfig, Logger
+from npu_model.logging.logger import LaneType
 from npu_model.hardware import Core
 from npu_model.software import Program
 
@@ -51,9 +52,9 @@ class Simulation:
         self.runtime_errors: list[tuple[int, str, str]] = []
 
         # Create logger for trace output
-        lane_names = {0: "IFU", 1: "DIU"}
+        lane_names = {LaneType.IFU.value: "IFU"}
         for idx, exu_name in enumerate(hardware_config.execution_units.keys()):
-            lane_names[2 + idx] = exu_name
+            lane_names[LaneType.EXU_BASE.value + idx] = exu_name
         self.logger = Logger(logger_config, lane_names=lane_names)
 
         isa = self.hardware_config.isa
