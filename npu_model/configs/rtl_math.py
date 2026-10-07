@@ -43,10 +43,19 @@ def extremum(values: torch.Tensor, dim: int, maximum: bool) -> torch.Tensor:
     return values.contiguous().view(torch.int16).gather(dim, index).view(torch.bfloat16)
 
 
+def canonical_nan(value: torch.Tensor) -> torch.Tensor:
+    """HardFloat emits its default positive quiet NaN, without input payloads.
+
+    Torch's own NaN bits depend on the CPU kernel (x86 vector code yields 0xffff).
+    """
+    raw = value.contiguous().view(torch.int16)
+    return torch.where(torch.isnan(value), 0x7FC0, raw).to(torch.int16).view(torch.bfloat16)
+
+
 def _truncated_bf16(value: torch.Tensor) -> torch.Tensor:
     """AddSubSumVec/ColAddVec take the upper 16 bits of FP32 results."""
     raw = (value.float().contiguous().view(torch.int32) >> 16).to(torch.int16)
-    # HardFloat emits its default positive quiet NaN, without input payloads.
+    # Test the FP32 value: a NaN with only low payload bits truncates to infinity.
     raw = torch.where(torch.isnan(value), 0x7FC0, raw).to(torch.int16)
     return raw.view(torch.bfloat16)
 

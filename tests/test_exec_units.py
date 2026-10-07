@@ -136,6 +136,23 @@ def test_numerics_backend_selects_rounding():
     assert NUMERICS["pytorch"].add(a, b).item() == 1.0078125
 
 
+def test_rtl_nan_results_are_canonical_whatever_torch_emits(monkeypatch):
+    """x86 torch writes NaN as 0xffff when it converts to BF16; the RTL emits 0x7fc0."""
+    def x86(result):
+        result = result.clone()
+        result.view(torch.int16)[torch.isnan(result)] = -1
+        return result
+    mul, to = torch.Tensor.__mul__, torch.Tensor.to
+    monkeypatch.setattr(torch.Tensor, "__mul__", lambda self, other: x86(mul(self, other)))
+    monkeypatch.setattr(torch.Tensor, "to", lambda self, *a, **k: x86(to(self, *a, **k))
+                        if self.dtype != torch.bfloat16 and to(self, *a, **k).dtype == torch.bfloat16
+                        else to(self, *a, **k))
+    nan = torch.full((2, 32), float("nan"), dtype=torch.bfloat16)
+    rtl = NUMERICS["rtl"]
+    for result in (rtl.mul(nan, torch.ones_like(nan)), rtl.row_sum(nan)):
+        assert result.view(torch.int16).eq(0x7FC0).all()
+
+
 def test_source_overwritten_mid_read_uses_rows_as_sampled():
     unit, reference = make(), make().arch_state
     unit.tick(Uop(VADD_BF16(vd=m(4), vs1=m(0), vs2=m(2))))

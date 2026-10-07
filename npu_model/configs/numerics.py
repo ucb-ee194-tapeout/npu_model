@@ -8,7 +8,7 @@ noted; ``scale`` is a raw ERF value, the power of two 2**(scale - 127).
 import torch
 
 from .rtl_math import (unary, minmax, extremum, pack_row, unpack_row, _truncated_bf16,
-                       sa_fma, ipt_row)
+                       canonical_nan, sa_fma, ipt_row)
 
 
 def _exponent(scale: int) -> int:
@@ -28,7 +28,7 @@ class RtlNumerics:
 
     @staticmethod
     def mul(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
-        return a * b
+        return canonical_nan(a * b)
 
     @staticmethod
     def minimum(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
@@ -49,7 +49,7 @@ class RtlNumerics:
         values = x.float()
         while values.shape[-1] > 1:
             values = values[..., ::2] + values[..., 1::2]
-        return values.to(torch.bfloat16)
+        return canonical_nan(values.to(torch.bfloat16))
 
     @staticmethod
     def column_sum(x: torch.Tensor) -> torch.Tensor:
