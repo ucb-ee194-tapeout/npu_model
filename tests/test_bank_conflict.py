@@ -125,8 +125,6 @@ class _NoAccBufConflictProgram(Program):
         VMATMUL_MXU0(vd=acc(0), vs1=m(0), vs2=w(0)),
         # Wait until the first accumulator row is available to the pop.
         DELAY(imm=62),
-        # Wait until the first accumulator row is available to the pop.
-        DELAY(imm=62),
         VMATPOP_BF16_ACC_MXU0(vd=m(4), vs2=acc(0)),
     ]
     memory_regions: List[Tuple[int, torch.Tensor]] = []
@@ -263,15 +261,45 @@ def test_non_conflicting_programs_execute(program: Program) -> None:
     ("program", "delay_index", "too_short", "expected_exception", "message"),
     [
         (_NoMxu1WeightBufConflictProgram(), 1, 29, RuntimeError, "active push"),
-        (_NoWeightPushMrfConflictProgram(), 1, 29, BankConflictError, "MRF bank conflict"),
+        (
+            _NoWeightPushMrfConflictProgram(),
+            1,
+            29,
+            BankConflictError,
+            "MRF bank conflict",
+        ),
         (_NoAccBufConflictProgram(), 1, 61, RuntimeError, "row-0 writeback"),
         (_NoAccReadAfterWriteConflictProgram(), 1, 61, RuntimeError, "row-0 writeback"),
         (_NoVpuMrfConflictProgram(), 1, 29, BankConflictError, "MRF bank conflict"),
         (_NoXluMrfConflictProgram(), 1, 30, BankConflictError, "MRF bank conflict"),
-        (_NoVpuWriteReadConflictProgram(), 1, 63, BankConflictError, "MRF bank conflict"),
-        (_NoXluWriteReadConflictProgram(), 1, 63, BankConflictError, "MRF bank conflict"),
-        (_NoWeightPushOverlapProgram(), 1, 29, RuntimeError, "another weight push is still writing"),
-        (_NoAccPushOverlapProgram(), 1, 29, RuntimeError, "another accumulator push is still writing"),
+        (
+            _NoVpuWriteReadConflictProgram(),
+            1,
+            63,
+            BankConflictError,
+            "MRF bank conflict",
+        ),
+        (
+            _NoXluWriteReadConflictProgram(),
+            1,
+            63,
+            BankConflictError,
+            "MRF bank conflict",
+        ),
+        (
+            _NoWeightPushOverlapProgram(),
+            1,
+            29,
+            RuntimeError,
+            "another weight push is still writing",
+        ),
+        (
+            _NoAccPushOverlapProgram(),
+            1,
+            29,
+            RuntimeError,
+            "another accumulator push is still writing",
+        ),
     ],
     ids=[
         "Mxu1WeightBufferNeeds30Cycles",
@@ -305,6 +333,10 @@ def test_minimum_conflict_avoidance_delay(
     ids=["MatmulAccDirectlyAfterPush", "PopDirectlyAfterPush"],
 )
 def test_accumulator_read_cannot_directly_follow_push(program: Program) -> None:
-    program.instructions = [insn for insn in program.instructions if not isinstance(insn, DELAY)]
-    with pytest.raises(RuntimeError, match="accumulator read issued the cycle after a push"):
+    program.instructions = [
+        insn for insn in program.instructions if not isinstance(insn, DELAY)
+    ]
+    with pytest.raises(
+        RuntimeError, match="accumulator read issued the cycle after a push"
+    ):
         run_simulation(program, DefaultHardwareConfig(), max_cycles=500)
