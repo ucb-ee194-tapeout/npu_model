@@ -125,6 +125,8 @@ class _NoAccBufConflictProgram(Program):
         VMATMUL_MXU0(vd=acc(0), vs1=m(0), vs2=w(0)),
         # Wait until the first accumulator row is available to the pop.
         DELAY(imm=62),
+        # Wait until the first accumulator row is available to the pop.
+        DELAY(imm=62),
         VMATPOP_BF16_ACC_MXU0(vd=m(4), vs2=acc(0)),
     ]
     memory_regions: List[Tuple[int, torch.Tensor]] = []
