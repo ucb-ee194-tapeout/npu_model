@@ -61,15 +61,17 @@ For a command issued at T (default 32 rows):
 | XLU transpose | T+34 | T+65 |
 
 The MXU table lists row-write edges; command issue checks can impose additional
-spacing when operations reuse a port or accumulator. In the bank-conflict
-regressions, a weight push from `m0` followed by an MXU0 matmul reading `m0`,
-or a `vadd.bf16` reading `m0` followed by that matmul, needs a `delay 30` to
-avoid overlapping reads from the same physical MRF bank. An XLU transpose
-reading `m0` followed by that matmul needs `delay 31`. An MXU0 matmul followed
-by a pop from its accumulator needs `delay 62` before row zero is available.
-`tests/test_bank_conflict.py` checks that each minimum delay passes and that
-one cycle less fails. These values use the `delay N` stall semantics described
-above.
+spacing when operations reuse a port, register or accumulator. The bank-conflict
+tests distinguish these cases: MXU0 can read a weight slot while the push is
+still streaming when the MRF sources differ, while MXU1 requires `delay 30`
+before reading the slot. A weight push and matmul that both read `m0` need
+`delay 30` because their physical MRF reads overlap; `vadd.bf16` reading `m0`
+followed by that matmul also needs `delay 30`, and XLU transpose reading `m0`
+needs `delay 31`. After a matmul writes `acc0`, a pop or another accumulate
+matmul that reads `acc0` needs `delay 62`. A VPU or XLU write to `m4` followed
+by a matmul reading `m4` needs `delay 64`. `tests/test_bank_conflict.py` checks
+each minimum and the one-cycle-short case. The `DELAY` immediate is not the
+issue-cycle gap: the `DELAY` instruction itself issues before its stall begins.
 
 Scalar loads have no same-cycle bypass. Scalar, vector-load and vector-store
 paths progress independently. Sources are sampled at their row-read edges;

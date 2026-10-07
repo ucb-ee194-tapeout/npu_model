@@ -89,6 +89,12 @@ class _MatrixExecutionUnit(ExecutionUnit):
             return "push_bf16" if "bf16" in mnemonic else "push_fp8"
         return "pop_bf16" if "bf16" in mnemonic else "pop_fp8"
 
+    @staticmethod
+    def _push_path(kind: str) -> str | None:
+        """Weight and accumulator pushes each write through one output mux,
+        which writes a single push per cycle and drops the others' rows."""
+        return "weight" if kind == "weight" else "accumulator" if kind.startswith("push") else None
+
     def _accept(self, uop: Uop) -> None:
         assert uop.insn.exu == self.exu_type, "Instruction sent to wrong MXU"
         insn, kind = uop.insn, self._kind(uop.insn.mnemonic)
@@ -130,6 +136,14 @@ class _MatrixExecutionUnit(ExecutionUnit):
                 raise RuntimeError("mxu1: compute reads buffer with an active push")
             if kind == "push_fp8" and acc_pushes:
                 raise RuntimeError("mxu1: accumulation push target busy")
+        path = self._push_path(kind)
+        if path and any(self._push_path(op.kind) == path for op in active):
+            raise RuntimeError(f"{self.mxu}: {path} push issued while another {path} push is still writing")
+        # A reader one cycle behind a push would read each row just before it lands.
+        if (pop or (kind == "compute" and ".acc." in insn.mnemonic)) and any(
+                self._push_path(op.kind) == "accumulator" and op.acc == acc and self.cycle - op.issued < 2
+                for op in self._ops):
+            raise RuntimeError(f"{self.mxu}: accumulator read issued the cycle after a push to it")
         owner = f"{self.name}:{uop.id}"
         banks = frozenset({mreg, mreg + 1}) if kind in {"push_bf16", "pop_bf16"} else frozenset({mreg})
         self.arch_state.conflict_checker.reserve_mreg(owner, reads=frozenset() if pop else banks,

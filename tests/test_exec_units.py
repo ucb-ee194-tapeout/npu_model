@@ -166,6 +166,22 @@ def test_weight_push_leading_a_matmul_matches_sequential_exec():
     assert_same_state(unit.arch_state, reference)
 
 
+@pytest.mark.parametrize("unit", ["MXU0", "MXU1"])
+def test_accumulator_read_trailing_a_push_by_two_cycles_sees_it(unit):
+    import npu_model.configs.isa_definition as isa
+    exu, reference = make(unit), make(unit).arch_state
+    push = getattr(isa, f"VMATPUSH_ACC_FP8_{unit}")(vd=acc(0), vs1=m(8))
+    pop = getattr(isa, f"VMATPOP_BF16_ACC_{unit}")(vd=m(20), vs2=acc(0))
+    exu.tick(Uop(push))
+    exu.tick(None)
+    exu.tick(Uop(pop))  # Gap 2, the minimum: row r is read one cycle after it lands.
+    while exu.has_in_flight:
+        exu.tick(None)
+    push.exec(reference)
+    pop.exec(reference)
+    assert_same_state(exu.arch_state, reference)
+
+
 def test_weights_changed_under_the_wavefront_are_rejected():
     unit = make("MXU0")
     unit.tick(Uop(VMATMUL_MXU0(vd=acc(0), vs1=m(8), vs2=w(0))))
