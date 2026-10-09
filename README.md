@@ -82,6 +82,14 @@ The simulator generates detailed execution traces for visualization:
 - **Lane-based visualization**: Separate lanes for each execution unit
 - **Cycle-accurate timing**: Precise cycle-by-cycle execution flow
 
+## Functional Assembly
+
+Functional assembly uses named virtual registers and executes instruction
+semantics without cycle timing or physical allocation. The compiler-facing ISA
+metadata export describes true assembly operands and encodings. See
+[Functional assembly (.fs)](docs/functional-assembly.md) for syntax, DMA and
+scratchpad behavior, and the functional interpreter/API.
+
 
 ## Usage
 

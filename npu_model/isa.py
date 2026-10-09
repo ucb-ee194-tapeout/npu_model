@@ -26,6 +26,7 @@ class Instruction(ABC):
     mnemonic: str  = NotImplemented
     opcode: Opcode = NotImplemented
     exu: EXU       = NotImplemented
+    functional: bool = True
 
     def __str__(self):
         values = [str(v) for v in self.__dict__.values()]

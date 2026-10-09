@@ -743,6 +743,8 @@ class JALR(
 
 
 class DELAY(UnaryImm, IType, exu=EXU.SCALAR, opcode=0b1100111, funct3=0b001):
+    functional = False
+
     def exec(self, state: ArchState) -> None:
         pass
 
@@ -762,6 +764,8 @@ class JAL(ScalarImm, UJType, exu=EXU.SCALAR, opcode=0b1101111):
 
 
 class CSRRW(ScalarComputeImm, CSRType, exu=EXU.SCALAR, opcode=0b1110011, funct3=0b001):
+    functional = False
+
     def exec(self, state: ArchState) -> None:
         old = state.read_csrf(self.imm)
         state.write_csrf(self.imm, state.read_xrf(self.rs1))
@@ -769,6 +773,8 @@ class CSRRW(ScalarComputeImm, CSRType, exu=EXU.SCALAR, opcode=0b1110011, funct3=
 
 
 class CSRRS(ScalarComputeImm, CSRType, exu=EXU.SCALAR, opcode=0b1110011, funct3=0b010):
+    functional = False
+
     def exec(self, state: ArchState) -> None:
         old = state.read_csrf(self.imm)
         state.write_csrf(self.imm, old | state.read_xrf(self.rs1))
@@ -776,6 +782,8 @@ class CSRRS(ScalarComputeImm, CSRType, exu=EXU.SCALAR, opcode=0b1110011, funct3=
 
 
 class CSRRC(ScalarComputeImm, CSRType, exu=EXU.SCALAR, opcode=0b1110011, funct3=0b011):
+    functional = False
+
     def exec(self, state: ArchState) -> None:
         old = state.read_csrf(self.imm)
         state.write_csrf(self.imm, old & ~state.read_xrf(self.rs1))
@@ -783,6 +791,8 @@ class CSRRC(ScalarComputeImm, CSRType, exu=EXU.SCALAR, opcode=0b1110011, funct3=
 
 
 class CSRRWI(ScalarComputeImm, CSRType, exu=EXU.SCALAR, opcode=0b1110011, funct3=0b101):
+    functional = False
+
     def exec(self, state: ArchState) -> None:
         old = state.read_csrf(self.imm)
         state.write_csrf(self.imm, self.rs1 & 0b11111)
@@ -790,6 +800,8 @@ class CSRRWI(ScalarComputeImm, CSRType, exu=EXU.SCALAR, opcode=0b1110011, funct3
 
 
 class CSRRSI(ScalarComputeImm, CSRType, exu=EXU.SCALAR, opcode=0b1110011, funct3=0b110):
+    functional = False
+
     def exec(self, state: ArchState) -> None:
         old = state.read_csrf(self.imm)
         state.write_csrf(self.imm, old | (self.rs1 & 0b11111))
@@ -797,6 +809,8 @@ class CSRRSI(ScalarComputeImm, CSRType, exu=EXU.SCALAR, opcode=0b1110011, funct3
 
 
 class CSRRCI(ScalarComputeImm, CSRType, exu=EXU.SCALAR, opcode=0b1110011, funct3=0b111):
+    functional = False
+
     def exec(self, state: ArchState) -> None:
         old = state.read_csrf(self.imm)
         state.write_csrf(self.imm, old & ~(self.rs1 & 0b11111))
@@ -805,6 +819,7 @@ class CSRRCI(ScalarComputeImm, CSRType, exu=EXU.SCALAR, opcode=0b1110011, funct3
 
 class ECALL(Nullary, IType, exu=EXU.SCALAR, opcode=0b1110011, funct3=0b000):
     imm: Imm12 = Imm12(0)
+    functional = False
 
     def exec(self, state: ArchState) -> None:
         state.halted = True
@@ -813,6 +828,7 @@ class ECALL(Nullary, IType, exu=EXU.SCALAR, opcode=0b1110011, funct3=0b000):
 
 class EBREAK(Nullary, IType, exu=EXU.SCALAR, opcode=0b1110011, funct3=0b000):
     imm: Imm12 = Imm12(1)
+    functional = False
 
     def exec(self, state: ArchState) -> None:
         state.halted = True
@@ -984,6 +1000,8 @@ class VMATMUL_ACC_MXU1(
 
 
 class _DMA_LOAD_CHN(ScalarComputeReg):
+    functional = False
+
     def exec(self, state: ArchState) -> None:
         length = state.read_xrf(self.rs2)
         data = state.read_dram(state.read_xrf(self.rs1), length)
@@ -1039,6 +1057,8 @@ class DMA_LOAD_CH7(
 
 
 class _DMA_STORE_CHN(ScalarComputeReg):
+    functional = False
+
     def exec(self, state: ArchState) -> None:
         length = state.read_xrf(self.rs2)
         data = state.read_vmem(state.read_xrf(self.rs1), 0, length)
@@ -1094,6 +1114,8 @@ class DMA_STORE_CH7(
 
 
 class _DMA_CONFIG_CHN(DMARegUnary):
+    functional = False
+
     def exec(self, state: ArchState) -> None:
         state.base = state.read_xrf(self.rs1)
 
@@ -1188,6 +1210,7 @@ class DMA_CONFIG_CH7(
 
 class _DMA_WAIT_CHN(Nullary):
     imm = 1
+    functional = False
 
     def exec(self, state: ArchState) -> None:
         pass
