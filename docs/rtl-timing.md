@@ -68,7 +68,10 @@ before reading the slot. A weight push and matmul that both read `m0` need
 `delay 30` because their physical MRF reads overlap; `vadd.bf16` reading `m0`
 followed by that matmul also needs `delay 30`, and XLU transpose reading `m0`
 needs `delay 31`. After a matmul writes `acc0`, a pop or another accumulate
-matmul that reads `acc0` needs `delay 62`. A VPU or XLU write to `m4` followed
+matmul that reads `acc0` needs `delay 62`. Each accumulator has one read port,
+so a pop and an accumulate matmul cannot stream from the same accumulator at
+once; an overwrite matmul does not read it and may issue the cycle after a pop
+of the same accumulator (the `perf_mm_*` baremetal schedule). A VPU or XLU write to `m4` followed
 by a matmul reading `m4` needs `delay 64`. `tests/test_bank_conflict.py` checks
 each minimum and the one-cycle-short case. The `DELAY` immediate is not the
 issue-cycle gap: the `DELAY` instruction itself issues before its stall begins.
