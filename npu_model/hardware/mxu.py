@@ -217,12 +217,14 @@ class _MatrixExecutionUnit(ExecutionUnit):
             self._accept(uop)
         if self._ops:
             self._busy_cycles += 1
-        # Read all SRAM operands before applying this edge's writes.
+        # Read all SRAM operands before applying this edge's writes. Each
+        # accumulator has one read port, shared by pops and accumulate-mode
+        # computes; an overwrite compute never reads it.
         readers: dict[int, str] = {}
         for op in self._ops:
             age = self.cycle - op.issued
             if 0 <= age < 32:
-                if op.kind == "compute" or op.kind.startswith("pop"):
+                if ("acc", self.mxu, op.acc) in op.staged.operands:
                     if op.acc in readers:
                         raise RuntimeError(f"{self.mxu}: compute and pop read the same accumulator")
                     readers[op.acc] = op.owner

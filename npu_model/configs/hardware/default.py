@@ -3,6 +3,9 @@ from npu_model.isa import IsaSpec
 
 
 class DefaultHardwareConfig(HardwareConfig):
+    """Default Atlas geometry; DMA memory timing measured on VCS EE290SimConfig
+    (see ``HardwareConfig.dma_memory_params``)."""
+
     name: str = "SimpleNPU"
 
     fetch_width: int = 1
@@ -16,7 +19,7 @@ class DefaultHardwareConfig(HardwareConfig):
         num_e_registers=32,
         num_m_registers=64,
         num_wb_registers=2,
-        dram_size=1 * 1024 * 1024 * 1024,  # 1 GiB default simulation aperture
+        dram_size=0x10_0000_0000,  # 64 GiB at 0x8000_0000, as EE290SimConfig maps it
         vmem_size=1536 * 1024,
     )
     mxu0_matmul_latency_cycles: int = 32
@@ -39,19 +42,3 @@ class DefaultHardwareConfig(HardwareConfig):
         "DMA0": "DmaExecutionUnit",
         "LSU": "LoadStoreUnit"
     }
-
-
-class FullDramHardwareConfig(DefaultHardwareConfig):
-    name: str = "SimpleNPUFullDram"
-    arch_state_config: ArchStateConfig = ArchStateConfig(
-        mrf_depth=32,
-        mrf_width=32,
-        wb_width=32 * 32 * 1,
-        num_x_registers=32,
-        num_csrs=4096,
-        num_e_registers=32,
-        num_m_registers=64,
-        num_wb_registers=2,
-        dram_size=16 * 1024 * 1024 * 1024,
-        vmem_size=1536 * 1024,
-    )

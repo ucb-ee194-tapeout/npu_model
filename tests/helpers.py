@@ -76,6 +76,7 @@ def run_simulation(
 def read_dram_tensor(
     sim: Simulation, base_addr: int, expected: torch.Tensor
 ) -> torch.Tensor:
+    """Read a program-relative DRAM region (``Program.dram_base`` + offset)."""
     size = expected.numel() * expected.element_size()
-    data = sim.core.arch_state.read_dram(base_addr, size)
+    data = sim.core.arch_state.read_dram(sim.program.dram_base + base_addr, size)
     return data.view(expected.dtype).reshape(expected.shape).clone()

@@ -1,4 +1,6 @@
 import torch
+
+from .sparse_memory import SparseMemory
 from ..logging.logger import Logger
 from .config import ArchStateConfig
 from .bank_conflict import BankConflictChecker
@@ -19,7 +21,7 @@ class ArchState:
 
     def initialize_buffers(self) -> None:
         self.conflict_checker: BankConflictChecker = BankConflictChecker()
-        self.dram: torch.Tensor = torch.zeros(self.cfg.dram_size, dtype=torch.uint8)
+        self.dram: SparseMemory = SparseMemory(self.cfg.dram_size)
         self.vmem: torch.Tensor = torch.zeros(self.cfg.vmem_size, dtype=torch.uint8)
         self.xrf: list[int] = [0] * self.cfg.num_x_registers
         self.csrf: list[int] = [0] * self.cfg.num_csrs
@@ -51,7 +53,7 @@ class ArchState:
         ]
         if self.cfg.randomize_init:
             generator = self._make_generator()
-            self._fill_u8_random(self.dram, generator)
+            self.dram.randomize(self.cfg.init_seed)
             self._fill_u8_random(self.vmem, generator)
         self.base: int = 0  # dram base
         self.flags: list[bool] = [False] * 8
@@ -59,7 +61,7 @@ class ArchState:
 
     def close(self) -> None:
         """Release large architectural buffers once a simulation is no longer needed."""
-        self.dram = torch.empty(0, dtype=torch.uint8)
+        self.dram = SparseMemory(0)
         self.vmem = torch.empty(0, dtype=torch.uint8)
         self.xrf = []
         self.csrf = []
@@ -381,21 +383,41 @@ class ArchState:
     def read_acc_bf16(self, unit: str, ws: int) -> torch.Tensor:
         return self.acc[unit][ws].clone()
 
-    def write_dram(self, offset: int, data: torch.Tensor) -> None:
+    def dma_vmem_byte_address(self, operand: int) -> int:
+        """VMEM byte address of the line a DMA VMEM operand names.
+
+        AtlasCore takes the operand as a 32-bit word address and keeps bits
+        [wordAddrBits-1 : wordOffBits] as the line address (``vmemLineAddr``),
+        so the low three bits are ignored and higher bits wrap. ``wordAddrBits``
+        is ceil(log2(VMEM words)); a line is 32 bytes (eight words).
+        """
+        line_bytes = 32
+        words = self.cfg.vmem_size // 4
+        word_addr_bits = max(1, (words - 1).bit_length())
+        line = (operand & ((1 << word_addr_bits) - 1)) >> 3
+        return line * line_bytes
+
+    def dma_dram_address(self, operand: int) -> int:
+        """The 64-bit off-chip address ``{dma.base, x[rs]}`` ScalarCore forms."""
+        return ((self.base & 0xFFFFFFFF) << 32) | (operand & 0xFFFFFFFF)
+
+    def _check_dram_window(self, address: int, end: int, what: str) -> None:
+        low, high = self.cfg.dram_base, self.cfg.dram_base + self.cfg.dram_size
+        assert low <= address <= end <= high, (
+            f"DRAM {what} [{address:#x}, {end:#x}) is outside the mapped window "
+            f"[{low:#x}, {high:#x})")
+
+    def write_dram(self, address: int, data: torch.Tensor) -> None:
+        """Write ``data`` at an absolute physical address."""
         data = data.flatten()
-        address = (self.base << 32) | offset
         end = address + data.numel()
-        assert (
-            0 <= address <= end <= self.cfg.dram_size
-        ), f"Memory write out of bounds: [{address}, {end}) exceeds size {self.cfg.dram_size}"
+        self._check_dram_window(address, end, "write")
         self.dram[address:end] = data
 
-    def read_dram(self, offset: int, length: int) -> torch.Tensor:
-        address = (self.base << 32) | offset
+    def read_dram(self, address: int, length: int) -> torch.Tensor:
+        """Read ``length`` bytes at an absolute physical address."""
         end = address + length
-        assert (
-            0 <= address <= end <= self.cfg.dram_size
-        ), f"Memory read out of bounds: [{address}, {end}) exceeds size {self.cfg.dram_size}"
+        self._check_dram_window(address, end, "read")
         return self.dram[address:end]
 
     def write_vmem(self, base: int, offset: int, data: torch.Tensor) -> None:

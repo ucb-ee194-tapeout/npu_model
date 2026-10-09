@@ -139,24 +139,40 @@ class LoadStoreUnit(ExecutionUnit):
         self._total_instructions += 1
         self.logger.log_stage_start(uop.id, "E", lane=self.lane_id, cycle=self.cycle)
 
-    def _check_vmem_ports(self) -> None:
-        """LSU ports are deterministic; same physical-bank accesses assert."""
+    def _vmem_accesses_at(self, cycle: int) -> list[tuple[str, int]]:
+        """(mnemonic, byte address) of every LSU VMEM port request on ``cycle``.
+
+        Determined by operations issued before ``cycle``: scalar ports fire at
+        issue+1, VLOAD reads rows at issue+1..+32, VSTORE writes at issue+3..+34.
+        """
         accesses: list[tuple[str, int]] = []
         for op in self._scalar:
-            if self.cycle - op.issued == 1:
+            if cycle - op.issued == 1:
                 accesses.append((op.uop.insn.mnemonic, op.address))
         rows = self.arch_state.cfg.mrf_depth
-        if self._vload and 1 <= self.cycle - self._vload.issued <= rows:
-            accesses.append(("vload", self._vload.address))
-        if self._vstore and 3 <= self.cycle - self._vstore.issued <= rows + 2:
-            accesses.append(("vstore", self._vstore.address))
+        if self._vload and 1 <= cycle - self._vload.issued <= rows:
+            row = cycle - self._vload.issued - 1
+            accesses.append(("vload", self._vload.address + row * self.arch_state.cfg.mrf_width))
+        if self._vstore and 3 <= cycle - self._vstore.issued <= rows + 2:
+            row = cycle - self._vstore.issued - 3
+            accesses.append(("vstore", self._vstore.address + row * self.arch_state.cfg.mrf_width))
+        return accesses
+
+    def _check_vmem_ports(self) -> None:
+        """LSU ports are deterministic; same physical-bank accesses assert."""
         banks: dict[int, str] = {}
-        for mnemonic, address in accesses:
+        for mnemonic, address in self._vmem_accesses_at(self.cycle):
             bank = address // self.config.vmem_bank_bytes
             if bank in banks:
                 raise BankConflictError(f"VMEM bank conflict: {mnemonic} and {banks[bank]} access bank {bank}")
             banks[bank] = mnemonic
         self.vmem_port_banks = frozenset(banks)
+
+    def _announce_vmem_ports(self) -> None:
+        """Publish next cycle's bank accesses so grant-based clients (DMA) see them."""
+        banks = {address // self.config.vmem_bank_bytes: mnemonic
+                 for mnemonic, address in self._vmem_accesses_at(self.cycle + 1)}
+        self.arch_state.conflict_checker.announce_vmem_ports(self.cycle + 1, banks)
 
     def _check_writeback(self) -> None:
         current = getattr(self.arch_state, "current_uop", None)
@@ -251,6 +267,7 @@ class LoadStoreUnit(ExecutionUnit):
         self._tick_scalar()
         self._tick_vector(self._vload, load=True)
         self._tick_vector(self._vstore, load=False)
+        self._announce_vmem_ports()
 
     def flush_completions(self) -> None:
         for uop in self._pending_completions:

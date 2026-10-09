@@ -15,11 +15,11 @@
 # DMA reads registers at execution time (516c after dispatch). x16 is only
 # advanced after dma.wait.ch1 confirms the previous transfer is done, so the
 # address is stable for the full transfer window.
-lui x1, 0x2
-lui x2, 0x2
-addi x2, x2, 1024
-lui x3, 0x3
-addi x3, x3, -2048
+li x1, 0x800
+lui x2, 0x1
+addi x2, x2, -1792
+lui x3, 0x1
+addi x3, x3, -1536
 lui x4, 0x3
 addi x4, x4, -1024
 addi x5, x0, 1024
@@ -35,9 +35,10 @@ lui x14, 0x1
 addi x14, x14, 1024
 addi x15, x0, 0
 addi x20, x0, 0
-dma.config.ch0 x0
+addi x30, x0, 1  # dma.base 1: DRAM operands address 4 GiB + offset (Program.dram_base)
+dma.config.ch0 x30
 dma.wait.ch0
-dma.config.ch1 x0
+dma.config.ch1 x30
 dma.wait.ch1
 dma.wait.ch0
 dma.wait.ch1
@@ -47,13 +48,13 @@ addi x16, x13, 0
 dma.load.ch0 x1, x15, x5
 dma.load.ch1 x2, x16, x5
 dma.wait.ch0
-srli x31, x1, 2   # VLS bases count words; DMA bases count bytes
+addi x31, x1, 0  # DMA and VLS bases both count words
 vload m0, 0(x31)
 delay 34
 addi x21, x0, 0
 loop_1:
 dma.wait.ch1
-srli x31, x2, 2   # VLS bases count words; DMA bases count bytes
+addi x31, x2, 0  # DMA and VLS bases both count words
 vload m1, 0(x31)
 delay 34
 addi x21, x21, 1
@@ -71,10 +72,10 @@ vmatmul.mxu1 acc0, m0, w0
 delay 35
 vmatpop.bf16.acc.mxu1 m2, acc0
 delay 32
-srli x31, x3, 2   # VLS bases count words; DMA bases count bytes
+addi x31, x3, 0  # DMA and VLS bases both count words
 vstore m2, 0(x31)
 delay 34
-srli x31, x4, 2   # VLS bases count words; DMA bases count bytes
+srli x31, x4, 2   # DMA and VLS bases both count words
 vstore m3, 0(x31)
 delay 34
 dma.store.ch0 x17, x3, x6
