@@ -12,6 +12,12 @@ class Program:
 
     instructions: list[Instruction] = []
     memory_regions: list[tuple[int, torch.Tensor]] = []
+    """(offset, bytes) preloaded at ``dram_base + offset`` before the program runs."""
+    dram_base: int = 1 << 32
+    """Physical address that ``memory_regions`` and ``golden_result`` offsets are
+    relative to. The supplied workloads program ``dma.config`` with base 1, so
+    their 32-bit DMA operands address DRAM from 4 GiB: inside the window the
+    RTL simulation maps (64 GiB at 0x8000_0000) and clear of the host program."""
 
     def __len__(self) -> int:
         return len(self.instructions)

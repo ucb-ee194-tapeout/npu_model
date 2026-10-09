@@ -2,25 +2,26 @@
 # RMS norm: x * rsqrt(mean(x^2) + eps)
 #
 # Register map:
-#   x1 = VMEM_INPUT_BASE  = 0x2000
-#   x2 = VMEM_EPS_BASE    = 0x2800
-#   x3 = VMEM_OUTPUT_BASE = 0x3000
+#   x1 = VMEM_INPUT_BASE = 0x800 (word address of byte 0x2000)
+#   x2 = VMEM_EPS_BASE = 0xa00 (word address of byte 0x2800)
+#   x3 = VMEM_OUTPUT_BASE = 0xc00 (word address of byte 0x3000)
 #   x4 = DRAM_INPUT_BASE  = 0x0000
 #   x5 = DRAM_EPS_BASE    = 0x0800
 #   x6 = DRAM_OUTPUT_BASE = 0x1000
 #   x7 = 2048  (bf16 tile bytes)
 
 # --- Register Setup ---
-li x1, 0x2000       # VMEM_INPUT_BASE
-li x2, 0x2800       # VMEM_EPS_BASE
-li x3, 0x3000       # VMEM_OUTPUT_BASE
+li x1, 0x800  # VMEM_INPUT_BASE
+li x2, 0xa00  # VMEM_EPS_BASE
+li x3, 0xc00  # VMEM_OUTPUT_BASE
 addi x4, x0, 0     # DRAM_INPUT_BASE = 0x0000
 li x5, 0x800        # DRAM_EPS_BASE
 li x6, 0x1000       # DRAM_OUTPUT_BASE
 li x7, 2048         # bf16 tile bytes
 
 # --- DRAM -> VMEM ---
-dma.config.ch0 x0
+addi x30, x0, 1  # dma.base 1: DRAM operands address 4 GiB + offset (Program.dram_base)
+dma.config.ch0 x30
 dma.wait.ch0
 dma.load.ch0 x1, x4, x7    # input
 dma.load.ch1 x2, x5, x7    # eps
@@ -28,16 +29,16 @@ dma.wait.ch0
 dma.wait.ch1
 
 # --- VMEM -> MRF ---
-srli x31, x1, 2   # VLS bases count words; DMA bases count bytes
+addi x31, x1, 0  # DMA and VLS bases both count words
 vload m0, 0(x31)     # x low half
 delay 34
-srli x31, x1, 2   # VLS bases count words; DMA bases count bytes
+addi x31, x1, 0  # DMA and VLS bases both count words
 vload m1, 8(x31)    # x high half
 delay 34
-srli x31, x2, 2   # VLS bases count words; DMA bases count bytes
+addi x31, x2, 0  # DMA and VLS bases both count words
 vload m2, 0(x31)     # eps low
 delay 34
-srli x31, x2, 2   # VLS bases count words; DMA bases count bytes
+addi x31, x2, 0  # DMA and VLS bases both count words
 vload m3, 8(x31)    # eps high
 delay 34
 
@@ -68,10 +69,10 @@ vmul.bf16 m20, m0, m18
 delay 66
 
 # --- MRF -> VMEM -> DRAM ---
-srli x31, x3, 2   # VLS bases count words; DMA bases count bytes
+addi x31, x3, 0  # DMA and VLS bases both count words
 vstore m20, 0(x31)
 delay 34
-srli x31, x3, 2   # VLS bases count words; DMA bases count bytes
+addi x31, x3, 0  # DMA and VLS bases both count words
 vstore m21, 8(x31)
 delay 34
 dma.store.ch0 x6, x3, x7

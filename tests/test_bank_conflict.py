@@ -78,7 +78,8 @@ class _NoVmemConflictProgram(Program):
     instructions: list[Instruction] = [
         ADDI(rd=x(2), rs1=x(0), imm=1024),
         ADDI(rd=x(3), rs1=x(0), imm=1024),
-        DMA_CONFIG_CH0(rs1=x(0)),
+        ADDI(rd=x(4), rs1=x(0), imm=1),            # dma.base 1: DRAM operands address Program.dram_base
+        DMA_CONFIG_CH0(rs1=x(4)),
         DMA_WAIT_CH0(),
         DMA_LOAD_CH0(rd=x(0), rs1=x(0), rs2=x(2)),
         VLOAD(vd=m(0), imm=0, rs1=x(3)),

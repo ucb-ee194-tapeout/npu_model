@@ -61,18 +61,52 @@ DMA rules:
 - DMA source and destination addresses must be `32`-byte aligned
 - DMA sizes must be multiples of `32` bytes
 
-## Baseline Transfer Formulas
+## DMA Engine Timing
 
-Definitions:
+The DMA engine moves data in `DMA_ALIGN` (32-byte) beats over a TileLink port.
+Its timing is structural, not a closed form:
+
+- a transfer issued at `T` occupies one of `DMA_CHANNELS` command slots from
+  `T+1`; its channel reads busy from `T+1` until the cycle after the slot retires
+- beats of the oldest undispatched slot issue one per cycle while fewer than
+  `64` beats are outstanding and the memory accepts; later slots' beats issue
+  while earlier slots' responses are still returning
+- a store reads VMEM one line per cycle ahead of its beats, subject to the bank
+  grant; a line read at `C` can issue at `C+2`
+- load data is written to VMEM in the response cycle if the bank grants it;
+  LSU accesses to a bank deny the DMA that bank, and a DMA write beats a DMA read
+- a slot retires in the first cycle in which every beat has issued and none is
+  outstanding; slots may retire out of issue order
+- the VMEM operand is a 32-bit word address; the line is its bits `[18:3]`
+  (low bits ignored, higher bits wrap) and the engine asserts if the line range
+  leaves VMEM
+- the off-chip address is `{dma.base, x[rs]}`, 64 bits; DRAM occupies
+  `0x8000_0000` upward (64 GiB in the simulation target)
+
+The time a beat spends beyond the port is an environment parameter. The
+reference target is VCS simulation of EE290SimConfig, where the port reaches
+DRAMSim2 (DDR3, Chipyard's `+dramsim` default) through TileLink buffers and a
+64-bit AXI port. The reference model's default memory backend is a
+bandwidth-latency curve (after the Mess simulator) measured on that path with
+DRAM refresh disabled: a lone-beat round trip of `46` cycles per Get and `42`
+cycles per Put, and a streaming rate of about `23` cycles per `32`-byte beat
+shared by loads and stores. Refresh adds a start-time-dependent offset of up
+to about `130` cycles per transfer window that the model does not reproduce.
+
+### Legacy baseline estimate
+
+The previous frozen baseline charged each transfer a closed-form latency, which
+the reference model keeps as `dma_transfer_cycles` for reference only:
 
 - `OFFCHIP_BYTES_PER_BEAT = OFFCHIP_LINK_WIDTH_BITS / 8 = 4`
 - `VMEM_BYTES_PER_BEAT = VMEM_BUS_WIDTH_BITS / 8 = 32`
-
-Required formulas:
-
 - `dma_offchip_cycles(bytes) = ceil((bytes + 4 * DMA_OFFCHIP_COMMAND_WORDS) / OFFCHIP_BYTES_PER_BEAT) * OFFCHIP_LINK_CORE_CYCLES_PER_BEAT`
 - `vmem_transfer_cycles(bytes) = ceil(bytes / VMEM_BYTES_PER_BEAT) * VMEM_BUS_CORE_CYCLES_PER_BEAT`
 - `dma_transfer_cycles(bytes) = max(dma_offchip_cycles(bytes), vmem_transfer_cycles(bytes))`
+
+The reference model's `fixed` backend can still derive link parameters from
+these constants (one beat every `16` cycles after `4` cycles of latency) for
+directed tests; it is not the default.
 
 For the frozen baseline values:
 
