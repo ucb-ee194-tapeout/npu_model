@@ -224,6 +224,9 @@ class Core(Module):
         self.s1_uop = None
         target: ExecutionUnit | None = None
         if insn.mnemonic.startswith("dma.wait"):
+            dma = self.exu_map.get(EXU.DMA)
+            if isinstance(dma, DmaExecutionUnit):
+                dma.commit_wait(insn.funct3)
             insn.exec(state)
             self.logger.log_retire(self.issued_uop.id)
         else:
