@@ -179,7 +179,7 @@ already reproduces; `latency_mode="knee"` reads the curve no further than
 and `"mess"` applies it verbatim with Mess's overflow penalty. Curve files
 live in `npu_model/configs/memory_curves`. The default,
 `ee290sim_vcs_probe.json`, was measured on VCS with DRAMSim2 refresh
-disabled (`../baremetal/dramsim2_ini_norefresh`):
+disabled (the default DRAMSim2 ini with `REFRESH_PERIOD=100000000`):
 `scripts/gen_dma_probe_programs.py` writes the DMA-side equivalent of the
 Mess benchmark (one timed 32 B probe against background traffic from the
 other channels at a sweep of mixes and loads) and
@@ -190,7 +190,7 @@ wait behind the engine's backlog. The file gives a lone-beat round trip of
 32-byte beat, loads and stores sharing it; those numbers include real DRAM
 timing (DDR3 row activate, CAS latency, low-power exit and the 666/500 MHz
 clock crossing), not just the fabric. Unfitted, it lands within 85 cycles of
-every program in `../baremetal/assembly/perf_dma_*.S` (which bank the
+every program in `calibration/dma/programs/perf_dma_*.S` (which bank the
 mcycles delta around a DMA region into CSR_DBG1), a total of 656 cycles over
 18 programs; `scripts/calibrate_dma_backend.py` reports the residual. Refresh
 is excluded because it adds 0 to about 130 cycles per transfer window

@@ -534,7 +534,9 @@ latency of 46 cycles per Get and 42 per Put, and a streaming rate of about
 32 B to 4 KiB transfers and eight-channel bursts within about 85 cycles,
 a total error of 656 cycles over the 18 perf_dma programs, where a
 two-server queue fitted to the same measurements reached 842. Measured
-values (`dbg1_cycles` from the perf_dma programs, refresh off):
+values (`dbg1_cycles` from the perf_dma programs, refresh off; every program,
+measurement and the DRAMSim2 ini used is under `calibration/dma/`, so the curve
+and this table regenerate from this repository alone):
 
 | program | RTL cycles | model cycles |
 | --- | ---: | ---: |
@@ -584,8 +586,9 @@ about 8 cycles per command plus about 0.7 cycles per beat (30 cycles on a
 lead-off and peak include it. The 4:3 DRAM-to-core clock ratio makes beat timing depend on the
 phase at which a transfer starts, which jitters a 1 KiB transfer by about
 15 cycles between runs whose host boot differs; the model cannot know the
-phase. To reproduce the fit, run VCS with
-`EXTRA_SIM_FLAGS='+dramsim_ini_dir=.../baremetal/dramsim2_ini_norefresh'`
+phase. To re-measure, copy `calibration/dma/programs/*.S` into the RTL repo's
+`baremetal/assembly` and run VCS with
+`EXTRA_SIM_FLAGS='+dramsim_ini_dir=<copy of testchipip's dramsim2_ini with REFRESH_PERIOD=100000000>'`
 (it is parsed after the default `+dramsim_ini_dir`, so the last one wins) and
 `EXTRA_SIM_OUT_NAME=norefresh` to keep separate logs. Runs with the default
 ini carry the refresh offset on top of these numbers. The taped-out chip

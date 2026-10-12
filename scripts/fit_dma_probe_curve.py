@@ -1,11 +1,15 @@
 """Turn DMA probe logs into a Mess bandwidth-latency curve file.
 
-Reads the VCS (or board) logs of the programs ``scripts/gen_dma_probe_programs.py``
-writes, decodes CSR_DBG1 (probe cycles in the low 16 bits, traffic-phase
-cycles in the high 16 bits), computes the delivered background bandwidth of
-each program and writes the points grouped by background read percentage in
-the Mess curve format, with the Atlas extensions ``accessBytes`` and
-``frequencyGHz``.
+Reads the measured CSR_DBG1 values of the programs
+``scripts/gen_dma_probe_programs.py`` writes, from VCS (or board) logs or, by
+default, from ``calibration/dma/measurements/ee290sim_vcs.json``; decodes them
+(probe cycles in the low 16 bits, traffic-phase cycles in the high 16 bits),
+computes the delivered background bandwidth of each program and writes the
+points grouped by background read percentage in the Mess curve format, with
+the Atlas extensions ``accessBytes`` and ``frequencyGHz``.
+
+    # Regenerate the bundled curve from the bundled measurements
+    python scripts/fit_dma_probe_curve.py --out npu_model/configs/memory_curves/ee290sim_vcs_probe.json
 
     python scripts/fit_dma_probe_curve.py --logs .../atlas_perf_dma_probe_*.log \\
         --out npu_model/configs/memory_curves/ee290sim_vcs_probe.json
@@ -24,6 +28,10 @@ import re
 from collections import defaultdict
 from pathlib import Path
 
+MODEL = Path(__file__).resolve().parents[1]
+PROGRAMS = MODEL / "calibration/dma/programs"
+MEASUREMENTS = MODEL / "calibration/dma/measurements/ee290sim_vcs.json"
+
 NAME = re.compile(r"perf_dma_probe_(\d+)r_(\d+)bg_(\d+)(_st)?")
 DBG1 = re.compile(r"dbg1_cycles\s*=\s*(\d+)")
 BG_BYTES = re.compile(r"background bytes = (\d+)")
@@ -31,8 +39,11 @@ BG_BYTES = re.compile(r"background bytes = (\d+)")
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--logs", nargs="+", type=Path, required=True)
-    parser.add_argument("--asm-dir", type=Path, default=Path("../baremetal/assembly"),
+    parser.add_argument("--logs", nargs="*", type=Path, default=[], help="VCS log files (default: --measurements)")
+    parser.add_argument("--measurements", type=Path, default=MEASUREMENTS,
+                        help="JSON of measured dbg1_cycles, used when no --logs are given")
+    parser.add_argument("--measurement-set", default="refresh_off")
+    parser.add_argument("--asm-dir", type=Path, default=PROGRAMS,
                         help="Where the generated .S files are, to read the background byte count")
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--frequency-ghz", type=float, default=0.5)
@@ -47,24 +58,32 @@ def main() -> None:
     ghz, beat = args.frequency_ghz, args.beat_bytes
     curves: dict[str, list[list[float]]] = defaultdict(list)
     unloaded: dict[str, list[float]] = {}
-    for log in args.logs:
-        match = NAME.search(log.name)
-        value = DBG1.search(log.read_text())
-        if not match or not value:
-            print(f"skip {log.name}: not a probe log")
+    if args.logs:
+        entries = []
+        for log in args.logs:
+            value = DBG1.search(log.read_text())
+            if value:
+                entries.append((log.name, int(value.group(1))))
+            else:
+                print(f"skip {log.name}: no dbg1_cycles")
+    else:
+        values = json.loads(args.measurements.read_text())["dbg1_cycles"][args.measurement_set]["values"]
+        entries = [(name, int(dbg1)) for name, dbg1 in sorted(values.items())]
+    for name, dbg1 in entries:
+        match = NAME.search(name)
+        if not match:
             continue
         rd, bg, size, store_probe = match.groups()
         if int(bg) and int(size) < args.min_size:
-            print(f"skip {log.name}: background transfers below --min-size")
+            print(f"skip {name}: background transfers below --min-size")
             continue
-        dbg1 = int(value.group(1))
         probe = (dbg1 & 0xFFFF) - args.overhead
         phase = dbg1 >> 16
         asm = args.asm_dir / f"{match.group(0)}.S"
         bg_bytes = int(BG_BYTES.search(asm.read_text()).group(1)) if asm.exists() else int(bg) * int(size) * 4
         bandwidth_beats = ((bg_bytes + beat) / beat) / max(1, phase)          # delivered, beats per cycle
         point = [bandwidth_beats * beat * ghz * 1e9 / 1e6, probe / ghz]       # MB/s, ns
-        print(f"{log.name}: {bandwidth_beats:.4f} beats/cycle, probe {probe} cycles")
+        print(f"{name}: {bandwidth_beats:.4f} beats/cycle, probe {probe} cycles")
         if int(bg):
             curves[rd].append(point)
         else:

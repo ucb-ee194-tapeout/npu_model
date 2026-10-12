@@ -84,11 +84,12 @@ class HardwareConfig:
     ``scripts/fit_dma_probe_curve.py`` turns the VCS logs into the file. The
     file gives a lead-off latency of about 46 cycles per Get and 42 per Put
     and a streaming rate of about 23 cycles per 32-byte beat. Measured with
-    DRAMSim2 refresh disabled (``../baremetal/dramsim2_ini_norefresh``),
+    DRAMSim2 refresh disabled (the default ini with ``REFRESH_PERIOD=100000000``),
     because refresh adds up to about 130 cycles per transfer window depending
     on when the program starts, which no memory model can reproduce.
     Nothing is fitted; ``scripts/calibrate_dma_backend.py`` reports the
-    residual against ``../baremetal/assembly/perf_dma_*.S``."""
+    residual against ``calibration/dma/programs/perf_dma_*.S`` using the
+    measurements in ``calibration/dma/measurements/ee290sim_vcs.json``."""
     dma_memory_latency_cycles: int | None = None
     """"fixed": channel A fire to channel D valid. None derives the spec's command-overhead cycles."""
     dma_memory_cycles_per_beat: int | None = None

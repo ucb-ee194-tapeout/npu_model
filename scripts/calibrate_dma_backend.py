@@ -1,21 +1,24 @@
 #!/usr/bin/env python3
 """Score (or fit) the DMA memory backend against cycle deltas measured on the RTL.
 
-The baremetal programs ``../baremetal/assembly/perf_dma_*.S`` bank the mcycles
-delta around a DMA region into CSR_DBG1; the generated C harness prints it as
-``dbg1_cycles``. This script runs the same programs through the Python model
-(translating the baremetal assembler syntax) and compares the model's CSR_DBG1 with the measurement.
+The programs ``calibration/dma/programs/perf_dma_*.S`` (baremetal assembler
+syntax) bank the mcycles delta around a DMA region into CSR_DBG1; the generated
+C harness prints it as ``dbg1_cycles``. This script runs the same programs
+through the Python model (translating the baremetal assembler syntax) and
+compares the model's CSR_DBG1 with the measurement.
+
+Measurements come from ``calibration/dma/measurements/ee290sim_vcs.json`` by
+default (the refresh-off VCS run the bundled curve was made from), or from VCS
+logs (``--logs`` / ``--log-dir``), or ``--measured NAME=CYCLES``; later sources
+override earlier ones.
 
 Examples:
-    # One backend setting, all programs, measurements parsed from VCS logs
-    python scripts/calibrate_dma_backend.py --logs /path/to/output/atlas_perf_dma_*.log
+    # The default backend against the bundled measurements
+    python scripts/calibrate_dma_backend.py
 
-    # Explicit measurements and a parameter sweep of the fixed backend
-    python scripts/calibrate_dma_backend.py --measured perf_dma_load_1k=797 \
+    # Fresh VCS logs and a parameter sweep of the fixed backend
+    python scripts/calibrate_dma_backend.py --logs /path/to/output/atlas_perf_dma_*.log \
         --backend fixed --sweep latency=2:40 cycles_per_beat=16:24
-
-The default VCS log directory is Chipyard's
-``sims/vcs/output/chipyard.harness.TestHarness.EE290SimConfig``.
 """
 from __future__ import annotations
 
@@ -38,8 +41,8 @@ from npu_model.simulation import Simulation  # noqa: E402
 from npu_model.software.program import InstantiableProgram  # noqa: E402
 from npu_model.util.converter import stream_to_instrs  # noqa: E402
 
-BAREMETAL_ASM = MODEL.parent / "baremetal/assembly"
-DEFAULT_LOG_DIR = MODEL.parents[2] / "sims/vcs/output/chipyard.harness.TestHarness.EE290SimConfig"
+PROGRAMS = MODEL / "calibration/dma/programs"
+MEASUREMENTS = MODEL / "calibration/dma/measurements/ee290sim_vcs.json"
 
 
 # ---------------------------------------------------------------------------
@@ -178,9 +181,14 @@ def parse_assignments(items: list[str], ranges: bool) -> dict:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--asm", nargs="*", type=Path, help="Baremetal .S files (default: perf_dma_*.S)")
+    parser.add_argument("--asm", nargs="*", type=Path,
+                        help="Baremetal-syntax .S files (default: calibration/dma/programs/perf_dma_*.S, probes excluded)")
+    parser.add_argument("--measurements", type=Path, default=MEASUREMENTS,
+                        help="JSON of measured dbg1_cycles (default: the bundled VCS measurements)")
+    parser.add_argument("--measurement-set", default="refresh_off",
+                        help="Which set of the measurements file to use (default: refresh_off)")
     parser.add_argument("--logs", nargs="*", type=Path, help="VCS logs to read dbg1_cycles from")
-    parser.add_argument("--log-dir", type=Path, default=DEFAULT_LOG_DIR, help="Directory of atlas_<name>.log files")
+    parser.add_argument("--log-dir", type=Path, help="Directory of atlas_<name>.log files")
     parser.add_argument("--measured", nargs="*", default=[], metavar="NAME=CYCLES")
     parser.add_argument("--backend", choices=("fixed", "curve"), help="Backend kind (default: config default)")
     parser.add_argument("--set", nargs="*", default=[], metavar="PARAM=VALUE",
@@ -190,10 +198,17 @@ def main() -> None:
     parser.add_argument("--fit", nargs="*", help="Program names used to score the sweep (default: all)")
     args = parser.parse_args()
 
-    programs = args.asm or sorted(BAREMETAL_ASM.glob("perf_dma_*.S"))
+    programs = args.asm or sorted(path for path in PROGRAMS.glob("perf_dma_*.S")
+                                  if not path.name.startswith("perf_dma_probe_"))
     measured: dict[str, int] = {}
-    logs = args.logs if args.logs is not None else [
-        args.log_dir / f"atlas_{path.stem}.log" for path in programs if (args.log_dir / f"atlas_{path.stem}.log").exists()]
+    if args.measurements and args.measurements.exists():
+        import json
+        values = json.loads(args.measurements.read_text())["dbg1_cycles"][args.measurement_set]["values"]
+        measured.update({path.stem: int(values[path.stem]) for path in programs if path.stem in values})
+    logs = list(args.logs or [])
+    if args.log_dir is not None:
+        logs += [args.log_dir / f"atlas_{path.stem}.log" for path in programs
+                 if (args.log_dir / f"atlas_{path.stem}.log").exists()]
     measured.update(parse_logs(logs))
     for item in args.measured:
         name, value = item.split("=")

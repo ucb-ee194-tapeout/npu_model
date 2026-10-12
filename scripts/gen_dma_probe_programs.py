@@ -10,12 +10,14 @@ loads and stores and a chosen size, which sets the offered bandwidth. The
 program banks two cycle counts into CSR_DBG1: the probe's own A-to-D time in
 the low 16 bits and the whole traffic phase in the high 16 bits, from which
 the delivered background bandwidth follows. Each program is one point; a
-sweep of programs is one curve. Run them with ``baremetal/agentic/run_asm_tests.sh``
-on VCS (ideally with ``baremetal/dramsim2_ini_norefresh``) or on the bringup
-board, then ``scripts/fit_dma_probe_curve.py`` turns the logs into a Mess
-curve file for ``CurveMemoryBackend``.
+sweep of programs is one curve. The programs live in
+``calibration/dma/programs``; copy them into the RTL repo's ``baremetal/assembly``
+and run ``baremetal/agentic/run_asm_tests.sh`` on VCS (with ``+dramsim_ini_dir``
+pointing at a copy of the default DRAMSim2 ini with ``REFRESH_PERIOD=100000000``) or run them on the
+bringup board, then ``scripts/fit_dma_probe_curve.py`` turns the logs into a
+Mess curve file for ``CurveMemoryBackend``.
 
-    python scripts/gen_dma_probe_programs.py --out ../baremetal/assembly
+    python scripts/gen_dma_probe_programs.py            # rewrites calibration/dma/programs
 
 Program naming: ``perf_dma_probe_<rd>r_<bg>bg_<size>.S`` where ``rd`` is the
 background read percentage (100, 50, 0), ``bg`` the number of background
@@ -25,6 +27,8 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+
+PROGRAMS = Path(__file__).resolve().parents[1] / "calibration/dma/programs"
 
 HEADER = """# {name}.S — DMA bandwidth-latency probe: {desc}
 # Channel 0 times one 32 B {probe} while channels 1..{last} stream {size} B
@@ -99,7 +103,7 @@ def program(rd: int, bg: int, size: int, probe_store: bool, repeats: int) -> str
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--out", type=Path, required=True, help="Directory for the .S files")
+    parser.add_argument("--out", type=Path, default=PROGRAMS, help="Directory for the .S files")
     parser.add_argument("--reads", nargs="*", type=int, default=[100, 50, 0], help="Background read percentages")
     parser.add_argument("--channels", nargs="*", type=int, default=[0, 1, 2, 4, 7], help="Background channel counts")
     parser.add_argument("--sizes", nargs="*", type=int, default=[32, 128, 1024],
