@@ -384,7 +384,7 @@ class SmolVLAFusedAttentionProgram(Program):
     #     (m24, m25) = V_left BF16, (m26, m27) = V_right BF16
     #     m28        = V_left FP8, m30 = V_right FP8
     #   Per-iteration temporaries (reused):
-    #     (m32, m33) = scores BF16 (from vmatpop.bf16.acc)
+    #     (m32, m33) = scores BF16 (from vmatpop.bf16)
     #     (m34, m35) = scaled BF16
     #     (m36, m37) = tile_max (rowmax broadcast) / exp_diff
     #     (m38, m39) = m_new

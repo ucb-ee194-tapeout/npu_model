@@ -64,10 +64,10 @@ The DMA architectural state includes:
 
 Rules:
 
-- `dma.base` stores a `32`-bit address contribution used by `dma.load.chN` and
-  `dma.store.chN`
+- `dma.base` stores a `32`-bit address contribution used by `dma.load` and
+  `dma.store`
 - `dma.base` is shared across all channels
-- `dma.wait.chN` observes the busy state of the selected channel only
+- `dma.wait ch` observes the busy state of the selected channel only
 
 The architecture-visible control plane includes at least:
 

@@ -22,54 +22,54 @@ lui x20, 0x1
 addi x20, x20, -2048
 addi x18, x0, 0
 addi x30, x0, 1  # dma.base 1: DRAM operands address 4 GiB + offset (Program.dram_base)
-dma.config.ch0 x30
-dma.wait.ch0
-dma.config.ch1 x30
-dma.wait.ch1
-dma.wait.ch0
-dma.wait.ch1
+dma.config x30, 0
+dma.wait 0
+dma.config x30, 1
+dma.wait 1
+dma.wait 0
+dma.wait 1
 loop_2:
 addi x15, x11, 0
 addi x16, x12, 0
 addi x17, x13, 0
 addi x19, x0, 0
 loop_1:
-dma.load.ch0 x1, x14, x5
-dma.load.ch1 x2, x15, x5
-dma.wait.ch0
-dma.load.ch0 x3, x16, x6
+dma.load x1, x14, x5, 0
+dma.load x2, x15, x5, 1
+dma.wait 0
+dma.load x3, x16, x6, 0
 addi x31, x1, 0  # DMA and VLS bases both count words
-vload m0, 0(x31)
+vload 0, x31, 0
 delay 34
-dma.wait.ch1
+dma.wait 1
 addi x31, x2, 0  # DMA and VLS bases both count words
-vload m2, 0(x31)
+vload 2, x31, 0
 delay 34
-dma.wait.ch0
+dma.wait 0
 addi x31, x3, 0  # DMA and VLS bases both count words
-vload m4, 0(x31)
+vload 4, x31, 0
 delay 34
 addi x31, x3, 0  # DMA and VLS bases both count words
-vload m5, 8(x31)
+vload 5, x31, 8
 delay 34
-vtrpose.xlu m2, m2   # MXU weights are streamed as columns
+vtrpose.xlu 2, 2   # MXU weights are streamed as columns
 delay 66
-vmatpush.weight.mxu0 w0, m2
+vmatpush.w.mxu0 0, 2
 delay 32
-vmatmul.mxu0 acc0, m0, w0
+vmatmul.mxu0 0, 0, 0
 delay 96
-vmatpop.bf16.acc.mxu0 m6, acc0
+vmatpop.bf16.mxu0 6, 0
 delay 32
-vadd.bf16 m8, m6, m4
+vadd.bf16 8, 6, 4
 delay 66
 addi x31, x4, 0  # DMA and VLS bases both count words
-vstore m8, 0(x31)
+vstore 8, x31, 0
 delay 34
 addi x31, x4, 0  # DMA and VLS bases both count words
-vstore m9, 8(x31)
+vstore 9, x31, 8
 delay 34
-dma.store.ch0 x17, x4, x6
-dma.wait.ch0
+dma.store x17, x4, x6, 0
+dma.wait 0
 addi x15, x15, 1024
 add x16, x16, x6
 add x17, x17, x6

@@ -40,7 +40,7 @@ def put_fp8(state, reg, values):
 def test_push_weight_streams_t_plus_1_to_t_plus_32(mxu):
     state = mxu.arch_state
     put_fp8(state, m(0), torch.ones(32, 32))
-    tick(mxu, instruction(mxu, "VMATPUSH_WEIGHT", vd=w(0), vs1=m(0)))
+    tick(mxu, instruction(mxu, "VMATPUSH_W", vd=w(0), vs1=m(0)))
     assert state.read_wb_u8(mxu.mxu, w(0)).count_nonzero() == 0
     put_fp8(state, m(0), torch.full((32, 32), 2))
     tick(mxu)
@@ -93,7 +93,7 @@ def test_pop_can_follow_first_result_while_compute_drains(mxu):
         tick(mxu)
     # Row zero must be written and compute's shared accumulator read port
     # must be free (the latter is the limiting condition for IPT).
-    tick(mxu, instruction(mxu, "VMATPOP_BF16_ACC", vd=m(2), vs2=acc(0)))
+    tick(mxu, instruction(mxu, "VMATPOP_BF16", vd=m(2), vs2=acc(0)))
     for _ in range(32):
         tick(mxu)
     assert state.read_mrf_bf16_tile(m(2)).float().tolist() == [[1] * 32] * 32
@@ -107,10 +107,10 @@ def test_overwrite_compute_may_follow_pop_on_same_accumulator(mxu):
     put_fp8(state, m(0), torch.ones(32, 32))
     put_fp8(state, m(1), torch.ones(32, 32))
     state.acc[mxu.mxu][0] = torch.full((32, 32), 3.0).to(torch.bfloat16)
-    tick(mxu, instruction(mxu, "VMATPUSH_WEIGHT", vd=w(0), vs1=m(1)))
+    tick(mxu, instruction(mxu, "VMATPUSH_W", vd=w(0), vs1=m(1)))
     for _ in range(mxu.compute_first + 32):
         tick(mxu)
-    tick(mxu, instruction(mxu, "VMATPOP_BF16_ACC", vd=m(2), vs2=acc(0)))
+    tick(mxu, instruction(mxu, "VMATPOP_BF16", vd=m(2), vs2=acc(0)))
     tick(mxu, instruction(mxu, "VMATMUL", vd=acc(0), vs1=m(0), vs2=w(0)))
     assert len(mxu.in_flight) == 2
     for _ in range(mxu.compute_first + 32):
@@ -121,7 +121,7 @@ def test_overwrite_compute_may_follow_pop_on_same_accumulator(mxu):
 
 
 def test_accumulate_compute_during_pop_on_same_accumulator_is_rejected(mxu):
-    tick(mxu, instruction(mxu, "VMATPOP_BF16_ACC", vd=m(2), vs2=acc(0)))
+    tick(mxu, instruction(mxu, "VMATPOP_BF16", vd=m(2), vs2=acc(0)))
     with pytest.raises(RuntimeError, match="same accumulator"):
         tick(mxu, instruction(mxu, "VMATMUL_ACC", vd=acc(0), vs1=m(0), vs2=w(0)))
 
@@ -152,7 +152,7 @@ def test_compute_before_read_port_boundary_is_rejected(mxu):
 
 def test_compute_and_weight_push_use_independent_read_ports(mxu):
     tick(mxu, instruction(mxu, "VMATMUL", vd=acc(0), vs1=m(0), vs2=w(0)))
-    tick(mxu, instruction(mxu, "VMATPUSH_WEIGHT", vd=w(1), vs1=m(1)))
+    tick(mxu, instruction(mxu, "VMATPUSH_W", vd=w(1), vs1=m(1)))
     assert len(mxu.in_flight) == 2
     for _ in range(mxu.compute_first + 32):
         tick(mxu)
@@ -164,14 +164,14 @@ def test_same_accumulator_reuse_before_row_zero_is_rejected(mxu):
     for _ in range(mxu.compute_first - 1):
         tick(mxu)
     with pytest.raises(RuntimeError, match="row-0"):
-        tick(mxu, instruction(mxu, "VMATPOP_BF16_ACC", vd=m(2), vs2=acc(0)))
+        tick(mxu, instruction(mxu, "VMATPOP_BF16", vd=m(2), vs2=acc(0)))
 
 
 def test_weight_push_then_compute_same_slot_obeys_engine_schedule(mxu):
     state = mxu.arch_state
     put_fp8(state, m(0), torch.ones(32, 32))
     put_fp8(state, m(1), torch.ones(32, 32))
-    tick(mxu, instruction(mxu, "VMATPUSH_WEIGHT", vd=w(0), vs1=m(1)))
+    tick(mxu, instruction(mxu, "VMATPUSH_W", vd=w(0), vs1=m(1)))
     command = instruction(mxu, "VMATMUL", vd=acc(0), vs1=m(0), vs2=w(0))
     if mxu.mxu == "mxu1":
         with pytest.raises(RuntimeError, match="active push"):
@@ -190,7 +190,7 @@ def test_weight_push_after_compute_uses_engine_specific_drain(mxu):
     allowed_age = 63 if mxu.mxu == "mxu0" else 32
     for _ in range(allowed_age - 1):
         tick(mxu)
-    tick(mxu, instruction(mxu, "VMATPUSH_WEIGHT", vd=w(0), vs1=m(1)))
+    tick(mxu, instruction(mxu, "VMATPUSH_W", vd=w(0), vs1=m(1)))
     for _ in range(32):
         tick(mxu)
     assert not mxu.has_in_flight

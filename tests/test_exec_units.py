@@ -8,8 +8,8 @@ import torch
 
 from npu_model.configs.hardware.default import DefaultHardwareConfig
 from npu_model.configs.isa_definition import (
-    DMA_CONFIG_CH0, DMA_LOAD_CH0, DMA_STORE_CH1, LB, LBU, LH, LHU, LW, SB, SELD, SH, SW,
-    VADD_BF16, VLI_ALL, VLI_COL, VLOAD, VMATMUL_MXU0, VMATPUSH_WEIGHT_MXU0, VSTORE,
+    DMA_CONFIG, DMA_LOAD, DMA_STORE, LB, LBU, LH, LHU, LW, SB, SELD, SH, SW,
+    VADD_BF16, VLI_ALL, VLI_COL, VLOAD, VMATMUL_MXU0, VMATPUSH_W_MXU0, VSTORE,
 )
 from npu_model.configs.numerics import NUMERICS
 from npu_model.hardware.arch_state import ArchState
@@ -26,11 +26,11 @@ from npu_model.util.converter import stream_to_instrs
 UNITS = {"VPU": VectorExecutionUnit, "MXU0": MatrixExecutionUnitSystolic,
          "MXU1": MatrixExecutionUnitInner, "XLU": CrossLaneExecutionUnit,
          "LSU": LoadStoreUnit, "DMA": DmaExecutionUnit}
-TWO_INPUT = {"vadd.bf16", "vsub.bf16", "vmul.bf16", "vminimum.bf16", "vmaximum.bf16"}
+TWO_INPUT = {"vadd.bf16", "vsub.bf16", "vmul.bf16", "vmin.bf16", "vmax.bf16"}
 MXU_OPERANDS = {
-    "vmatpush.weight": "w1, m8", "vmatpush.acc.fp8": "acc1, m8", "vmatpush.acc.bf16": "acc1, m2",
-    "vmatpop.fp8.acc": "m4, acc1, e0", "vmatpop.bf16.acc": "m4, acc1",
-    "vmatmul": "acc1, m8, w1", "vmatmul.acc": "acc1, m8, w1",
+    "vmatpush.w": "1, 8", "vmatpush.acc.fp8": "1, 8", "vmatpush.acc.bf16": "1, 2",
+    "vmatpop.fp8": "4, 0, 1", "vmatpop.bf16": "4, 1",
+    "vmatmul": "1, 8, 1", "vmatmul.acc": "1, 8, 1",
 }
 
 
@@ -61,14 +61,14 @@ def make(unit="VPU", numerics="rtl"):
 
 def asm(name):
     if name.startswith("vli."):
-        return f"{name} m4, 0x3f80"
-    if name in {"vpack.bf16.fp8", "vunpack.fp8.bf16"}:
-        return f"{name} m4, m2, e0"
+        return f"{name} 4, 0x3f80"
+    if name in {"vfp8pack", "vfp8unpack"}:
+        return f"{name} 4, 2, 0"
     if name == "vtrpose.xlu":
-        return f"{name} m4, m8"
+        return f"{name} 4, 8"
     if ".mxu" in name:
         return f"{name} {MXU_OPERANDS[name.rsplit('.', 1)[0]]}"
-    return f"{name} m4, m0, m2" if name in TWO_INPUT else f"{name} m4, m0"
+    return f"{name} 4, 0, 2" if name in TWO_INPUT else f"{name} 4, 0"
 
 
 def run(unit, insn):
@@ -109,8 +109,8 @@ MEMORY_CASES = [
     )
 ] + [
     ("DMA", insn) for insn in (
-        DMA_LOAD_CH0(rd=x(6), rs1=x(5), rs2=x(4)), DMA_STORE_CH1(rd=x(5), rs1=x(6), rs2=x(4)),
-        DMA_CONFIG_CH0(rs1=x(7)),
+        DMA_LOAD(ch=0, rd=x(6), rs1=x(5), rs2=x(4)), DMA_STORE(ch=1, rd=x(5), rs1=x(6), rs2=x(4)),
+        DMA_CONFIG(ch=0, rs1=x(7)),
     )
 ]
 CASES = ([("VPU", name) for name in sorted(VPU_OP_LATENCIES)]
@@ -173,7 +173,7 @@ def test_source_overwritten_mid_read_uses_rows_as_sampled():
 
 def test_weight_push_leading_a_matmul_matches_sequential_exec():
     unit, reference = make("MXU0"), make("MXU0").arch_state
-    push = VMATPUSH_WEIGHT_MXU0(vd=w(0), vs1=m(9))
+    push = VMATPUSH_W_MXU0(vd=w(0), vs1=m(9))
     matmul = VMATMUL_MXU0(vd=acc(0), vs1=m(8), vs2=w(0))
     unit.tick(Uop(push))
     unit.tick(Uop(matmul))  # Rows of w0 land while the wavefront advances.
@@ -189,7 +189,7 @@ def test_accumulator_read_trailing_a_push_by_two_cycles_sees_it(unit):
     import npu_model.configs.isa_definition as isa
     exu, reference = make(unit), make(unit).arch_state
     push = getattr(isa, f"VMATPUSH_ACC_FP8_{unit}")(vd=acc(0), vs1=m(8))
-    pop = getattr(isa, f"VMATPOP_BF16_ACC_{unit}")(vd=m(20), vs2=acc(0))
+    pop = getattr(isa, f"VMATPOP_BF16_{unit}")(vd=m(20), vs2=acc(0))
     exu.tick(Uop(push))
     exu.tick(None)
     exu.tick(Uop(pop))  # Gap 2, the minimum: row r is read one cycle after it lands.
@@ -221,7 +221,7 @@ def test_load_after_store_sees_the_stored_word():
 
 def test_dma_takes_registers_at_launch_and_memory_at_completion():
     unit, reference = make("DMA"), make("DMA").arch_state
-    load = DMA_LOAD_CH0(rd=x(6), rs1=x(5), rs2=x(4))
+    load = DMA_LOAD(ch=0, rd=x(6), rs1=x(5), rs2=x(4))
     unit.tick(Uop(load))
     unit.arch_state.write_xrf(6, 0xC00)  # Retargeting x6 mid-transfer has no effect,
     for state in (unit.arch_state, reference):

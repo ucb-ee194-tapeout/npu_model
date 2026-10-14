@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Callable, ClassVar, Self, Any, get_type_hints
 
 from .isa import UJType, SBType
-from .isa_types import Named, Bundled, AsmError, BoundedInt, ScalarReg, ExponentReg, MatrixReg, WeightBuffer, Accumulator, Shamt, Imm12, SBImm12, Imm16, Imm20, Imm21
+from .isa_types import Named, Bundled, AsmError, BoundedInt, ScalarReg, ExponentReg, MatrixReg, WeightBuffer, Accumulator, Channel, Funct3, Shamt, Imm12, SBImm12, Imm16, Imm20, Imm21
 
 # - Named Args ----------------------------------------------
 # Used to significantly clean up linting and assembling code
@@ -32,6 +32,9 @@ w_vs2    = Named(WeightBuffer, "vs2")
 acc_vd   = Named(Accumulator, "vd")
 acc_vs2  = Named(Accumulator, "vs2")
 
+# DMA channel
+ch       = Named(Channel, "DMA channel", "ch")
+
 # Immediates and Labels
 shamt    = Named(Shamt, "shift amount", "imm")
 imm12    = Named(Imm12, "12-bit immediate", "imm")
@@ -39,9 +42,8 @@ sbimm12  = Named(SBImm12, "12-bit SB immediate or label", "imm", True)
 imm16    = Named(Imm16, "16-bit immediate", "imm")
 imm20    = Named(Imm20, "20-bit immediate", "imm")
 imm20_lb = Named(Imm20, "20-bit immediate or label", "imm", True)
+uimm5    = Named(Shamt, "5-bit immediate", "rs1")   # CSR immediate forms carry it in rs1
 
-# Offset-Immediate formats
-x_rs1_imm12 = Bundled(x_rs1, imm12)
 
 # Util functions
 def _wrong_cnt_error(
@@ -216,7 +218,7 @@ class ScalarOffsetLoad(InstructionPattern):
     """
     Instruction pattern for instructions with a scalar destination register and base-offset operand.
 
-    Matches assembly patterns of the form `instr x(rd), imm(x(rs1))`.
+    Matches assembly patterns of the form `instr x(rd), x(rs1), imm`.
     This pattern is used for scalar load instructions: `lb`, `lh`, and `lw`.
 
     Attributes:
@@ -227,7 +229,7 @@ class ScalarOffsetLoad(InstructionPattern):
     rd: ScalarReg
     imm: Imm12
     rs1: ScalarReg
-    params = [x_rd, x_rs1_imm12]
+    params = [x_rd, x_rs1, imm12]
 
     def __init__(self, rd: ScalarReg, imm: int, rs1: ScalarReg):
         self.rd = rd
@@ -239,7 +241,7 @@ class ExponentOffsetLoad(InstructionPattern):
     """
     Instruction pattern for instructions with a exponent destination register and base-offset operand.
 
-    Matches assembly patterns of the form `instr e(rd), imm(x(rs1))`.
+    Matches assembly patterns of the form `instr e(rd), x(rs1), imm`.
     This pattern is used for the following instructions: `seld`
 
     Attributes:
@@ -250,7 +252,7 @@ class ExponentOffsetLoad(InstructionPattern):
     rd: ExponentReg
     imm: Imm12
     rs1: ScalarReg
-    params = [e_rd, x_rs1_imm12]
+    params = [e_rd, x_rs1, imm12]
 
     def __init__(self, rd: ExponentReg, imm: int, rs1: ScalarReg):
         self.rd = rd
@@ -262,7 +264,7 @@ class ScalarBaseOffsetStore(InstructionPattern):
     """
     Instruction pattern for instructions with a source and base-offset operand.
 
-    Matches assembly patterns of the form `instr x(rs2), imm(x(rs1))`. This pattern is
+    Matches assembly patterns of the form `instr x(rs2), x(rs1), imm`. This pattern is
     used for the following scalar instructions: `sb`, `sh`, and `sw`.
 
     Attributes:
@@ -273,7 +275,7 @@ class ScalarBaseOffsetStore(InstructionPattern):
     rs2: ScalarReg
     imm: Imm12
     rs1: ScalarReg
-    params = [x_rs2, x_rs1_imm12]
+    params = [x_rs2, x_rs1, imm12]
 
     def __init__(self, rs2: ScalarReg, imm: int, rs1: ScalarReg):
         self.rs2 = rs2
@@ -285,7 +287,7 @@ class TensorBaseOffset(InstructionPattern):
     """
     Instruction pattern for instructions with a tensor destination/source and base-offset operand.
 
-    Matches assembly patterns of the form `instr m(vd), imm(x(rs1))`. This pattern is
+    Matches assembly patterns of the form `instr m(vd), x(rs1), imm`. This pattern is
     used for the following tensor instructions: `vload` and `vstore`.
 
     Attributes:
@@ -296,7 +298,7 @@ class TensorBaseOffset(InstructionPattern):
     vd: MatrixReg
     imm: Imm12
     rs1: ScalarReg
-    params = [m_vd, x_rs1_imm12]
+    params = [m_vd, x_rs1, imm12]
 
     def __init__(self, vd: MatrixReg, imm: int, rs1: ScalarReg):
         self.vd = vd
@@ -574,7 +576,7 @@ class MXUAccumulatorPopE1(InstructionPattern):
     vd: MatrixReg
     es1: ExponentReg
     vs2: Accumulator
-    params = [m_vd, acc_vs2, e_es1]
+    params = [m_vd, e_es1, acc_vs2]
 
 @dataclass()
 class MXUAccumulatorPop(InstructionPattern):
@@ -611,33 +613,82 @@ class MXUMatMul(InstructionPattern):
     vs2: WeightBuffer
     params = [acc_vd, m_vs1, w_vs2]
 
-@dataclass()
-class DMARegUnary(InstructionPattern):
-    """
-    Instruction pattern for DMA instructions with one scalar register operand.
+class _DMAChannel:
+    """The channel operand of a DMA instruction is its funct3 field."""
+    ch: Channel
 
-    Matches assembly patterns of the form `instr x(rs1)`. This pattern is
-    used for `dma.config.N`.
+    @property
+    def funct3(self) -> Funct3:
+        return Funct3(int(self.ch))
 
-    Attributes:
-        rs1: The source scalar register.
-    """
 
+@dataclass(init=False)
+class CSRReg(InstructionPattern):
+    """`instr x(rd), csr, x(rs1)`: the CSR register forms, CSR number second as in the RTL assembler."""
+    rd: ScalarReg
+    imm: Imm12
     rs1: ScalarReg
-    params = [x_rs1]
+    params = [x_rd, imm12, x_rs1]
 
-    @classmethod
-    def from_asm(
-        cls, tokens: list[str], resolve: Callable[[str], int] = lambda x: int(x, 0)
-    ) -> Self:
-        if tokens[0] != cls.mnemonic:
-            raise ValueError(
-                f"Attempted to construct {cls.mnemonic} with tokens for {tokens[0]}."
-            )
+    def __init__(self, rd: ScalarReg, rs1: ScalarReg, imm: Imm12):
+        self.rd = rd
+        self.rs1 = rs1
+        self.imm = imm
 
-        rs1 = ScalarReg(tokens[1])
 
-        return cls(rs1=rs1)
+@dataclass(init=False)
+class CSRImm(InstructionPattern):
+    """`instr x(rd), csr, uimm5`: the CSR immediate forms; the immediate is encoded in rs1."""
+    rd: ScalarReg
+    imm: Imm12
+    rs1: Shamt
+    params = [x_rd, imm12, uimm5]
+
+    def __init__(self, rd: ScalarReg, rs1: Shamt, imm: Imm12):
+        self.rd = rd
+        self.rs1 = rs1
+        self.imm = imm
+
+
+@dataclass(init=False)
+class DMATransfer(_DMAChannel, InstructionPattern):
+    """
+    Instruction pattern for DMA transfers: `instr x(rd), x(rs1), x(rs2), ch`
+    (`dma.load`, `dma.store`), the channel last as in the RTL assembler.
+    """
+    rd: ScalarReg
+    rs1: ScalarReg
+    rs2: ScalarReg
+    ch: Channel
+    params = [x_rd, x_rs1, x_rs2, ch]
+
+    def __init__(self, rd: ScalarReg, rs1: ScalarReg, rs2: ScalarReg, ch: Channel):
+        self.rd = rd
+        self.rs1 = rs1
+        self.rs2 = rs2
+        self.ch = ch
+
+
+@dataclass(init=False)
+class DMAConfig(_DMAChannel, InstructionPattern):
+    """Instruction pattern for `dma.config x(rs1), ch`."""
+    rs1: ScalarReg
+    ch: Channel
+    params = [x_rs1, ch]
+
+    def __init__(self, rs1: ScalarReg, ch: Channel):
+        self.rs1 = rs1
+        self.ch = ch
+
+
+@dataclass(init=False)
+class DMAWait(_DMAChannel, InstructionPattern):
+    """Instruction pattern for `dma.wait ch`."""
+    ch: Channel
+    params = [ch]
+
+    def __init__(self, ch: Channel):
+        self.ch = ch
 
 @dataclass()
 class Nullary(InstructionPattern):

@@ -65,14 +65,14 @@ instruction; see Spacing instructions with `DELAY`.
 | VPU | `vredsum.bf16`, `vredmin.bf16`, `vredmax.bf16` | 130 cycles |
 | VPU | Row sum (`vredsum.row.bf16`) | 39 cycles |
 | VPU | `vredmin.row.bf16`, `vredmax.row.bf16` | 34 cycles |
-| VPU | `vpack.bf16.fp8` | 66 cycles |
-| VPU | `vunpack.fp8.bf16` | 67 cycles |
+| VPU | `vfp8pack` | 66 cycles |
+| VPU | `vfp8unpack` | 67 cycles |
 | VPU | `vli.all`, `vli.row` | 65 cycles |
 | VPU | `vli.col`, `vli.one` | 33 cycles |
 | XLU | `vtrpose.xlu` | 66 cycles |
 | DMA | `dma.config` | 1 cycle |
 | DMA | `dma.load`, `dma.store` | Variable; see formula below |
-| Frontend | `dma.wait.chN` | Waits until that channel completes |
+| Frontend | `dma.wait ch` | Waits until that channel completes |
 
 For the default hardware configuration, a DMA transfer of `N` bytes takes
 `max(2 * ceil((N + 8) / 4), ceil(N / 64))` cycles, with a minimum of one cycle.
@@ -132,8 +132,8 @@ the register.
 | VPU `vredmin.row`, `vredmax.row` | `vs`, `vs+1`: T..T+31 | `vd`, `vd+1`: T+2..T+33 | reads T+32, writes T+34 |
 | VPU `vredsum.row` | `vs`, `vs+1`: T..T+31 | `vd`, `vd+1`: T+7..T+38 | reads T+32, writes T+39 |
 | VPU `vredsum`, `vredmin`, `vredmax` | `vs`: T..T+31 and T+64..T+95, `vs+1`: T+32..T+63 and T+96..T+127 | `vd`: T+66..T+97, `vd+1`: T+98..T+129 | reads T+128, writes T+130 |
-| `vpack.bf16.fp8` | `vs2`: T..T+31, `vs2+1`: T+32..T+63 | `vd`: every other cycle, T+3..T+65 | reads T+64, writes T+66 |
-| `vunpack.fp8.bf16` | `vs2`: T..T+31 | `vd`: T+3..T+34, `vd+1`: T+35..T+66 | reads T+32, writes T+67 |
+| `vfp8pack` | `vs2`: T..T+31, `vs2+1`: T+32..T+63 | `vd`: every other cycle, T+3..T+65 | reads T+64, writes T+66 |
+| `vfp8unpack` | `vs2`: T..T+31 | `vd`: T+3..T+34, `vd+1`: T+35..T+66 | reads T+32, writes T+67 |
 | `vli.all`, `vli.row` | none | `vd`: T+1..T+32, `vd+1`: T+33..T+64 | T+65 |
 | `vli.col`, `vli.one` | none | `vd`: T+1..T+32 | T+33 |
 | `vtrpose.xlu` | `vs1`: T+1..T+32 | `vd`: T+34..T+65 | reads T+34, writes T+66 |
@@ -163,8 +163,8 @@ the register.
 | Accumulator push, then accumulator push (same MXU, any accumulator) | 32 | 30 |
 
 \* Logic groups: {`vadd`, `vsub`, `vredsum.row`}, {`vexp`, `vexp2`},
-{`vsin`, `vcos`}, {`vsquare`, `vcube`}, {`vmaximum`, `vredmax`},
-{`vminimum`, `vredmin`}, and all `vli` forms. A binary or row-reduction op
+{`vsin`, `vcos`}, {`vsquare`, `vcube`}, {`vmax.bf16`, `vredmax`},
+{`vmin.bf16`, `vredmin`}, and all `vli` forms. A binary or row-reduction op
 occupies both VPU slots; at most two VPU ops are in flight. `vload` and
 `vstore` use independent paths. On each MXU, weight pushes share one write
 path and accumulator pushes another, which carries one push at a time.
@@ -225,12 +225,12 @@ Decode must enforce the reserved-zero rules defined by the ISA, including:
 
 - unary `VPU` operations: `vs2 = 0`
 - `XLU` operations: `vs2 = 0`
-- `vmatpush.weight.*`: `vs2 = 0` and `vd[5:1] = 0`
+- `vmatpush.w.*`: `vs2 = 0` and `vd[5:1] = 0`
 - `vmatpush.acc.*`: `vs2 = 0` and `vd[5:1] = 0`
 - `vmatpop.*`: `vs1 = 0` and `vs2[5:1] = 0`
 - `vmatmul.*`: `vd[5:1] = 0` and `vs2[5:1] = 0`
-- `dma.config.chN` and `dma.wait.chN`: `rd = x0`
-- `dma.wait.chN`: `rs1 = x0`
+- `dma.config` and `dma.wait`: `rd = x0`
+- `dma.wait`: `rs1 = x0`
 
 Decode must also enforce pair-register legality for instructions whose semantics
 consume or produce `{m[r], m[r + 1]}`:
@@ -283,7 +283,7 @@ Shared requirements:
 - `BF16` architectural accumulation
 - two local `32 x 32 BF16` accumulation buffers per MXU
 - tensor-register-only accumulator preload and spill path
-- local quantization path for `vmatpop.fp8.acc.*`
+- local quantization path for `vmatpop.fp8.*`
 - ability to overlap with scalar and other long-chime units
 
 `mxu0` requirements:
@@ -300,13 +300,13 @@ Shared requirements:
 The VPU baseline implements:
 
 - binary BF16 operations: `vadd.bf16`, `vsub.bf16`, `vmul.bf16`,
-  `vminimum.bf16`, `vmaximum.bf16`
-- unary BF16 operations: `vmov`, `vrecip.bf16`, `vsqrt.bf16`, `vsin.bf16`,
-  `vcos.bf16`, `vtanh.bf16`, `vlog2.bf16`, `vexp.bf16`, `vexp2.bf16`,
-  `vrelu.bf16`, `vsquare.bf16`, `vcube.bf16`
+  `vmin.bf16`, `vmax.bf16`
+- unary BF16 operations: `vmov`, `vrecip.bf16`, `vsqrt`, `vsin`,
+  `vcos`, `vtanh`, `vlog2`, `vexp`, `vexp2`,
+  `vrelu`, `vsquare.bf16`, `vcube.bf16`
 - BF16 reductions: `vredsum.bf16`, `vredmin.bf16`, `vredmax.bf16`,
   `vredsum.row.bf16`, `vredmin.row.bf16`, `vredmax.row.bf16`
-- format conversion: `vpack.bf16.fp8`, `vunpack.fp8.bf16`
+- format conversion: `vfp8pack`, `vfp8unpack`
 - immediate writes: `vli.all`, `vli.row`, `vli.col`, `vli.one`
 
 Ordinary BF16 tile operations read their input from a register pair

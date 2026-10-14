@@ -30,58 +30,58 @@ li x10, 2048            # bf16 tile bytes (32*32*2)
 
 # --- DRAM -> VMEM ---
 addi x30, x0, 1  # dma.base 1: DRAM operands address 4 GiB + offset (Program.dram_base)
-dma.config.ch0 x30
-dma.wait.ch0
-dma.load.ch0 x1, x5, x9    # gate weight tile
-dma.load.ch1 x2, x6, x9    # up weight tile
-dma.load.ch2 x3, x7, x9    # activation tile
-dma.wait.ch0
-dma.wait.ch1
-dma.wait.ch2
+dma.config x30, 0
+dma.wait 0
+dma.load x1, x5, x9, 0    # gate weight tile
+dma.load x2, x6, x9, 1    # up weight tile
+dma.load x3, x7, x9, 2    # activation tile
+dma.wait 0
+dma.wait 1
+dma.wait 2
 
 # --- VMEM -> MRF (weights + activation) ---
 addi x31, x1, 0  # DMA and VLS bases both count words
-vload m0, 0(x31)     # gate W (fp8)
+vload 0, x31, 0     # gate W (fp8)
 delay 34
 addi x31, x2, 0  # DMA and VLS bases both count words
-vload m1, 0(x31)     # up W (fp8)
+vload 1, x31, 0     # up W (fp8)
 delay 34
 addi x31, x3, 0  # DMA and VLS bases both count words
-vload m2, 0(x31)     # act (fp8)
+vload 2, x31, 0     # act (fp8)
 delay 34
 
 # --- Push weights to MXU0 WB slots 0 and 1 ---
-vtrpose.xlu m0, m0   # MXU weights are streamed as columns
+vtrpose.xlu 0, 0   # MXU weights are streamed as columns
 delay 66
-vmatpush.weight.mxu0 w0, m0
+vmatpush.w.mxu0 0, 0
 delay 32
-vtrpose.xlu m1, m1   # MXU weights are streamed as columns
+vtrpose.xlu 1, 1   # MXU weights are streamed as columns
 delay 66
-vmatpush.weight.mxu0 w1, m1
+vmatpush.w.mxu0 1, 1
 delay 32
 
 # --- Matrix Multiplications ---
 # Gate projection: activation @ gate_weight -> acc0
-vmatmul.mxu0 acc0, m2, w0
+vmatmul.mxu0 0, 2, 0
 delay 96
-vmatpop.bf16.acc.mxu0 m4, acc0     # gate -> m4/m5
+vmatpop.bf16.mxu0 4, 0     # gate -> m4/m5
 delay 32
 # Up projection: activation @ up_weight -> acc0
-vmatmul.mxu0 acc0, m2, w1
+vmatmul.mxu0 0, 2, 1
 delay 96
-vmatpop.bf16.acc.mxu0 m6, acc0     # up -> m6/m7
+vmatpop.bf16.mxu0 6, 0     # up -> m6/m7
 delay 32
 
 # --- Element-wise Multiplication (GeGLU simplified: gate * up) ---
-vmul.bf16 m8, m4, m6
+vmul.bf16 8, 4, 6
 delay 66
 
 # --- Store Results ---
 addi x31, x4, 0  # DMA and VLS bases both count words
-vstore m8, 0(x31)
+vstore 8, x31, 0
 delay 34
 addi x31, x4, 0  # DMA and VLS bases both count words
-vstore m9, 8(x31)
+vstore 9, x31, 8
 delay 34
-dma.store.ch0 x8, x4, x10
-dma.wait.ch0
+dma.store x8, x4, x10, 0
+dma.wait 0

@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 from npu_model.isa import VRType
 from ..isa_types import MatrixReg, WeightBuffer, Accumulator
 from npu_model.isa_patterns import TensorBaseOffset, TensorComputeBinary, TensorComputeUnary, DirectImm, MXUAccumulatorPop, MXUWeightPush, MXUAccumulatorPopE1, MXUAccumulatorPush, MXUMatMul, ScalarComputeReg
-from npu_model.configs.isa_definition import VMOV, VPACK_BF16_FP8, VUNPACK_FP8_BF16
+from npu_model.configs.isa_definition import VMOV, VFP8PACK, VFP8UNPACK
 
 if TYPE_CHECKING:
     from .arch_state import ArchState
@@ -91,11 +91,11 @@ def mrf_accesses(insn: Instruction) -> frozenset[int]:
         return frozenset({insn.vs1})
 
     # Two-register read (bf16 pack): reads vs2 and vs2+1, writes vd -------
-    if isinstance(insn, VPACK_BF16_FP8):
+    if isinstance(insn, VFP8PACK):
         return _pair(insn.vs2) | frozenset({insn.vd})
 
     # Two-register write (fp8 unpack): reads vs2, writes vd and vd+1 ------
-    if isinstance(insn, VUNPACK_FP8_BF16):
+    if isinstance(insn, VFP8UNPACK):
         return frozenset({insn.vs2}) | _pair(insn.vd)
 
     if isinstance(insn, VRType):

@@ -16,7 +16,7 @@
     "tests/rtl/ipt_traces.json": "6834dcc1399ca1c8bc71f3c4ce88899ac2dd7da4b439616df66eaeec93b0262a",
     "tests/rtl/memory_traces.json": "9eba3202f2f3b79e6f539aac9a3a816c7dd08fd9e4e17b4c6369d72b412d9c9c",
     "tests/rtl/sa_traces.json": "62252fd1312d7e31013b6c4a310be0e5f567eee8055218d376a06731aca60573",
-    "tests/rtl/scalar_cases.json": "9b86dd2d2926e0ee5f900d219bc52636ce6d4d1788bfa236b2eb4e873193c801",
+    "tests/rtl/scalar_cases.json": "39fb4648fd302012a8f32b8d8af0ee9c079249843e6c84b991a9ae9e11386d81",
     "tests/rtl/scalar_traces.json": "092e334d272a01a13ed6846a56aaa2f5d754680721cacf5b5bd50f49ef3085b2",
     "tests/rtl/vector_traces.json": "05fccec50691381c3cf1f3c693f71e2b976bc501879e100af2492c6eabdeed17"
   },

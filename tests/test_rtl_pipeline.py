@@ -9,7 +9,7 @@ import pytest
 
 from npu_model.configs.hardware.default import DefaultHardwareConfig
 from npu_model.configs.isa_definition import (
-    ADDI, AUIPC, BEQ, BNE, BLT, BGE, JAL, JALR, DELAY, DMA_WAIT_CH0,
+    ADDI, AUIPC, BEQ, BNE, BLT, BGE, JAL, JALR, DELAY, DMA_WAIT,
     ECALL, EBREAK, SLL, SLT, SRLI,
 )
 from npu_model.hardware.core import Core
@@ -126,7 +126,7 @@ def test_jalr_same_source_destination_uses_old_source_and_word_link(make_core):
 
 
 def test_dma_wait_holds_frontend_until_busy_is_clear(make_core):
-    core = make_core([DMA_WAIT_CH0(), ADDI(x(1), x(0), 1)])
+    core = make_core([DMA_WAIT(ch=0), ADDI(x(1), x(0), 1)])
     core.arch_state.set_flag(0)
     trace = step(core, 4)
     assert all(t['stall'] == 'dma.wait' for t in trace[1:])

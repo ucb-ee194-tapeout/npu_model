@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """Score (or fit) the DMA memory backend against cycle deltas measured on the RTL.
 
-The programs ``calibration/dma/programs/perf_dma_*.S`` (baremetal assembler
-syntax) bank the mcycles delta around a DMA region into CSR_DBG1; the generated
+The programs ``calibration/dma/programs/perf_dma_*.S`` bank the mcycles delta around a DMA region into CSR_DBG1; the generated
 C harness prints it as ``dbg1_cycles``. This script runs the same programs
-through the Python model (translating the baremetal assembler syntax) and
+through the Python model (the model's assembler reads the baremetal syntax directly) and
 compares the model's CSR_DBG1 with the measurement.
 
 Measurements come from ``calibration/dma/measurements/ee290sim_vcs.json`` by
@@ -46,45 +45,8 @@ MEASUREMENTS = MODEL / "calibration/dma/measurements/ee290sim_vcs.json"
 
 
 # ---------------------------------------------------------------------------
-# Baremetal assembly -> model assembly
+# Program directives
 # ---------------------------------------------------------------------------
-
-
-def _tokens(line: str) -> list[str]:
-    return [t for t in re.split(r"[\s,]+", line.strip()) if t]
-
-
-def translate_line(line: str) -> str | None:
-    """Rewrite one baremetal/assembler.py line into npu_model/util/converter.py syntax."""
-    code = line.split("#", 1)[0].strip()
-    if not code:
-        return None
-    if code.endswith(":"):
-        return code
-    tokens = _tokens(code)
-    mnemonic, ops = tokens[0].upper(), tokens[1:]
-    if mnemonic in ("DMA.LOAD", "DMA.STORE"):
-        return f"{mnemonic.lower()}.ch{int(ops[3], 0)} {ops[0]}, {ops[1]}, {ops[2]}"
-    if mnemonic == "DMA.CONFIG":
-        return f"dma.config.ch{int(ops[1], 0)} {ops[0]}"
-    if mnemonic == "DMA.WAIT":
-        return f"dma.wait.ch{int(ops[0], 0)}"
-    if mnemonic in ("CSRRW", "CSRRS", "CSRRC"):       # rd, csr, rs1 -> rd, rs1, csr
-        return f"{mnemonic.lower()} {ops[0]}, {ops[2]}, {ops[1]}"
-    if mnemonic in ("CSRRWI", "CSRRSI", "CSRRCI"):
-        return f"{mnemonic.lower()} {ops[0]}, {ops[2]}, {ops[1]}"
-    if mnemonic == "CSRR":                             # rd, csr
-        return f"csrrs {ops[0]}, x0, {ops[1]}"
-    if mnemonic == "CSRW":                             # rs, csr
-        return f"csrrw x0, {ops[0]}, {ops[1]}"
-    if mnemonic == "SELI":
-        return f"seli e{int(ops[0], 0)}, {ops[1]}"
-    return " ".join([mnemonic.lower(), ", ".join(ops)]) if ops else mnemonic.lower()
-
-
-def translate_program(source: str) -> str:
-    lines = [translate_line(line) for line in source.splitlines()]
-    return "\n".join(line for line in lines if line is not None) + "\n"
 
 
 def directive(source: str, name: str, default: int) -> int:
@@ -116,7 +78,7 @@ def make_config(backend: str | None, params: dict) -> DefaultHardwareConfig:
 
 def model_cycles(asm_path: Path, backend: str | None, params: dict) -> int:
     source = asm_path.read_text()
-    program = InstantiableProgram(stream_to_instrs(io.StringIO(translate_program(source))))
+    program = InstantiableProgram(stream_to_instrs(io.StringIO(source)))
     program.memory_regions = []
     with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as handle:
         trace = handle.name

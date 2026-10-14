@@ -23,7 +23,7 @@ MRF layout per output tile:
   v0         = A fp8 (32×32, single MRF register)
   v2         = B fp8 (32×32)
   (v4,  v5 ) = bias bf16 pair
-  (v6,  v7 ) = matmul result bf16  (from vmatpop.bf16.acc.mxu0 vd=6)
+  (v6,  v7 ) = matmul result bf16  (from vmatpop.bf16.mxu0 vd=6)
   (v8,  v9 ) = output = result + bias
 """
 

@@ -301,7 +301,7 @@ class ExponentReg(RegBase):
 
     lower_bound = 0
     upper_bound = 32
-    fmt = "e"
+    fmt = ""  # bare number in assembly (baremetal/assembler.py syntax)
     reg_name = "exponent register"
 
 
@@ -319,7 +319,7 @@ class MatrixReg(RegBase):
 
     lower_bound = 0
     upper_bound = 64
-    fmt = "m"
+    fmt = ""  # bare number in assembly (baremetal/assembler.py syntax)
     reg_name = "matrix register"
 
 
@@ -338,7 +338,7 @@ class Accumulator(RegBase):
 
     lower_bound = 0
     upper_bound = 2
-    fmt = "acc"
+    fmt = ""  # bare number in assembly (baremetal/assembler.py syntax)
     reg_name = "accumulator"
 
 
@@ -355,7 +355,7 @@ class WeightBuffer(RegBase):
 
     lower_bound = 0
     upper_bound = 2
-    fmt = "w"
+    fmt = ""  # bare number in assembly (baremetal/assembler.py syntax)
     reg_name = "weight buffer"
 
 
@@ -375,6 +375,16 @@ class Shamt(BoundedInt):
     lower_bound = 0
     upper_bound = 32
     fmt = "shamt"
+
+
+class Channel(BoundedInt):
+    """
+    Represents a DMA channel number, 0-7, carried in funct3 of the DMA instructions.
+    """
+
+    lower_bound = 0
+    upper_bound = 8
+    fmt = "channel"
 
 
 # Imm12

@@ -63,26 +63,27 @@ def test_dma_config_and_wait_parse_correctly() -> None:
     program = input_to_program(
         io.StringIO(
             """
-            dma.config.ch0 x7
-            dma.wait.ch1
+            dma.config x7, 0
+            dma.wait 1
             """
         )
     )
 
     config = program.instructions[0]
-    assert isinstance(config, DMA_CONFIG_CH0)
-    assert config.rs1 == 7
-    assert isinstance(program.instructions[1], DMA_WAIT_CH1)
+    assert isinstance(config, DMA_CONFIG)
+    assert config.rs1 == 7 and config.ch == 0 and int(config.funct3) == 0
+    wait = program.instructions[1]
+    assert isinstance(wait, DMA_WAIT) and wait.ch == 1 and int(wait.funct3) == 1
 
 
 def test_offset_addressing_and_vi_immediates_parse_correctly() -> None:
     program = input_to_program(
         io.StringIO(
             """
-            lw x1, 16(x2)
-            sw x3, 20(x4)
-            vload m5, 7(x6)
-            vli.all m7, -3
+            lw x1, x2, 16
+            sw x3, x4, 20
+            vload 5, x6, 7
+            vli.all 7, -3
             """
         )
     )
@@ -112,19 +113,19 @@ def test_matrix_transfer_and_matmul_parse_correctly() -> None:
     program = input_to_program(
         io.StringIO(
             """
-            vmatpush.weight.mxu0 w0, m1
-            vmatpop.bf16.acc.mxu0 m4, acc1
-            vmatmul.mxu0 acc0, m5, w0
+            vmatpush.w.mxu0 0, 1
+            vmatpop.bf16.mxu0 4, 1
+            vmatmul.mxu0 0, 5, 0
             """
         )
     )
 
     push = program.instructions[0]
-    assert isinstance(push, VMATPUSH_WEIGHT_MXU0)
+    assert isinstance(push, VMATPUSH_W_MXU0)
     assert push.vd == 0
     assert push.vs1 == 1
     pop = program.instructions[1]
-    assert isinstance(pop, VMATPOP_BF16_ACC_MXU0)
+    assert isinstance(pop, VMATPOP_BF16_MXU0)
     assert pop.vd == 4
     assert pop.vs2 == 1
     mul = program.instructions[2]
@@ -196,10 +197,10 @@ def test_instruction_constructors_retain_raw_encoded_immediate_convention() -> N
 
 @pytest.mark.parametrize("source, expected", [
     ("addi x3, x1, 17", _i_type(0b0010011, 0b000, 3, 1, 17)),
-    ("lw x7, 16(x2)", _i_type(0b0000011, 0b010, 7, 2, 16)),
+    ("lw x7, x2, 16", _i_type(0b0000011, 0b010, 7, 2, 16)),
     ("jalr x3, x2, 5", _jalr(3, 2, 5)),
     ("delay 7", _i_type(0b1100111, 0b001, 0, 0, 7)),
-    ("seli e3, 127", _i_type(0b0000011, 0b111, 3, 0, 127)),
+    ("seli 3, 127", _i_type(0b0000011, 0b111, 3, 0, 127)),
 ])
 def test_i_type_encoding_keeps_destination_separate_from_immediate(source: str, expected: int) -> None:
     assert input_to_program(io.StringIO(source)).assemble() == [expected]

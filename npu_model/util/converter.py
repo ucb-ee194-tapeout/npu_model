@@ -104,6 +104,14 @@ def stream_to_instrs(source: TextIO) -> list[Instruction]:
             e = expand_li(parse_reg(tokens[1]), int(tokens[2], 0))
             instructions.extend(e)
             pc += len(e)
+        elif mnemonic == "csrr" and len(tokens) == 3:      # csrr rd, csr  ->  csrrs rd, csr, x0
+            tokens = ["csrrs", tokens[1], tokens[2], "x0"]
+            instructions.append(IsaSpec.operations["csrrs"].from_asm(tokens, resolve))
+            pc += 1
+        elif mnemonic == "csrw" and len(tokens) == 3:      # csrw rs, csr  ->  csrrw x0, csr, rs
+            tokens = ["csrrw", "x0", tokens[2], tokens[1]]
+            instructions.append(IsaSpec.operations["csrrw"].from_asm(tokens, resolve))
+            pc += 1
         else:
             try:
                 # mnemonic should be lowercase

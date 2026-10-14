@@ -12,36 +12,36 @@ from .exu import ExecutionUnit, StagedExecution
 from ..software.instruction import Uop
 from ..isa import EXU
 
-_TWO_INPUT = {"vadd.bf16", "vsub.bf16", "vmul.bf16", "vminimum.bf16", "vmaximum.bf16"}
+_TWO_INPUT = {"vadd.bf16", "vsub.bf16", "vmul.bf16", "vmin.bf16", "vmax.bf16"}
 _ROW_REDUCE = {"vredsum.row.bf16", "vredmin.row.bf16", "vredmax.row.bf16"}
 _COL_REDUCE = {"vredsum.bf16", "vredmin.bf16", "vredmax.bf16"}
 _GROUPS = (
     {"vadd.bf16", "vsub.bf16", "vredsum.row.bf16"},
-    {"vexp.bf16", "vexp2.bf16"},
-    {"vsin.bf16", "vcos.bf16"},
+    {"vexp", "vexp2"},
+    {"vsin", "vcos"},
     {"vsquare.bf16", "vcube.bf16"},
-    {"vmaximum.bf16", "vredmax.bf16"},
-    {"vminimum.bf16", "vredmin.bf16"},
+    {"vmax.bf16", "vredmax.bf16"},
+    {"vmin.bf16", "vredmin.bf16"},
     {"vli.all", "vli.row", "vli.col", "vli.one"},
 )
 
 # ScalarISA numbering (zero is VPU_NONE; sixteen is reserved FP8).
 _OP_ORDER = (
-    "vadd.bf16", "vsub.bf16", "vmul.bf16", "vrecip.bf16", "vsqrt.bf16",
-    "vsin.bf16", "vcos.bf16", "vtanh.bf16", "vlog2.bf16", "vexp.bf16",
-    "vexp2.bf16", "vsquare.bf16", "vcube.bf16", "vredsum.row.bf16",
-    "vredsum.bf16", "reserved.fp8", "vpack.bf16.fp8", "vunpack.fp8.bf16",
-    "vrelu.bf16", "vredmax.row.bf16", "vredmin.row.bf16", "vredmax.bf16",
-    "vredmin.bf16", "vmaximum.bf16", "vminimum.bf16", "vmov",
+    "vadd.bf16", "vsub.bf16", "vmul.bf16", "vrecip.bf16", "vsqrt",
+    "vsin", "vcos", "vtanh", "vlog2", "vexp",
+    "vexp2", "vsquare.bf16", "vcube.bf16", "vredsum.row.bf16",
+    "vredsum.bf16", "reserved.fp8", "vfp8pack", "vfp8unpack",
+    "vrelu", "vredmax.row.bf16", "vredmin.row.bf16", "vredmax.bf16",
+    "vredmin.bf16", "vmax.bf16", "vmin.bf16", "vmov",
     "vli.one", "vli.col", "vli.row", "vli.all",
 )
 
 # Inclusive issue-to-last-write cycles for the default 32-row geometry.
 VPU_OP_LATENCIES = {
     **dict.fromkeys(_TWO_INPUT | _COL_REDUCE | {
-        "vmov", "vrecip.bf16", "vexp.bf16", "vexp2.bf16", "vpack.bf16.fp8",
-        "vrelu.bf16", "vsin.bf16", "vcos.bf16", "vtanh.bf16", "vlog2.bf16",
-        "vsqrt.bf16", "vsquare.bf16", "vcube.bf16",
+        "vmov", "vrecip.bf16", "vexp", "vexp2", "vfp8pack",
+        "vrelu", "vsin", "vcos", "vtanh", "vlog2",
+        "vsqrt", "vsquare.bf16", "vcube.bf16",
     }, 66),
     **dict.fromkeys(_COL_REDUCE, 130),
     "vredsum.row.bf16": 39,
@@ -51,7 +51,7 @@ VPU_OP_LATENCIES = {
     "vli.row": 65,
     "vli.col": 33,
     "vli.one": 33,
-    "vunpack.fp8.bf16": 67,
+    "vfp8unpack": 67,
 }
 
 
@@ -132,15 +132,15 @@ class VectorExecutionUnit(ExecutionUnit):
             raise RuntimeError(f"VPU command {name} issued while its issue-busy bit is set")
         slot = next(index for index in (0, 1) if all(op.slot != index for op in live))
         vli = name.startswith("vli.")
-        pair_write = name not in {"vpack.bf16.fp8", "vli.col", "vli.one"}
+        pair_write = name not in {"vfp8pack", "vli.col", "vli.one"}
         if pair_write and int(insn.vd) & 1:
             raise RuntimeError("VPU pair-write destination bank must be even")
         writes = frozenset({int(insn.vd), int(insn.vd) + 1} if pair_write else {int(insn.vd)})
         reads = set()
         if not vli:
-            source = int(insn.vs2 if name in {"vpack.bf16.fp8", "vunpack.fp8.bf16"} else insn.vs1)
+            source = int(insn.vs2 if name in {"vfp8pack", "vfp8unpack"} else insn.vs1)
             reads.add(source)
-            if name != "vunpack.fp8.bf16":
+            if name != "vfp8unpack":
                 if source & 1:
                     raise RuntimeError("VPU pair-read primary bank must be even")
                 reads.add(source + 1)
@@ -149,7 +149,7 @@ class VectorExecutionUnit(ExecutionUnit):
                 if source2 & 1:
                     raise RuntimeError("VPU pair-read secondary bank must be even")
                 reads.update({source2, source2 + 1})
-        read_last = -1 if vli else (31 if name in _ROW_REDUCE | {"vunpack.fp8.bf16"}
+        read_last = -1 if vli else (31 if name in _ROW_REDUCE | {"vfp8unpack"}
                                     else 127 if name in _COL_REDUCE else 63)
         owner = f"{self.name}:{uop.id}:{name}"
         self.arch_state.conflict_checker.reserve_mreg(owner, frozenset(reads), writes)
@@ -179,10 +179,10 @@ class VectorExecutionUnit(ExecutionUnit):
         insn, name = op.uop.insn, op.uop.insn.mnemonic
         if name in _ROW_REDUCE:
             return [(int(insn.vs1), age), (int(insn.vs1) + 1, age)]
-        if name == "vunpack.fp8.bf16":
+        if name == "vfp8unpack":
             return [(int(insn.vs2), age)]
         # Column reductions keep reading for 128 cycles, wrapping the pair.
-        source = int(insn.vs2 if name == "vpack.bf16.fp8" else insn.vs1)
+        source = int(insn.vs2 if name == "vfp8pack" else insn.vs1)
         reads = [(source + ((age // 32) & 1), age % 32)]
         if name in _TWO_INPUT:
             reads.append((int(insn.vs2) + age // 32, age % 32))
@@ -196,11 +196,11 @@ class VectorExecutionUnit(ExecutionUnit):
             # Both halves of row r land together, after the reduction tree.
             row = age - (7 if name == "vredsum.row.bf16" else 2)
             return [(vd, row), (vd + 1, row)] if 0 <= row < 32 else []
-        if name == "vpack.bf16.fp8":
+        if name == "vfp8pack":
             # FP8 row k packs BF16 rows 2k and 2k + 1, two cycles after the second.
             return [(vd, (age - 3) // 2)] if 3 <= age <= 65 and age % 2 else []
         # The rest write one row per cycle across the pair, starting at `first`.
-        first = (1 if name.startswith("vli.") else 3 if name == "vunpack.fp8.bf16"
+        first = (1 if name.startswith("vli.") else 3 if name == "vfp8unpack"
                  else 66 if name in _COL_REDUCE else 2)
         index = age - first
         count = 32 if name in {"vli.col", "vli.one"} else 64

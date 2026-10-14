@@ -31,7 +31,7 @@ class _VmemConflictProgram(Program):
 
 class _WeightBufConflictProgram(Program):
     instructions: list[Instruction] = [
-        VMATPUSH_WEIGHT_MXU1(vd=w(0), vs1=m(0)),
+        VMATPUSH_W_MXU1(vd=w(0), vs1=m(0)),
         # MXU1 rejects a matmul that reads this slot while its push is active.
         VMATMUL_MXU1(vd=acc(0), vs1=m(2), vs2=w(0)),
     ]
@@ -41,7 +41,7 @@ class _WeightBufConflictProgram(Program):
 class _AccBufConflictProgram(Program):
     instructions: list[Instruction] = [
         VMATMUL_MXU0(vd=acc(0), vs1=m(0), vs2=w(0)),
-        VMATPOP_BF16_ACC_MXU0(vd=m(4), vs2=acc(0)),
+        VMATPOP_BF16_MXU0(vd=m(4), vs2=acc(0)),
     ]
     memory_regions: List[Tuple[int, torch.Tensor]] = []
 
@@ -79,11 +79,11 @@ class _NoVmemConflictProgram(Program):
         ADDI(rd=x(2), rs1=x(0), imm=1024),
         ADDI(rd=x(3), rs1=x(0), imm=1024),
         ADDI(rd=x(4), rs1=x(0), imm=1),            # dma.base 1: DRAM operands address Program.dram_base
-        DMA_CONFIG_CH0(rs1=x(4)),
-        DMA_WAIT_CH0(),
-        DMA_LOAD_CH0(rd=x(0), rs1=x(0), rs2=x(2)),
+        DMA_CONFIG(ch=0, rs1=x(4)),
+        DMA_WAIT(ch=0),
+        DMA_LOAD(ch=0, rd=x(0), rs1=x(0), rs2=x(2)),
         VLOAD(vd=m(0), imm=0, rs1=x(3)),
-        DMA_WAIT_CH0(),
+        DMA_WAIT(ch=0),
     ]
     memory_regions: List[Tuple[int, torch.Tensor]] = [
         (0, torch.zeros(1024, dtype=torch.uint8)),
@@ -93,7 +93,7 @@ class _NoVmemConflictProgram(Program):
 
 class _NoWeightBufConflictProgram(Program):
     instructions: list[Instruction] = [
-        VMATPUSH_WEIGHT_MXU0(vd=w(0), vs1=m(0)),
+        VMATPUSH_W_MXU0(vd=w(0), vs1=m(0)),
         # MXU0 can read the same weight slot while it is still being filled.
         # Use a different MRF bank so this only tests weight-buffer forwarding.
         VMATMUL_MXU0(vd=acc(0), vs1=m(2), vs2=w(0)),
@@ -103,7 +103,7 @@ class _NoWeightBufConflictProgram(Program):
 
 class _NoWeightPushMrfConflictProgram(Program):
     instructions: list[Instruction] = [
-        VMATPUSH_WEIGHT_MXU0(vd=w(0), vs1=m(0)),
+        VMATPUSH_W_MXU0(vd=w(0), vs1=m(0)),
         # Both commands read m0. The push reads it at ages 0..31; DELAY 30
         # puts the matmul 32 issue cycles after the push. DELAY 29 overlaps.
         DELAY(imm=30),
@@ -114,7 +114,7 @@ class _NoWeightPushMrfConflictProgram(Program):
 
 class _NoMxu1WeightBufConflictProgram(Program):
     instructions: list[Instruction] = [
-        VMATPUSH_WEIGHT_MXU1(vd=w(0), vs1=m(0)),
+        VMATPUSH_W_MXU1(vd=w(0), vs1=m(0)),
         DELAY(imm=30),
         VMATMUL_MXU1(vd=acc(0), vs1=m(2), vs2=w(0)),
     ]
@@ -126,7 +126,7 @@ class _NoAccBufConflictProgram(Program):
         VMATMUL_MXU0(vd=acc(0), vs1=m(0), vs2=w(0)),
         # Wait until the first accumulator row is available to the pop.
         DELAY(imm=62),
-        VMATPOP_BF16_ACC_MXU0(vd=m(4), vs2=acc(0)),
+        VMATPOP_BF16_MXU0(vd=m(4), vs2=acc(0)),
     ]
     memory_regions: List[Tuple[int, torch.Tensor]] = []
 
@@ -160,10 +160,10 @@ class _NoXluWriteReadConflictProgram(Program):
 
 class _NoWeightPushOverlapProgram(Program):
     instructions: list[Instruction] = [
-        VMATPUSH_WEIGHT_MXU0(vd=w(0), vs1=m(0)),
+        VMATPUSH_W_MXU0(vd=w(0), vs1=m(0)),
         # Weight pushes share one write path; the next waits for the last row.
         DELAY(imm=30),
-        VMATPUSH_WEIGHT_MXU0(vd=w(1), vs1=m(2)),
+        VMATPUSH_W_MXU0(vd=w(1), vs1=m(2)),
     ]
     memory_regions: List[Tuple[int, torch.Tensor]] = []
 
@@ -192,7 +192,7 @@ class _NoPopAfterPushProgram(Program):
     instructions: list[Instruction] = [
         VMATPUSH_ACC_FP8_MXU1(vd=acc(0), vs1=m(0)),
         DELAY(imm=0),
-        VMATPOP_BF16_ACC_MXU1(vd=m(4), vs2=acc(0)),
+        VMATPOP_BF16_MXU1(vd=m(4), vs2=acc(0)),
     ]
     memory_regions: List[Tuple[int, torch.Tensor]] = []
 

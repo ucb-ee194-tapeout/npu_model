@@ -16,7 +16,7 @@ MLIR → ISA mapping:
     linalg.reduce sum → vredsum.row.bf16                (row-sum of squares)
     arith.mulf  sum inv_dim → vmul.bf16                 (mean of squares)
     arith.addf  mean eps    → vadd.bf16                 (+ eps)
-    math.rsqrt  denom        → vsqrt.bf16 + vrecip.bf16 (1/sqrt)
+    math.rsqrt  denom        → vsqrt + vrecip.bf16 (1/sqrt)
     arith.mulf  x inv_rms    → vmul.bf16                (normalize)
 
 Run:
@@ -98,7 +98,7 @@ def rms_norm_reference(
         sum   = sum over 32 cols            (vredsum.row.bf16)
         mean  = sum * inv_dim               (vmul.bf16)
         denom = mean + eps                  (vadd.bf16)
-        root  = sqrt(denom)                 (vsqrt.bf16)
+        root  = sqrt(denom)                 (vsqrt)
         inv   = 1 / root                    (vrecip.bf16)
         y     = x * inv                     (vmul.bf16)
     """

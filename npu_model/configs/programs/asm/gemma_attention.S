@@ -32,63 +32,63 @@ li x12, 2048
 
 # --- DRAM -> VMEM ---
 addi x30, x0, 1  # dma.base 1: DRAM operands address 4 GiB + offset (Program.dram_base)
-dma.config.ch0 x30
-dma.wait.ch0
-dma.load.ch0 x1, x6, x11   # Q tile
-dma.load.ch1 x2, x7, x11   # K tile
-dma.load.ch2 x4, x9, x12   # scale (bf16 tile)
-dma.wait.ch0
-dma.wait.ch1
-dma.wait.ch2
+dma.config x30, 0
+dma.wait 0
+dma.load x1, x6, x11, 0   # Q tile
+dma.load x2, x7, x11, 1   # K tile
+dma.load x4, x9, x12, 2   # scale (bf16 tile)
+dma.wait 0
+dma.wait 1
+dma.wait 2
 
 # --- VMEM -> MRF ---
 addi x31, x1, 0  # DMA and VLS bases both count words
-vload m0, 0(x31)     # Q (fp8 tile)
+vload 0, x31, 0     # Q (fp8 tile)
 delay 34
 addi x31, x2, 0  # DMA and VLS bases both count words
-vload m1, 0(x31)     # K (fp8 tile)
+vload 1, x31, 0     # K (fp8 tile)
 delay 34
 addi x31, x4, 0  # DMA and VLS bases both count words
-vload m2, 0(x31)     # scale low half
+vload 2, x31, 0     # scale low half
 delay 34
 addi x31, x4, 0  # DMA and VLS bases both count words
-vload m3, 8(x31)    # scale high half
+vload 3, x31, 8    # scale high half
 delay 34
 
 # --- Push K to WB slot 0, compute scores = Q @ K, pop bf16 ---
-vtrpose.xlu m1, m1   # MXU weights are streamed as columns
+vtrpose.xlu 1, 1   # MXU weights are streamed as columns
 delay 66
-vmatpush.weight.mxu0 w0, m1
+vmatpush.w.mxu0 0, 1
 delay 32
-vmatmul.mxu0 acc0, m0, w0
+vmatmul.mxu0 0, 0, 0
 delay 96
-vmatpop.bf16.acc.mxu0 m4, acc0     # scores -> m4/m5
+vmatpop.bf16.mxu0 4, 0     # scores -> m4/m5
 delay 32
 
 # scores_scaled = scores * scale
-vmul.bf16 m6, m4, m2
+vmul.bf16 6, 4, 2
 delay 66
 
 # --- Softmax (unnormalized variant: no max subtraction) ---
 # exp_scores = exp(scores_scaled)
-vexp.bf16 m8, m6
+vexp 8, 6
 delay 66
 # row_sum = sum(exp_scores) broadcast across columns
-vredsum.row.bf16 m10, m8
+vredsum.row.bf16 10, 8
 delay 39
 # inv_row_sum = 1 / row_sum
-vrecip.bf16 m12, m10
+vrecip.bf16 12, 10
 delay 66
 # softmax_scores = exp_scores * inv_row_sum
-vmul.bf16 m14, m8, m12
+vmul.bf16 14, 8, 12
 delay 66
 
 # --- Store softmax scores (bf16 tile) ---
 addi x31, x5, 0  # DMA and VLS bases both count words
-vstore m14, 0(x31)
+vstore 14, x31, 0
 delay 34
 addi x31, x5, 0  # DMA and VLS bases both count words
-vstore m15, 8(x31)
+vstore 15, x31, 8
 delay 34
-dma.store.ch0 x10, x5, x12
-dma.wait.ch0
+dma.store x10, x5, x12, 0
+dma.wait 0

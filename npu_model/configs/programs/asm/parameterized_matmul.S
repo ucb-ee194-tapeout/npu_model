@@ -44,62 +44,62 @@ lui x14, 0x2
 addi x15, x0, 0
 addi x20, x0, 0
 addi x30, x0, 1  # dma.base 1: DRAM operands address 4 GiB + offset (Program.dram_base)
-dma.config.ch0 x30
-dma.wait.ch0
-dma.config.ch1 x30
-dma.wait.ch1
-dma.wait.ch0
-dma.wait.ch1
+dma.config x30, 0
+dma.wait 0
+dma.config x30, 1
+dma.wait 1
+dma.wait 0
+dma.wait 1
 loop_3:
 addi x18, x15, 0
 add x19, x15, x7
 addi x16, x13, 0
 addi x17, x14, 0
-dma.load.ch0 x1, x18, x7
-dma.load.ch1 x2, x19, x7
-dma.wait.ch0
-dma.wait.ch1
+dma.load x1, x18, x7, 0
+dma.load x2, x19, x7, 1
+dma.wait 0
+dma.wait 1
 addi x31, x1, 0  # DMA and VLS bases both count words
-vload m0, 0(x31)
+vload 0, x31, 0
 delay 34
 addi x31, x2, 0  # DMA and VLS bases both count words
-vload m1, 0(x31)
+vload 1, x31, 0
 delay 34
 addi x21, x0, 0
 loop_2:
 add x22, x16, x6
-dma.load.ch0 x3, x16, x7
-dma.load.ch1 x23, x22, x7
-dma.wait.ch0
+dma.load x3, x16, x7, 0
+dma.load x23, x22, x7, 1
+dma.wait 0
 addi x31, x3, 0  # DMA and VLS bases both count words
-vload m2, 0(x31)
+vload 2, x31, 0
 delay 34
-vtrpose.xlu m2, m2   # MXU weights are streamed as columns
+vtrpose.xlu 2, 2   # MXU weights are streamed as columns
 delay 66
-vmatpush.weight.mxu1 w0, m2
+vmatpush.w.mxu1 0, 2
 delay 32
-vmatmul.mxu1 acc0, m0, w0
+vmatmul.mxu1 0, 0, 0
 delay 35
-dma.wait.ch1
+dma.wait 1
 addi x31, x23, 0  # DMA and VLS bases both count words
-vload m2, 0(x31)
+vload 2, x31, 0
 delay 34
-vtrpose.xlu m2, m2   # MXU weights are streamed as columns
+vtrpose.xlu 2, 2   # MXU weights are streamed as columns
 delay 66
-vmatpush.weight.mxu1 w0, m2
+vmatpush.w.mxu1 0, 2
 delay 32
-vmatmul.acc.mxu1 acc0, m1, w0
+vmatmul.acc.mxu1 0, 1, 0
 delay 35
-vmatpop.bf16.acc.mxu1 m4, acc0
+vmatpop.bf16.mxu1 4, 0
 delay 32
 addi x31, x4, 0  # DMA and VLS bases both count words
-vstore m4, 0(x31)
+vstore 4, x31, 0
 delay 34
 srli x31, x5, 2   # DMA and VLS bases both count words
-vstore m5, 0(x31)
+vstore 5, x31, 0
 delay 34
-dma.store.ch0 x17, x4, x6
-dma.wait.ch0
+dma.store x17, x4, x6, 0
+dma.wait 0
 add x17, x17, x6
 add x16, x16, x7
 addi x21, x21, 1

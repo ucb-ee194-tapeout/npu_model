@@ -14,11 +14,15 @@ from npu_model.isa import (
 )
 from npu_model.isa_patterns import (
     DirectImm,
-    DMARegUnary,
+    DMAConfig,
+    DMATransfer,
+    DMAWait,
     ExponentImm,
     ExponentOffsetLoad,
     Nullary,
     ScalarBaseOffsetStore,
+    CSRImm,
+    CSRReg,
     ScalarComputeImm,
     ScalarComputeShamt,
     ScalarBranchImm,
@@ -230,6 +234,7 @@ class VSTORE(TensorBaseOffset, VLSType, exu=EXU.LSU, opcode=0b0000111, funct2=0b
 
 
 class FENCE(Nullary, IType, exu=EXU.SCALAR, opcode=0b0001111, funct3=0b000):
+    imm: Imm12 = Imm12(0)
     def exec(self, state: ArchState) -> None:
         pass
 
@@ -480,7 +485,7 @@ class VMUL_BF16(
         _write_mrf_bf16_pair(state, self.vd, state.math.mul(a, b))
 
 
-class VMINIMUM_BF16(
+class VMIN_BF16(
     TensorComputeBinary, VRType, exu=EXU.VECTOR, opcode=0b1010111, funct7=0b0000100
 ):
     def exec(self, state: ArchState) -> None:
@@ -497,7 +502,7 @@ class VREDMIN_BF16(
         _write_mrf_bf16_rows(state, self.vd, state.math.amin(x, 0).expand_as(x).contiguous())
 
 
-class VMAXIMUM_BF16(
+class VMAX_BF16(
     TensorComputeBinary, VRType, exu=EXU.VECTOR, opcode=0b1010111, funct7=0b0000110
 ):
     def exec(self, state: ArchState) -> None:
@@ -553,7 +558,7 @@ class VRECIP_BF16(
         _write_mrf_bf16_pair(state, self.vd, state.math.unary("rcp", x))
 
 
-class VEXP_BF16(
+class VEXP(
     TensorComputeUnary, VRType, exu=EXU.VECTOR, opcode=0b1010111, funct7=0b1000010
 ):
     def exec(self, state: ArchState) -> None:
@@ -561,7 +566,7 @@ class VEXP_BF16(
         _write_mrf_bf16_pair(state, self.vd, state.math.unary("exp", x))
 
 
-class VEXP2_BF16(
+class VEXP2(
     TensorComputeUnary, VRType, exu=EXU.VECTOR, opcode=0b1010111, funct7=0b1000011
 ):
     def exec(self, state: ArchState) -> None:
@@ -569,7 +574,7 @@ class VEXP2_BF16(
         _write_mrf_bf16_pair(state, self.vd, state.math.unary("exp2", x))
 
 
-class VPACK_BF16_FP8(
+class VFP8PACK(
     TensorComputeMixed, VRType, exu=EXU.VECTOR, opcode=0b1010111, funct7=0b1000100
 ):
     def exec(self, state: ArchState) -> None:
@@ -579,7 +584,7 @@ class VPACK_BF16_FP8(
         state.write_mrf_fp8(self.vd, state.math.to_fp8(x.flatten(), state.read_erf(self.es1)))
 
 
-class VUNPACK_FP8_BF16(
+class VFP8UNPACK(
     TensorComputeMixed, VRType, exu=EXU.VECTOR, opcode=0b1010111, funct7=0b1000101
 ):
     def exec(self, state: ArchState) -> None:
@@ -589,7 +594,7 @@ class VUNPACK_FP8_BF16(
         _write_mrf_bf16_rows(state, self.vd, y.reshape(2 * state.cfg.mrf_depth, -1))
 
 
-class VRELU_BF16(
+class VRELU(
     TensorComputeUnary, VRType, exu=EXU.VECTOR, opcode=0b1010111, funct7=0b1001000
 ):
     def exec(self, state: ArchState) -> None:
@@ -597,7 +602,7 @@ class VRELU_BF16(
         _write_mrf_bf16_pair(state, self.vd, state.math.unary("relu", x))
 
 
-class VSIN_BF16(
+class VSIN(
     TensorComputeUnary, VRType, exu=EXU.VECTOR, opcode=0b1010111, funct7=0b1001001
 ):
     def exec(self, state: ArchState) -> None:
@@ -605,7 +610,7 @@ class VSIN_BF16(
         _write_mrf_bf16_pair(state, self.vd, state.math.unary("sin", x))
 
 
-class VCOS_BF16(
+class VCOS(
     TensorComputeUnary, VRType, exu=EXU.VECTOR, opcode=0b1010111, funct7=0b1001010
 ):
     def exec(self, state: ArchState) -> None:
@@ -613,7 +618,7 @@ class VCOS_BF16(
         _write_mrf_bf16_pair(state, self.vd, state.math.unary("cos", x))
 
 
-class VTANH_BF16(
+class VTANH(
     TensorComputeUnary, VRType, exu=EXU.VECTOR, opcode=0b1010111, funct7=0b1001011
 ):
     def exec(self, state: ArchState) -> None:
@@ -621,7 +626,7 @@ class VTANH_BF16(
         _write_mrf_bf16_pair(state, self.vd, state.math.unary("tanh", x))
 
 
-class VLOG2_BF16(
+class VLOG2(
     TensorComputeUnary, VRType, exu=EXU.VECTOR, opcode=0b1010111, funct7=0b1001100
 ):
     def exec(self, state: ArchState) -> None:
@@ -629,7 +634,7 @@ class VLOG2_BF16(
         _write_mrf_bf16_pair(state, self.vd, state.math.unary("log2", x))
 
 
-class VSQRT_BF16(
+class VSQRT(
     TensorComputeUnary, VRType, exu=EXU.VECTOR, opcode=0b1010111, funct7=0b1001101
 ):
     def exec(self, state: ArchState) -> None:
@@ -638,7 +643,7 @@ class VSQRT_BF16(
 
 
 class VSQUARE_BF16(
-    TensorComputeUnary, VRType, exu=EXU.VECTOR, opcode=0b1010111, funct7=0b1001110
+    TensorComputeUnary, VRType, exu=EXU.VECTOR, opcode=0b1010111, funct7=0b1000110  # Instructions.scala 57/46
 ):
     def exec(self, state: ArchState) -> None:
         x = _read_mrf_bf16_pair(state, self.vs1)
@@ -646,7 +651,7 @@ class VSQUARE_BF16(
 
 
 class VCUBE_BF16(
-    TensorComputeUnary, VRType, exu=EXU.VECTOR, opcode=0b1010111, funct7=0b1001111
+    TensorComputeUnary, VRType, exu=EXU.VECTOR, opcode=0b1010111, funct7=0b1000111  # Instructions.scala 57/47
 ):
     def exec(self, state: ArchState) -> None:
         x = _read_mrf_bf16_pair(state, self.vs1)
@@ -761,42 +766,42 @@ class JAL(ScalarImm, UJType, exu=EXU.SCALAR, opcode=0b1101111):
         state.set_npc(state.execute_pc + (imm >> 1))
 
 
-class CSRRW(ScalarComputeImm, CSRType, exu=EXU.SCALAR, opcode=0b1110011, funct3=0b001):
+class CSRRW(CSRReg, CSRType, exu=EXU.SCALAR, opcode=0b1110011, funct3=0b001):
     def exec(self, state: ArchState) -> None:
         old = state.read_csrf(self.imm)
         state.write_csrf(self.imm, state.read_xrf(self.rs1))
         state.write_xrf(self.rd, old)
 
 
-class CSRRS(ScalarComputeImm, CSRType, exu=EXU.SCALAR, opcode=0b1110011, funct3=0b010):
+class CSRRS(CSRReg, CSRType, exu=EXU.SCALAR, opcode=0b1110011, funct3=0b010):
     def exec(self, state: ArchState) -> None:
         old = state.read_csrf(self.imm)
         state.write_csrf(self.imm, old | state.read_xrf(self.rs1))
         state.write_xrf(self.rd, old)
 
 
-class CSRRC(ScalarComputeImm, CSRType, exu=EXU.SCALAR, opcode=0b1110011, funct3=0b011):
+class CSRRC(CSRReg, CSRType, exu=EXU.SCALAR, opcode=0b1110011, funct3=0b011):
     def exec(self, state: ArchState) -> None:
         old = state.read_csrf(self.imm)
         state.write_csrf(self.imm, old & ~state.read_xrf(self.rs1))
         state.write_xrf(self.rd, old)
 
 
-class CSRRWI(ScalarComputeImm, CSRType, exu=EXU.SCALAR, opcode=0b1110011, funct3=0b101):
+class CSRRWI(CSRImm, CSRType, exu=EXU.SCALAR, opcode=0b1110011, funct3=0b101):
     def exec(self, state: ArchState) -> None:
         old = state.read_csrf(self.imm)
         state.write_csrf(self.imm, self.rs1 & 0b11111)
         state.write_xrf(self.rd, old)
 
 
-class CSRRSI(ScalarComputeImm, CSRType, exu=EXU.SCALAR, opcode=0b1110011, funct3=0b110):
+class CSRRSI(CSRImm, CSRType, exu=EXU.SCALAR, opcode=0b1110011, funct3=0b110):
     def exec(self, state: ArchState) -> None:
         old = state.read_csrf(self.imm)
         state.write_csrf(self.imm, old | (self.rs1 & 0b11111))
         state.write_xrf(self.rd, old)
 
 
-class CSRRCI(ScalarComputeImm, CSRType, exu=EXU.SCALAR, opcode=0b1110011, funct3=0b111):
+class CSRRCI(CSRImm, CSRType, exu=EXU.SCALAR, opcode=0b1110011, funct3=0b111):
     def exec(self, state: ArchState) -> None:
         old = state.read_csrf(self.imm)
         state.write_csrf(self.imm, old & ~(self.rs1 & 0b11111))
@@ -819,7 +824,7 @@ class EBREAK(Nullary, IType, exu=EXU.SCALAR, opcode=0b1110011, funct3=0b000):
         state.halt_reason = "ebreak"
 
 
-class VMATPUSH_WEIGHT_MXU0(
+class VMATPUSH_W_MXU0(
     MXUWeightPush,
     VRType[WeightBuffer, MatrixReg],
     exu=EXU.MATRIX_SYSTOLIC,
@@ -830,7 +835,7 @@ class VMATPUSH_WEIGHT_MXU0(
         state.write_wb_u8("mxu0", self.vd, state.mrf[self.vs1].view(torch.uint8))
 
 
-class VMATPUSH_WEIGHT_MXU1(
+class VMATPUSH_W_MXU1(
     MXUWeightPush,
     VRType[WeightBuffer, MatrixReg],
     exu=EXU.MATRIX_INNER,
@@ -889,7 +894,7 @@ class VMATPUSH_ACC_BF16_MXU1(
         state.write_acc_bf16("mxu1", self.vd, state.read_mrf_bf16_tile(self.vs1))
 
 
-class VMATPOP_FP8_ACC_MXU0(
+class VMATPOP_FP8_MXU0(
     MXUAccumulatorPopE1,
     VRType[MatrixReg, Accumulator],
     exu=EXU.MATRIX_SYSTOLIC,
@@ -903,7 +908,7 @@ class VMATPOP_FP8_ACC_MXU0(
         state.write_mrf_u8(self.vd, fp8.view(torch.uint8))
 
 
-class VMATPOP_FP8_ACC_MXU1(
+class VMATPOP_FP8_MXU1(
     MXUAccumulatorPopE1,
     VRType[MatrixReg, Accumulator],
     exu=EXU.MATRIX_INNER,
@@ -917,7 +922,7 @@ class VMATPOP_FP8_ACC_MXU1(
         state.write_mrf_u8(self.vd, fp8.view(torch.uint8))
 
 
-class VMATPOP_BF16_ACC_MXU0(
+class VMATPOP_BF16_MXU0(
     MXUAccumulatorPop,
     VRType[MatrixReg, Accumulator],
     exu=EXU.MATRIX_SYSTOLIC,
@@ -928,7 +933,7 @@ class VMATPOP_BF16_ACC_MXU0(
         state.write_mrf_bf16_tile(self.vd, state.read_acc_bf16("mxu0", self.vs2))
 
 
-class VMATPOP_BF16_ACC_MXU1(
+class VMATPOP_BF16_MXU1(
     MXUAccumulatorPop,
     VRType[MatrixReg, Accumulator],
     exu=EXU.MATRIX_INNER,
@@ -983,259 +988,32 @@ class VMATMUL_ACC_MXU1(
         _vmatmul(state, "mxu1", self.vd, self.vs1, self.vs2, accumulate=True)
 
 
-class _DMA_LOAD_CHN(ScalarComputeReg):
+class DMA_LOAD(DMATransfer, RType, exu=EXU.DMA, opcode=0b1111011, funct3=None, funct7=0b0000000):
+    """``dma.load x(rd), x(rs1), x(rs2), ch``: DRAM ``{base, x[rs1]}`` -> VMEM word ``x[rd]``, ``x[rs2]`` bytes."""
+
     def exec(self, state: ArchState) -> None:
         length = state.read_xrf(self.rs2)
         data = state.read_dram(state.dma_dram_address(state.read_xrf(self.rs1)), length)
         state.write_vmem(state.dma_vmem_byte_address(state.read_xrf(self.rd)), 0, data)
 
 
-class DMA_LOAD_CH0(
-    _DMA_LOAD_CHN, RType, exu=EXU.DMA, opcode=0b1111011, funct3=0b000, funct7=0b0000000
-):
-    pass
+class DMA_STORE(DMATransfer, RType, exu=EXU.DMA, opcode=0b1111011, funct3=None, funct7=0b0000001):
+    """``dma.store x(rd), x(rs1), x(rs2), ch``: VMEM word ``x[rs1]`` -> DRAM ``{base, x[rd]}``, ``x[rs2]`` bytes."""
 
-
-class DMA_LOAD_CH1(
-    _DMA_LOAD_CHN, RType, exu=EXU.DMA, opcode=0b1111011, funct3=0b001, funct7=0b0000000
-):
-    pass
-
-
-class DMA_LOAD_CH2(
-    _DMA_LOAD_CHN, RType, exu=EXU.DMA, opcode=0b1111011, funct3=0b010, funct7=0b0000000
-):
-    pass
-
-
-class DMA_LOAD_CH3(
-    _DMA_LOAD_CHN, RType, exu=EXU.DMA, opcode=0b1111011, funct3=0b011, funct7=0b0000000
-):
-    pass
-
-
-class DMA_LOAD_CH4(
-    _DMA_LOAD_CHN, RType, exu=EXU.DMA, opcode=0b1111011, funct3=0b100, funct7=0b0000000
-):
-    pass
-
-
-class DMA_LOAD_CH5(
-    _DMA_LOAD_CHN, RType, exu=EXU.DMA, opcode=0b1111011, funct3=0b101, funct7=0b0000000
-):
-    pass
-
-
-class DMA_LOAD_CH6(
-    _DMA_LOAD_CHN, RType, exu=EXU.DMA, opcode=0b1111011, funct3=0b110, funct7=0b0000000
-):
-    pass
-
-
-class DMA_LOAD_CH7(
-    _DMA_LOAD_CHN, RType, exu=EXU.DMA, opcode=0b1111011, funct3=0b111, funct7=0b0000000
-):
-    pass
-
-
-class _DMA_STORE_CHN(ScalarComputeReg):
     def exec(self, state: ArchState) -> None:
         length = state.read_xrf(self.rs2)
         data = state.read_vmem(state.dma_vmem_byte_address(state.read_xrf(self.rs1)), 0, length)
         state.write_dram(state.dma_dram_address(state.read_xrf(self.rd)), data)
 
+class DMA_CONFIG(DMAConfig, RType, exu=EXU.DMA, opcode=0b1111111, funct3=None, funct7=0b0000000):
+    """``dma.config x(rs1), ch``: ``dma.base = x[rs1]``."""
 
-class DMA_STORE_CH0(
-    _DMA_STORE_CHN, RType, exu=EXU.DMA, opcode=0b1111011, funct3=0b000, funct7=0b0000001
-):
-    pass
-
-
-class DMA_STORE_CH1(
-    _DMA_STORE_CHN, RType, exu=EXU.DMA, opcode=0b1111011, funct3=0b001, funct7=0b0000001
-):
-    pass
-
-
-class DMA_STORE_CH2(
-    _DMA_STORE_CHN, RType, exu=EXU.DMA, opcode=0b1111011, funct3=0b010, funct7=0b0000001
-):
-    pass
-
-
-class DMA_STORE_CH3(
-    _DMA_STORE_CHN, RType, exu=EXU.DMA, opcode=0b1111011, funct3=0b011, funct7=0b0000001
-):
-    pass
-
-
-class DMA_STORE_CH4(
-    _DMA_STORE_CHN, RType, exu=EXU.DMA, opcode=0b1111011, funct3=0b100, funct7=0b0000001
-):
-    pass
-
-
-class DMA_STORE_CH5(
-    _DMA_STORE_CHN, RType, exu=EXU.DMA, opcode=0b1111011, funct3=0b101, funct7=0b0000001
-):
-    pass
-
-
-class DMA_STORE_CH6(
-    _DMA_STORE_CHN, RType, exu=EXU.DMA, opcode=0b1111011, funct3=0b110, funct7=0b0000001
-):
-    pass
-
-
-class DMA_STORE_CH7(
-    _DMA_STORE_CHN, RType, exu=EXU.DMA, opcode=0b1111011, funct3=0b111, funct7=0b0000001
-):
-    pass
-
-
-class _DMA_CONFIG_CHN(DMARegUnary):
     def exec(self, state: ArchState) -> None:
         state.base = state.read_xrf(self.rs1)
 
 
-class DMA_CONFIG_CH0(
-    _DMA_CONFIG_CHN,
-    RType,
-    exu=EXU.DMA,
-    opcode=0b1111111,
-    funct3=0b000,
-    funct7=0b0000001,
-):
-    pass
-
-
-class DMA_CONFIG_CH1(
-    _DMA_CONFIG_CHN,
-    RType,
-    exu=EXU.DMA,
-    opcode=0b1111111,
-    funct3=0b001,
-    funct7=0b0000001,
-):
-    pass
-
-
-class DMA_CONFIG_CH2(
-    _DMA_CONFIG_CHN,
-    RType,
-    exu=EXU.DMA,
-    opcode=0b1111111,
-    funct3=0b010,
-    funct7=0b0000001,
-):
-    pass
-
-
-class DMA_CONFIG_CH3(
-    _DMA_CONFIG_CHN,
-    RType,
-    exu=EXU.DMA,
-    opcode=0b1111111,
-    funct3=0b011,
-    funct7=0b0000001,
-):
-    pass
-
-
-class DMA_CONFIG_CH4(
-    _DMA_CONFIG_CHN,
-    RType,
-    exu=EXU.DMA,
-    opcode=0b1111111,
-    funct3=0b100,
-    funct7=0b0000001,
-):
-    pass
-
-
-class DMA_CONFIG_CH5(
-    _DMA_CONFIG_CHN,
-    RType,
-    exu=EXU.DMA,
-    opcode=0b1111111,
-    funct3=0b101,
-    funct7=0b0000001,
-):
-    pass
-
-
-class DMA_CONFIG_CH6(
-    _DMA_CONFIG_CHN,
-    RType,
-    exu=EXU.DMA,
-    opcode=0b1111111,
-    funct3=0b110,
-    funct7=0b0000001,
-):
-    pass
-
-
-class DMA_CONFIG_CH7(
-    _DMA_CONFIG_CHN,
-    RType,
-    exu=EXU.DMA,
-    opcode=0b1111111,
-    funct3=0b111,
-    funct7=0b0000001,
-):
-    pass
-
-
-class _DMA_WAIT_CHN(Nullary):
-    imm = 1
+class DMA_WAIT(DMAWait, RType, exu=EXU.DMA, opcode=0b1111111, funct3=None, funct7=0b0000001):
+    """``dma.wait ch``: frontend fence until channel ``ch`` is idle."""
 
     def exec(self, state: ArchState) -> None:
         pass
-
-
-class DMA_WAIT_CH0(
-    _DMA_WAIT_CHN, RType, exu=EXU.DMA, opcode=0b1111111, funct3=0b000, funct7=0b0000001
-):
-    pass
-
-
-class DMA_WAIT_CH1(
-    _DMA_WAIT_CHN, RType, exu=EXU.DMA, opcode=0b1111111, funct3=0b001, funct7=0b0000001
-):
-    pass
-
-
-class DMA_WAIT_CH2(
-    _DMA_WAIT_CHN, RType, exu=EXU.DMA, opcode=0b1111111, funct3=0b010, funct7=0b0000001
-):
-    pass
-
-
-class DMA_WAIT_CH3(
-    _DMA_WAIT_CHN, RType, exu=EXU.DMA, opcode=0b1111111, funct3=0b011, funct7=0b0000001
-):
-    pass
-
-
-class DMA_WAIT_CH4(
-    _DMA_WAIT_CHN, RType, exu=EXU.DMA, opcode=0b1111111, funct3=0b100, funct7=0b0000001
-):
-    pass
-
-
-class DMA_WAIT_CH5(
-    _DMA_WAIT_CHN, RType, exu=EXU.DMA, opcode=0b1111111, funct3=0b101, funct7=0b0000001
-):
-    pass
-
-
-class DMA_WAIT_CH6(
-    _DMA_WAIT_CHN, RType, exu=EXU.DMA, opcode=0b1111111, funct3=0b110, funct7=0b0000001
-):
-    pass
-
-
-class DMA_WAIT_CH7(
-    _DMA_WAIT_CHN, RType, exu=EXU.DMA, opcode=0b1111111, funct3=0b111, funct7=0b0000001
-):
-    pass

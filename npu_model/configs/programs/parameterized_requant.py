@@ -1,7 +1,7 @@
 """Parameterized bf16→fp8 requantization kernel for arbitrary M×N.
 
 Reads row-major bf16 input tiles (two contiguous 16×32 halves) and packs them into
-contiguous 32×32 fp8 output tiles via vpack.bf16.fp8 with unit scale.
+contiguous 32×32 fp8 output tiles via vfp8pack with unit scale.
 
 Constraints:
     - M and N must be multiples of 32.

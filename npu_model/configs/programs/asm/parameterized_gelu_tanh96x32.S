@@ -24,90 +24,90 @@ addi x15, x0, 3
 lui x16, 0x1
 addi x16, x16, -2048
 addi x30, x0, 1  # dma.base 1: DRAM operands address 4 GiB + offset (Program.dram_base)
-dma.config.ch0 x30
-dma.wait.ch0
-dma.config.ch1 x30
-dma.wait.ch1
-dma.wait.ch0
-dma.wait.ch1
+dma.config x30, 0
+dma.wait 0
+dma.config x30, 1
+dma.wait 1
+dma.wait 0
+dma.wait 1
 lui x17, 0x2
 addi x17, x17, -2048
-dma.load.ch0 x2, x17, x6
-dma.load.ch1 x8, x17, x6
-dma.wait.ch0
-dma.wait.ch1
+dma.load x2, x17, x6, 0
+dma.load x8, x17, x6, 1
+dma.wait 0
+dma.wait 1
 lui x17, 0x2
 addi x17, x17, -1024
-dma.load.ch0 x3, x17, x6
-dma.load.ch1 x9, x17, x6
+dma.load x3, x17, x6, 0
+dma.load x9, x17, x6, 1
 addi x31, x2, 0  # DMA and VLS bases both count words
-vload m4, 0(x31)
+vload 4, x31, 0
 delay 34
 addi x31, x2, 0  # DMA and VLS bases both count words
-vload m5, 8(x31)
+vload 5, x31, 8
 delay 34
-dma.wait.ch0
-dma.wait.ch1
+dma.wait 0
+dma.wait 1
 lui x17, 0x2
-dma.load.ch0 x4, x17, x6
-dma.load.ch1 x10, x17, x6
+dma.load x4, x17, x6, 0
+dma.load x10, x17, x6, 1
 addi x31, x3, 0  # DMA and VLS bases both count words
-vload m6, 0(x31)
+vload 6, x31, 0
 delay 34
 addi x31, x3, 0  # DMA and VLS bases both count words
-vload m7, 8(x31)
+vload 7, x31, 8
 delay 34
-dma.wait.ch0
-dma.wait.ch1
+dma.wait 0
+dma.wait 1
 addi x31, x4, 0  # DMA and VLS bases both count words
-vload m8, 0(x31)
+vload 8, x31, 0
 delay 34
 addi x31, x4, 0  # DMA and VLS bases both count words
-vload m9, 8(x31)
+vload 9, x31, 8
 delay 34
-vli.all m10,  0x3F80
+vli.all 10, 0x3F80
 delay 65
 loop_1:
 add x17, x12, x6
 add x18, x13, x6
-dma.load.ch0 x1, x12, x6
-dma.load.ch1 x7, x17, x6
-dma.wait.ch0
-dma.wait.ch1
+dma.load x1, x12, x6, 0
+dma.load x7, x17, x6, 1
+dma.wait 0
+dma.wait 1
 addi x31, x1, 0  # DMA and VLS bases both count words
-vload m0, 0(x31)
+vload 0, x31, 0
 delay 34
 addi x31, x1, 0  # DMA and VLS bases both count words
-vload m1, 8(x31)
+vload 1, x31, 8
 delay 34
-vsquare.bf16 m2, m0
+vsquare.bf16 2, 0
 delay 66
-vmul.bf16 m12, m2, m0
+vmul.bf16 12, 2, 0
 delay 66
-vmul.bf16 m12, m12, m4
+vmul.bf16 12, 12, 4
 delay 66
-vadd.bf16 m12, m0, m12
+vadd.bf16 12, 0, 12
 delay 66
-vmul.bf16 m12, m12, m6
+vmul.bf16 12, 12, 6
 delay 66
-vtanh.bf16 m12, m12
+vtanh 12, 12
 delay 66
-vadd.bf16 m12, m10, m12
+vadd.bf16 12, 10, 12
 delay 66
-vmul.bf16 m12, m12, m8
+vmul.bf16 12, 12, 8
 delay 66
-vmul.bf16 m14, m0, m12
+vmul.bf16 14, 0, 12
 delay 66
 addi x31, x5, 0  # DMA and VLS bases both count words
-vstore m14, 0(x31)
+vstore 14, x31, 0
 delay 34
 addi x31, x5, 0  # DMA and VLS bases both count words
-vstore m15, 8(x31)
+vstore 15, x31, 8
 delay 34
-dma.store.ch0 x13, x5, x6
-dma.store.ch1 x18, x11, x6
-dma.wait.ch0
-dma.wait.ch1
+dma.store x13, x5, x6, 0
+dma.store x18, x11, x6, 1
+dma.wait 0
+dma.wait 1
 add x12, x12, x16
 add x13, x13, x16
 addi x14, x14, 1

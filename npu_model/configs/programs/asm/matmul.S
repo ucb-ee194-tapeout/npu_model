@@ -20,38 +20,38 @@ addi x6, x0, 1024   # tile byte length
 
 # --- DRAM -> VMEM ---
 addi x30, x0, 1  # dma.base 1: DRAM operands address 4 GiB + offset (Program.dram_base)
-dma.config.ch0 x30
-dma.wait.ch0
-dma.load.ch0 x1, x4, x6    # activations -> VMEM[x1]
-dma.load.ch1 x2, x5, x6    # weights -> VMEM[x2]
-dma.wait.ch0
-dma.wait.ch1
+dma.config x30, 0
+dma.wait 0
+dma.load x1, x4, x6, 0    # activations -> VMEM[x1]
+dma.load x2, x5, x6, 1    # weights -> VMEM[x2]
+dma.wait 0
+dma.wait 1
 
 # --- VMEM -> MRF ---
 addi x31, x1, 0  # DMA and VLS bases both count words
-vload m0, 0(x31)     # activations
+vload 0, x31, 0     # activations
 delay 34
 addi x31, x2, 0  # DMA and VLS bases both count words
-vload m1, 0(x31)     # weights
+vload 1, x31, 0     # weights
 delay 34
 
 # --- Matmul ---
-vtrpose.xlu m1, m1   # MXU weights are streamed as columns
+vtrpose.xlu 1, 1   # MXU weights are streamed as columns
 delay 66
-vmatpush.weight.mxu0 w0, m1
+vmatpush.w.mxu0 0, 1
 # VPU local transfer (1KB) is ~16 cycles at 64B/cycle
 delay 32
-vmatmul.mxu0 acc0, m0, w0
+vmatmul.mxu0 0, 0, 0
 delay 96
-vmatpop.bf16.acc.mxu0 m2, acc0
+vmatpop.bf16.mxu0 2, 0
 delay 32
 
 # --- MRF -> VMEM ---
 addi x31, x3, 0  # DMA and VLS bases both count words
-vstore m2, 0(x31)
+vstore 2, x31, 0
 delay 34
 addi x31, x3, 0  # DMA and VLS bases both count words
-vstore m3, 8(x31)
+vstore 3, x31, 8
 # two vstores are ~2x16 cycles; add slack before DMA reads VMEM
 delay 34
 
@@ -62,8 +62,8 @@ addi x10, x10, -2048        # x10 = 0x0800 (DRAM output, first half)
 addi x11, x10, 1024         # x11 = 0x0C00 (DRAM output, second half)
 # IMPORTANT: DMA ops read XRF at *execute* time. Since DMA now has non-trivial
 # latency (based on XRF[rs2] length), don't mutate x3 between the two stores.
-dma.store.ch0 x10, x3, x6
+dma.store x10, x3, x6, 0
 addi x12, x3, 256  # x12 = VMEM second half; can't mutate x3 during ch0
-dma.store.ch1 x11, x12, x6
-dma.wait.ch0
-dma.wait.ch1
+dma.store x11, x12, x6, 1
+dma.wait 0
+dma.wait 1
