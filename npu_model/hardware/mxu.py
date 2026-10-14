@@ -19,8 +19,8 @@ from .config import HardwareConfig
 MXU_OP_LATENCIES = {
     f"{op}.mxu{unit}": (95 if unit == 0 else 35) if op.startswith("vmatmul") else 33
     for unit in (0, 1)
-    for op in ("vmatpush.w", "vmatpush.acc.fp8", "vmatpush.acc.bf16",
-               "vmatmul.acc", "vmatmul", "vmatpop.fp8", "vmatpop.bf16")
+    for op in ("vmatpush.weight", "vmatpush.acc.fp8", "vmatpush.acc.bf16",
+               "vmatmul.acc", "vmatmul", "vmatpop.fp8.acc", "vmatpop.bf16.acc")
 }
 _GRID = torch.arange(32)
 
@@ -83,7 +83,7 @@ class _MatrixExecutionUnit(ExecutionUnit):
     def _kind(mnemonic: str) -> str:
         if mnemonic.startswith("vmatmul"):
             return "compute"
-        if mnemonic.startswith("vmatpush.w."):
+        if mnemonic.startswith("vmatpush.weight"):
             return "weight"
         if mnemonic.startswith("vmatpush"):
             return "push_bf16" if "bf16" in mnemonic else "push_fp8"

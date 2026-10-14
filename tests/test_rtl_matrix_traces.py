@@ -21,13 +21,13 @@ def test_matrix_rtl_port_trace(mxu):
         state.mrf[bank][:] = raw
     instructions = {}
     for cycle, op, bank, acc, weight in trace['commands']:
-        assembly = [f'vmatpush.w.{mxu.mxu} {weight}, {bank}',
-                    f'vmatpush.acc.fp8.{mxu.mxu} {acc}, {bank}',
-                    f'vmatpush.acc.bf16.{mxu.mxu} {acc}, {bank}',
-                    f'vmatpop.fp8.{mxu.mxu} {bank}, 0, {acc}',
-                    f'vmatpop.bf16.{mxu.mxu} {bank}, {acc}',
-                    f'vmatmul.{mxu.mxu} {acc}, {bank}, {weight}',
-                    f'vmatmul.acc.{mxu.mxu} {acc}, {bank}, {weight}'][op]
+        assembly = [f'vmatpush.weight.{mxu.mxu} w{weight}, m{bank}',
+                    f'vmatpush.acc.fp8.{mxu.mxu} acc{acc}, m{bank}',
+                    f'vmatpush.acc.bf16.{mxu.mxu} acc{acc}, m{bank}',
+                    f'vmatpop.fp8.acc.{mxu.mxu} m{bank}, acc{acc}, e0',
+                    f'vmatpop.bf16.acc.{mxu.mxu} m{bank}, acc{acc}',
+                    f'vmatmul.{mxu.mxu} acc{acc}, m{bank}, w{weight}',
+                    f'vmatmul.acc.{mxu.mxu} acc{acc}, m{bank}, w{weight}'][op]
         instructions[cycle] = stream_to_instrs(StringIO(assembly))[0]
     state.write_erf(0, 127)
     accesses = []

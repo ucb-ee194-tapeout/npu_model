@@ -21,25 +21,25 @@ dma.load x1, x5, x4, 0
 dma.load x2, x6, x4, 1
 dma.wait 0
 addi x31, x1, 0  # DMA and VLS bases both count words
-vload 0, x31, 0
+vload m0, 0(x31)
 delay 34
 addi x31, x1, 0  # DMA and VLS bases both count words
-vload 1, x31, 8
+vload m1, 8(x31)
 delay 34
 dma.wait 1
 addi x31, x2, 0  # DMA and VLS bases both count words
-vload 2, x31, 0
+vload m2, 0(x31)
 delay 34
 addi x31, x2, 0  # DMA and VLS bases both count words
-vload 3, x31, 8
+vload m3, 8(x31)
 delay 34
-vsub.bf16 4, 0, 2
+vsub.bf16 m4, m0, m2
 delay 66
 addi x31, x3, 0  # DMA and VLS bases both count words
-vstore 4, x31, 0
+vstore m4, 0(x31)
 delay 34
 addi x31, x3, 0  # DMA and VLS bases both count words
-vstore 5, x31, 8
+vstore m5, 8(x31)
 delay 34
 dma.store x7, x3, x4, 0
 dma.wait 0

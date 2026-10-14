@@ -13,7 +13,7 @@ import torch
 
 from npu_model.configs.hardware.default import DefaultHardwareConfig
 from npu_model.configs.isa_definition import (
-    DMA_CONFIG, DMA_LOAD, DMA_STORE
+    DMA_CONFIG, DMA_LOAD, DMA_STORE,
 )
 from npu_model.hardware.arch_state import ArchState
 from npu_model.hardware.dma import DmaExecutionUnit

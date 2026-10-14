@@ -322,27 +322,27 @@ Rows are ordered by hex value.
 | `vredsum.bf16`           | `VR`     | `1010111` |                         | `0000001`        | `57/01`    | Vector Sublane Reduction Sum      | `{m[vd], m[vd+1]}[i, j] = sum({m[vs1], m[vs1+1]}.view(bf16)[:, j]);` |
 | `vsub.bf16`              | `VR`     | `1010111` |                         | `0000010`        | `57/02`    | Vector Subtract                   | `{m[vd], m[vd+1]} = {m[vs1], m[vs1+1]}.view(bf16) - {m[vs2], m[vs2+1]}.view(bf16);` |
 | `vmul.bf16`              | `VR`     | `1010111` |                         | `0000011`        | `57/03`    | Vector Multiply                   | `{m[vd], m[vd+1]} = {m[vs1], m[vs1+1]}.view(bf16) * {m[vs2], m[vs2+1]}.view(bf16);` |
-| `vmin.bf16`          | `VR`     | `1010111` |                         | `0000100`        | `57/04`    | Vector Minimum                    | `{m[vd], m[vd+1]} = min({m[vs1], m[vs1+1]}.view(bf16), {m[vs2], m[vs2+1]}.view(bf16));` |
+| `vminimum.bf16`          | `VR`     | `1010111` |                         | `0000100`        | `57/04`    | Vector Minimum                    | `{m[vd], m[vd+1]} = min({m[vs1], m[vs1+1]}.view(bf16), {m[vs2], m[vs2+1]}.view(bf16));` |
 | `vredmin.bf16`           | `VR`     | `1010111` |                         | `0000101`        | `57/05`    | Vector Sublane Reduction Min      | `{m[vd], m[vd+1]}[i, j] = min({m[vs1], m[vs1+1]}.view(bf16)[:, j]);` |
-| `vmax.bf16`          | `VR`     | `1010111` |                         | `0000110`        | `57/06`    | Vector Maximum                    | `{m[vd], m[vd+1]} = max({m[vs1], m[vs1+1]}.view(bf16), {m[vs2], m[vs2+1]}.view(bf16));` |
+| `vmaximum.bf16`          | `VR`     | `1010111` |                         | `0000110`        | `57/06`    | Vector Maximum                    | `{m[vd], m[vd+1]} = max({m[vs1], m[vs1+1]}.view(bf16), {m[vs2], m[vs2+1]}.view(bf16));` |
 | `vredmax.bf16`           | `VR`     | `1010111` |                         | `0000111`        | `57/07`    | Vector Sublane Reduction Max      | `{m[vd], m[vd+1]}[i, j] = max({m[vs1], m[vs1+1]}.view(bf16)[:, j]);` |
 | `vredsum.row.bf16`       | `VR`     | `1010111` |                         | `0100001`        | `57/21`    | Vector Lane Reduction Sum         | `{m[vd], m[vd+1]}[i, j] = sum({m[vs1], m[vs1+1]}.view(bf16)[i, :]);` |
 | `vredmin.row.bf16`       | `VR`     | `1010111` |                         | `0100100`        | `57/24`    | Vector Lane Reduction Min         | `{m[vd], m[vd+1]}[i, j] = min({m[vs1], m[vs1+1]}.view(bf16)[i, :]);` |
 | `vredmax.row.bf16`       | `VR`     | `1010111` |                         | `0100110`        | `57/26`    | Vector Lane Reduction Max         | `{m[vd], m[vd+1]}[i, j] = max({m[vs1], m[vs1+1]}.view(bf16)[i, :]);` |
 | `vmov`                   | `VR`     | `1010111` |                         | `1000000`        | `57/40`    | Vector Move                       | `m[vd] = m[vs1];` |
 | `vrecip.bf16`            | `VR`     | `1010111` |                         | `1000001`        | `57/41`    | Vector Reciprocal                 | `{m[vd], m[vd+1]} = 1.f / {m[vs1], m[vs1+1]};` |
-| `vexp`              | `VR`     | `1010111` |                         | `1000010`        | `57/42`    | Vector Exponential                | `{m[vd], m[vd+1]} = bf16_exp({m[vs1], m[vs1+1]});` |
-| `vexp2`             | `VR`     | `1010111` |                         | `1000011`        | `57/43`    | Vector Base 2 Exponential         | `{m[vd], m[vd+1]} = bf16_exp2({m[vs1], m[vs1+1]});` |
-| `vfp8pack`         | `VR`     | `1010111` |                         | `1000100`        | `57/44`    | Vector Packing                    | `m[vd] = quantize(m[vs2], m[vs2+1], e[es1]);` |
-| `vfp8unpack`       | `VR`     | `1010111` |                         | `1000101`        | `57/45`    | Vector Unpacking                  | `m[vd], m[vd+1] = dequantize(m[vs2], e[es1]);` |
-| `vrelu`             | `VR`     | `1010111` |                         | `1001000`        | `57/48`    | Vector ReLU                       | `{m[vd], m[vd+1]} = bf16_relu({m[vs1], m[vs1+1]});` |
-| `vsin`              | `VR`     | `1010111` |                         | `1001001`        | `57/49`    | Vector Sin                        | `{m[vd], m[vd+1]} = bf16_sin({m[vs1], m[vs1+1]});` |
-| `vcos`              | `VR`     | `1010111` |                         | `1001010`        | `57/4A`    | Vector Cos                        | `{m[vd], m[vd+1]} = bf16_cos({m[vs1], m[vs1+1]});` |
-| `vtanh`             | `VR`     | `1010111` |                         | `1001011`        | `57/4B`    | Vector Tanh                       | `{m[vd], m[vd+1]} = bf16_tanh({m[vs1], m[vs1+1]});` |
-| `vlog2`             | `VR`     | `1010111` |                         | `1001100`        | `57/4C`    | Vector log2                       | `{m[vd], m[vd+1]} = bf16_log2({m[vs1], m[vs1+1]});` |
-| `vsqrt`             | `VR`     | `1010111` |                         | `1001101`        | `57/4D`    | Vector sqrt                       | `{m[vd], m[vd+1]} = bf16_sqrt({m[vs1], m[vs1+1]});` |
+| `vexp.bf16`              | `VR`     | `1010111` |                         | `1000010`        | `57/42`    | Vector Exponential                | `{m[vd], m[vd+1]} = bf16_exp({m[vs1], m[vs1+1]});` |
+| `vexp2.bf16`             | `VR`     | `1010111` |                         | `1000011`        | `57/43`    | Vector Base 2 Exponential         | `{m[vd], m[vd+1]} = bf16_exp2({m[vs1], m[vs1+1]});` |
+| `vpack.bf16.fp8`         | `VR`     | `1010111` |                         | `1000100`        | `57/44`    | Vector Packing                    | `m[vd] = quantize(m[vs2], m[vs2+1], e[es1]);` |
+| `vunpack.fp8.bf16`       | `VR`     | `1010111` |                         | `1000101`        | `57/45`    | Vector Unpacking                  | `m[vd], m[vd+1] = dequantize(m[vs2], e[es1]);` |
 | `vsquare.bf16`           | `VR`     | `1010111` |                         | `1000110`        | `57/46`    | Vector Square                     | `{m[vd], m[vd+1]} = {m[vs1], m[vs1+1]} * {m[vs1], m[vs1+1]};` |
 | `vcube.bf16`             | `VR`     | `1010111` |                         | `1000111`        | `57/47`    | Vector Cube                       | `{m[vd], m[vd+1]} = {m[vs1], m[vs1+1]} ** 3;` |
+| `vrelu.bf16`             | `VR`     | `1010111` |                         | `1001000`        | `57/48`    | Vector ReLU                       | `{m[vd], m[vd+1]} = bf16_relu({m[vs1], m[vs1+1]});` |
+| `vsin.bf16`              | `VR`     | `1010111` |                         | `1001001`        | `57/49`    | Vector Sin                        | `{m[vd], m[vd+1]} = bf16_sin({m[vs1], m[vs1+1]});` |
+| `vcos.bf16`              | `VR`     | `1010111` |                         | `1001010`        | `57/4A`    | Vector Cos                        | `{m[vd], m[vd+1]} = bf16_cos({m[vs1], m[vs1+1]});` |
+| `vtanh.bf16`             | `VR`     | `1010111` |                         | `1001011`        | `57/4B`    | Vector Tanh                       | `{m[vd], m[vd+1]} = bf16_tanh({m[vs1], m[vs1+1]});` |
+| `vlog2.bf16`             | `VR`     | `1010111` |                         | `1001100`        | `57/4C`    | Vector log2                       | `{m[vd], m[vd+1]} = bf16_log2({m[vs1], m[vs1+1]});` |
+| `vsqrt.bf16`             | `VR`     | `1010111` |                         | `1001101`        | `57/4D`    | Vector sqrt                       | `{m[vd], m[vd+1]} = bf16_sqrt({m[vs1], m[vs1+1]});` |
 | `vli.all`                | `VI`     | `1011111` | `000`                   |                  | `5F/0`     | Vector Load Immediate             | `m[vd][:] = imm;` |
 | `vli.row`                | `VI`     | `1011111` | `001`                   |                  | `5F/1`     | Vector Load Immediate             | `m[vd][0, :] = imm;` |
 | `vli.col`                | `VI`     | `1011111` | `010`                   |                  | `5F/2`     | Vector Load Immediate             | `m[vd][:, 0] = imm;` |
@@ -359,16 +359,16 @@ Rows are ordered by hex value.
 | `jal`                    | `J`      | `1101111` |                         |                  | `6F`       | Jump And Link                     | `x[rd] = pc + 1; pc = pc + imm after 1 delay slot` |
 | `ecall`                  | `I`      | `1110011` | `000`                   | `000000000000`   | `73/0/000` | Environment Call                  | `halt_reason = ECALL; halt = 1'b1;` |
 | `ebreak`                 | `I`      | `1110011` | `000`                   | `000000000001`   | `73/0/001` | Breakpoint                        | `halt_reason = EBREAK; halt = 1'b1;` |
-| `vmatpush.w.mxu0`   | `VR`     | `1110111` |                         | `0000000`        | `77/00`    | Push Tensor To MXU0 Weight Slot   | `mxu0.w[vd] = m[vs];` |
-| `vmatpush.w.mxu1`   | `VR`     | `1110111` |                         | `0000001`        | `77/01`    | Push Tensor To MXU1 Weight Slot   | `mxu1.w[vd] = m[vs];` |
+| `vmatpush.weight.mxu0`   | `VR`     | `1110111` |                         | `0000000`        | `77/00`    | Push Tensor To MXU0 Weight Slot   | `mxu0.w[vd] = m[vs];` |
+| `vmatpush.weight.mxu1`   | `VR`     | `1110111` |                         | `0000001`        | `77/01`    | Push Tensor To MXU1 Weight Slot   | `mxu1.w[vd] = m[vs];` |
 | `vmatpush.acc.fp8.mxu0`  | `VR`     | `1110111` |                         | `0000010`        | `77/02`    | Push Tensor To MXU0 Accumulator   | `mxu0.acc[vd[0]] = dequantize(m[vs]);` |
 | `vmatpush.acc.fp8.mxu1`  | `VR`     | `1110111` |                         | `0000011`        | `77/03`    | Push Tensor To MXU1 Accumulator   | `mxu1.acc[vd[0]] = dequantize(m[vs]);` |
 | `vmatpush.acc.bf16.mxu0` | `VR`     | `1110111` |                         | `0000100`        | `77/04`    | Push Tensor To MXU0 Accumulator   | `mxu0.acc[vd[0]] = {m[vs], m[vs+1]};` |
 | `vmatpush.acc.bf16.mxu1` | `VR`     | `1110111` |                         | `0000101`        | `77/05`    | Push Tensor To MXU1 Accumulator   | `mxu1.acc[vd[0]] = {m[vs], m[vs+1]};` |
-| `vmatpop.fp8.mxu0`   | `VR`     | `1110111` |                         | `0000110`        | `77/06`    | Pop MXU0 FP8 Accumulator View     | `m[vd] = quantize_fp8(mxu0.acc[vs2[0]], e[es1]);` |
-| `vmatpop.fp8.mxu1`   | `VR`     | `1110111` |                         | `0000111`        | `77/07`    | Pop MXU1 FP8 Accumulator View     | `m[vd] = quantize_fp8(mxu1.acc[vs2[0]], e[es1]);` |
-| `vmatpop.bf16.mxu0`  | `VR`     | `1110111` |                         | `0001000`        | `77/08`    | Pop MXU0 BF16 Accumulator         | `{m[vd], m[vd + 1]} = mxu0.acc[vs2[0]];` |
-| `vmatpop.bf16.mxu1`  | `VR`     | `1110111` |                         | `0001001`        | `77/09`    | Pop MXU1 BF16 Accumulator         | `{m[vd], m[vd + 1]} = mxu1.acc[vs2[0]];` |
+| `vmatpop.fp8.acc.mxu0`   | `VR`     | `1110111` |                         | `0000110`        | `77/06`    | Pop MXU0 FP8 Accumulator View     | `m[vd] = quantize_fp8(mxu0.acc[vs2[0]], e[es1]);` |
+| `vmatpop.fp8.acc.mxu1`   | `VR`     | `1110111` |                         | `0000111`        | `77/07`    | Pop MXU1 FP8 Accumulator View     | `m[vd] = quantize_fp8(mxu1.acc[vs2[0]], e[es1]);` |
+| `vmatpop.bf16.acc.mxu0`  | `VR`     | `1110111` |                         | `0001000`        | `77/08`    | Pop MXU0 BF16 Accumulator         | `{m[vd], m[vd + 1]} = mxu0.acc[vs2[0]];` |
+| `vmatpop.bf16.acc.mxu1`  | `VR`     | `1110111` |                         | `0001001`        | `77/09`    | Pop MXU1 BF16 Accumulator         | `{m[vd], m[vd + 1]} = mxu1.acc[vs2[0]];` |
 | `vmatmul.mxu0`           | `VR`     | `1110111` |                         | `0001010`        | `77/10`    | MXU0 Matmul                       | `mxu0.acc[vd[0]] = m[vs1] @ mxu0.w[vs2[0]];` |
 | `vmatmul.mxu1`           | `VR`     | `1110111` |                         | `0001011`        | `77/11`    | MXU1 Matmul                       | `mxu1.acc[vd[0]] = m[vs1] @ mxu1.w[vs2[0]];` |
 | `vmatmul.acc.mxu0`       | `VR`     | `1110111` |                         | `0001100`        | `77/12`    | MXU0 Matmul Accumulate            | `mxu0.acc[vd[0]] = mxu0.acc[vd[0]] + m[vs1] @ mxu0.w[vs2[0]];` |
@@ -378,6 +378,13 @@ Rows are ordered by hex value.
 | `dma.config`             | `R`      | `1111111` | `000 ~ 111`             | `0000000`        | `7F/00`    | DMA Load                          | `dma.base = x[rs1]` |
 | `dma.wait`               | `R`      | `1111111` | `000 ~ 111`             | `0000001`        | `7F/01`    | DMA Wait                          | `wait_until_dma_channel_idle(channel=ch);` |
 
+
+DMA instructions take the channel as a trailing immediate operand, `ch` in
+`0..7`, encoded in `funct3`: `dma.load x(rd), x(rs1), x(rs2), ch`,
+`dma.store x(rd), x(rs1), x(rs2), ch`, `dma.config x(rs1), ch` and
+`dma.wait ch`. CSR instructions use the RISC-V operand order
+`csrrw x(rd), csr, x(rs1)`; the immediate forms (`csrrwi`, `csrrsi`, `csrrci`)
+take a 5-bit immediate in place of `rs1`.
 
 ## 4. Architectural Design Parameters
 

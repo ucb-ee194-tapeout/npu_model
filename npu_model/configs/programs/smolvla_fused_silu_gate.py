@@ -9,7 +9,7 @@ sigmoid materialisation. Functionally identical to ``smolvla_silu``.
 MLIR → ISA mapping (pair-op BF16):
     op_a (sigmoid):
         arith.negf          → vmul.bf16(x, -1)           pair-op
-        math.exp            → vexp
+        math.exp            → vexp.bf16
         arith.addf 1.0      → vadd.bf16(exp(-x), +1)
         arith.divf 1.0      → vrecip.bf16(denom)
     op_b (silu = sigmoid * x):

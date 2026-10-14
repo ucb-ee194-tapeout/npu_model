@@ -25,16 +25,16 @@ dma.wait 1
 # Move VMEM data to actual computational registers
 # vload VMEM(x1=0) -> MRF 2
 srli x31, x0, 2   # VLS bases count words; DMA bases count bytes
-vload 1, x31, 0
+vload m1, 0(x31)
 delay 34
 # vload VMEM(x2=1024) -> Temporary MRF 1
 srli x31, x2, 2   # VLS bases count words; DMA bases count bytes
-vload 0, x31, 0
+vload m0, 0(x31)
 delay 34
 # Push Temporary MRF 1 -> MXU0 Weight Buffer 1
-vtrpose.xlu 0, 0   # MXU weights are streamed as columns
+vtrpose.xlu m0, m0   # MXU weights are streamed as columns
 delay 66
-vmatpush.w.mxu0 0, 0
+vmatpush.weight.mxu0 w0, m0
 delay 32
 
 # --- 4. Do unnecessary loads (Overlapped with Matmul) ---
@@ -46,12 +46,12 @@ dma.load x4, x1, x2, 1
 delay 16
 
 # --- 5. Do matmul ---
-vmatmul.mxu0 0, 1, 0
+vmatmul.mxu0 acc0, m1, w0
 delay 96 # TODO - verify delays
 # FIXME: I'm like, not at all sure how erf is supposed to work with exponent register
 # the temp fix is to just assume that we need to set it to 1 manually.
-seli 0, 127
-vmatpop.fp8.mxu0 0, 0, 0
+seli e0, 127
+vmatpop.fp8.acc.mxu0 m0, acc0, e0
 # delay 32
 # Wait to finish unnecessary loads
 dma.wait 0

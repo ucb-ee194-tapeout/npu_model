@@ -30,50 +30,50 @@ dma.wait 1
 
 # --- VMEM -> MRF ---
 addi x31, x1, 0  # DMA and VLS bases both count words
-vload 0, x31, 0     # x low half
+vload m0, 0(x31)     # x low half
 delay 34
 addi x31, x1, 0  # DMA and VLS bases both count words
-vload 1, x31, 8    # x high half
+vload m1, 8(x31)    # x high half
 delay 34
 addi x31, x2, 0  # DMA and VLS bases both count words
-vload 2, x31, 0     # eps low
+vload m2, 0(x31)     # eps low
 delay 34
 addi x31, x2, 0  # DMA and VLS bases both count words
-vload 3, x31, 8    # eps high
+vload m3, 8(x31)    # eps high
 delay 34
 
 # --- RMS Norm Compute ---
 # x_sq = x * x
-vsquare.bf16 4, 0
+vsquare.bf16 m4, m0
 delay 66
 # sum_sq over columns, broadcast back across each row
-vredsum.row.bf16 6, 4
+vredsum.row.bf16 m6, m4
 delay 39
 # mean_sq = sum_sq * (1/ROW_SIZE)
-vli.all 8, 0x4200
+vli.all m8, 0x4200
 delay 65
-vrecip.bf16 10, 8
+vrecip.bf16 m10, m8
 delay 66
-vmul.bf16 12, 6, 10
+vmul.bf16 m12, m6, m10
 delay 66
 # var_eps = mean_sq + eps
-vadd.bf16 14, 12, 2
+vadd.bf16 m14, m12, m2
 delay 66
 # rsqrt = 1 / sqrt(var_eps)
-vsqrt 16, 14
+vsqrt.bf16 m16, m14
 delay 66
-vrecip.bf16 18, 16
+vrecip.bf16 m18, m16
 delay 66
 # output = x * rsqrt
-vmul.bf16 20, 0, 18
+vmul.bf16 m20, m0, m18
 delay 66
 
 # --- MRF -> VMEM -> DRAM ---
 addi x31, x3, 0  # DMA and VLS bases both count words
-vstore 20, x31, 0
+vstore m20, 0(x31)
 delay 34
 addi x31, x3, 0  # DMA and VLS bases both count words
-vstore 21, x31, 8
+vstore m21, 8(x31)
 delay 34
 dma.store x6, x3, x7, 0
 dma.wait 0

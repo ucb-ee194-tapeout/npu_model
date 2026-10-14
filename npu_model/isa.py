@@ -28,13 +28,8 @@ class Instruction(ABC):
     exu: EXU       = NotImplemented
 
     def __str__(self):
-        params = getattr(type(self), "params", None)
-        if params is None:
-            values = [str(v) for v in self.__dict__.values()]
-        else:
-            values = [f"x{int(getattr(self, p.repr))}" if p.inner.__name__ == "ScalarReg" else str(int(getattr(self, p.repr)))
-                      for p in params]
-        return f"{self.mnemonic} {', '.join(values)}".rstrip()
+        values = [str(v) for v in self.__dict__.values()]
+        return f"{self.mnemonic} {', '.join(values)}"
 
     @abstractmethod
     def to_bytecode(self) -> int:

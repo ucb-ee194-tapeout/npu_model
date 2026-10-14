@@ -8,10 +8,10 @@ Pattern appears 64× in the model. Fusing eliminates the intermediate
 rsqrt vector materialisation.
 
 Precision: both ops are bf16 end-to-end. npu_model has no VRSQRT, so
-rsqrt is done as ``vrecip.bf16(vsqrt(x))``.
+rsqrt is done as ``vrecip.bf16(vsqrt.bf16(x))``.
 
 MLIR → ISA mapping (pair-op BF16):
-    op_a: math.rsqrt → vsqrt + vrecip.bf16
+    op_a: math.rsqrt → vsqrt.bf16 + vrecip.bf16
     op_b: arith.mulf → vmul.bf16
 
 Demo tile: (32, 32) bf16 for both variance and matrix. Full-model

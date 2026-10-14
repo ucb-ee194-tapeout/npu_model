@@ -27,7 +27,7 @@ MRF layout per group:
   (v12, v13) = k_coeff * X³   via vmul(v12, v4)
   (v12, v13) = X + k_coeff*X³ via vadd(v0, v12)
   (v12, v13) *= k_sqrt2pi      via vmul(v12, v6)
-  (v12, v13) = tanh(...)       via vtanh
+  (v12, v13) = tanh(...)       via vtanh.bf16
   (v10, v11) = 1.0             via vli.all
   (v12, v13) = 1 + tanh(...)   via vadd(v10, v12)
   (v12, v13) *= k_half         via vmul(v12, v8)

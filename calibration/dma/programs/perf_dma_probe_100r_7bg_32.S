@@ -7,95 +7,95 @@
 # @DRAM_BASE 0x90000000
 # @PERF_REPORT
 
-    LI    x5, 0x00000000
-    DMA.CONFIG x5, 0
-    LI    x12, 32
-    LI    x13, 32
-    LI    x8, 0
-    LI    x10, 0x90100000
-    LI    x1, 2048
-    LI    x24, 0x90000000
-    LI    x2, 2304
-    LI    x25, 0x90000400
-    LI    x3, 2560
-    LI    x26, 0x90000800
-    LI    x4, 2816
-    LI    x27, 0x90000c00
-    LI    x5, 3072
-    LI    x28, 0x90001000
-    LI    x6, 3328
-    LI    x29, 0x90001400
-    LI    x7, 3584
-    LI    x30, 0x90001800
-    CSRRS x20, 0xC00, x0        # x20 = traffic phase start
-    ADDI  x0, x0, 0             # keep CSR reads apart
-    DMA.LOAD  x1, x24, x13, 1
-    DMA.LOAD  x2, x25, x13, 2
-    DMA.LOAD  x3, x26, x13, 3
-    DMA.LOAD  x4, x27, x13, 4
-    DMA.LOAD  x5, x28, x13, 5
-    DMA.LOAD  x6, x29, x13, 6
-    DMA.LOAD  x7, x30, x13, 7
-    CSRRS x21, 0xC00, x0        # x21 = probe issue
-    DMA.LOAD  x8, x10, x12, 0
-    DMA.WAIT  0
-    CSRRS x22, 0xC00, x0        # x22 = probe done
-    ADDI  x0, x0, 0             # keep CSR reads apart
-    DMA.WAIT  1
-    DMA.WAIT  2
-    DMA.WAIT  3
-    DMA.WAIT  4
-    DMA.WAIT  5
-    DMA.WAIT  6
-    DMA.WAIT  7
-    DMA.LOAD  x1, x24, x13, 1
-    DMA.LOAD  x2, x25, x13, 2
-    DMA.LOAD  x3, x26, x13, 3
-    DMA.LOAD  x4, x27, x13, 4
-    DMA.LOAD  x5, x28, x13, 5
-    DMA.LOAD  x6, x29, x13, 6
-    DMA.LOAD  x7, x30, x13, 7
-    DMA.WAIT  1
-    DMA.WAIT  2
-    DMA.WAIT  3
-    DMA.WAIT  4
-    DMA.WAIT  5
-    DMA.WAIT  6
-    DMA.WAIT  7
-    DMA.LOAD  x1, x24, x13, 1
-    DMA.LOAD  x2, x25, x13, 2
-    DMA.LOAD  x3, x26, x13, 3
-    DMA.LOAD  x4, x27, x13, 4
-    DMA.LOAD  x5, x28, x13, 5
-    DMA.LOAD  x6, x29, x13, 6
-    DMA.LOAD  x7, x30, x13, 7
-    DMA.WAIT  1
-    DMA.WAIT  2
-    DMA.WAIT  3
-    DMA.WAIT  4
-    DMA.WAIT  5
-    DMA.WAIT  6
-    DMA.WAIT  7
-    DMA.LOAD  x1, x24, x13, 1
-    DMA.LOAD  x2, x25, x13, 2
-    DMA.LOAD  x3, x26, x13, 3
-    DMA.LOAD  x4, x27, x13, 4
-    DMA.LOAD  x5, x28, x13, 5
-    DMA.LOAD  x6, x29, x13, 6
-    DMA.LOAD  x7, x30, x13, 7
-    DMA.WAIT  1
-    DMA.WAIT  2
-    DMA.WAIT  3
-    DMA.WAIT  4
-    DMA.WAIT  5
-    DMA.WAIT  6
-    DMA.WAIT  7
-    CSRRS x23, 0xC00, x0        # x23 = traffic phase end
-    SUB   x22, x22, x21         # probe cycles
-    SUB   x23, x23, x20         # traffic phase cycles
-    SLLI  x23, x23, 16
-    OR    x22, x22, x23
-    CSRRW x0,  0xC11, x22       # stash in CSR_DBG1
-    ADDI  x30, x0, 1
-    CSRW  x30, 0xC10
-    ECALL
+    li    x5, 0x00000000
+    dma.config x5, 0
+    li    x12, 32
+    li    x13, 32
+    li    x8, 0
+    li    x10, 0x90100000
+    li    x1, 2048
+    li    x24, 0x90000000
+    li    x2, 2304
+    li    x25, 0x90000400
+    li    x3, 2560
+    li    x26, 0x90000800
+    li    x4, 2816
+    li    x27, 0x90000c00
+    li    x5, 3072
+    li    x28, 0x90001000
+    li    x6, 3328
+    li    x29, 0x90001400
+    li    x7, 3584
+    li    x30, 0x90001800
+    csrrs x20, 0xC00, x0        # x20 = traffic phase start
+    addi  x0, x0, 0             # keep CSR reads apart
+    dma.load  x1, x24, x13, 1
+    dma.load  x2, x25, x13, 2
+    dma.load  x3, x26, x13, 3
+    dma.load  x4, x27, x13, 4
+    dma.load  x5, x28, x13, 5
+    dma.load  x6, x29, x13, 6
+    dma.load  x7, x30, x13, 7
+    csrrs x21, 0xC00, x0        # x21 = probe issue
+    dma.load  x8, x10, x12, 0
+    dma.wait  0
+    csrrs x22, 0xC00, x0        # x22 = probe done
+    addi  x0, x0, 0             # keep CSR reads apart
+    dma.wait  1
+    dma.wait  2
+    dma.wait  3
+    dma.wait  4
+    dma.wait  5
+    dma.wait  6
+    dma.wait  7
+    dma.load  x1, x24, x13, 1
+    dma.load  x2, x25, x13, 2
+    dma.load  x3, x26, x13, 3
+    dma.load  x4, x27, x13, 4
+    dma.load  x5, x28, x13, 5
+    dma.load  x6, x29, x13, 6
+    dma.load  x7, x30, x13, 7
+    dma.wait  1
+    dma.wait  2
+    dma.wait  3
+    dma.wait  4
+    dma.wait  5
+    dma.wait  6
+    dma.wait  7
+    dma.load  x1, x24, x13, 1
+    dma.load  x2, x25, x13, 2
+    dma.load  x3, x26, x13, 3
+    dma.load  x4, x27, x13, 4
+    dma.load  x5, x28, x13, 5
+    dma.load  x6, x29, x13, 6
+    dma.load  x7, x30, x13, 7
+    dma.wait  1
+    dma.wait  2
+    dma.wait  3
+    dma.wait  4
+    dma.wait  5
+    dma.wait  6
+    dma.wait  7
+    dma.load  x1, x24, x13, 1
+    dma.load  x2, x25, x13, 2
+    dma.load  x3, x26, x13, 3
+    dma.load  x4, x27, x13, 4
+    dma.load  x5, x28, x13, 5
+    dma.load  x6, x29, x13, 6
+    dma.load  x7, x30, x13, 7
+    dma.wait  1
+    dma.wait  2
+    dma.wait  3
+    dma.wait  4
+    dma.wait  5
+    dma.wait  6
+    dma.wait  7
+    csrrs x23, 0xC00, x0        # x23 = traffic phase end
+    sub   x22, x22, x21         # probe cycles
+    sub   x23, x23, x20         # traffic phase cycles
+    slli  x23, x23, 16
+    or    x22, x22, x23
+    csrrw x0,  0xC11, x22       # stash in CSR_DBG1
+    addi  x30, x0, 1
+    csrrw x0, 0xC10, x30
+    ecall

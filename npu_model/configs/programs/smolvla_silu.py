@@ -15,7 +15,7 @@ Model context:
 
 MLIR → ISA mapping:
     arith.negf %x       → vmul.bf16(x, -1)         negate via multiply
-    math.exp %neg        → vexp(neg_x)          vector exp
+    math.exp %neg        → vexp.bf16(neg_x)          vector exp
     arith.addf %one %exp → vadd.bf16(exp, ones)      add constant 1.0
     arith.divf %x %denom → vrecip.bf16 + vmul.bf16   reciprocal then multiply
 

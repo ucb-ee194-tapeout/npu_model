@@ -8,7 +8,7 @@ A Language Server Protocol (LSP) linter for NPU assembly (`.S`) files, integrate
 - **Wrong operand count** — tells you exactly how many operands an instruction expects
 - **Invalid registers** — wrong prefix (`x`/`e`/`m`/`a`/`w`) or out-of-range index
 - **Immediates out of range** — validated against the correct bit-width for each instruction type (Imm12, Imm16, Imm20, shamt)
-- **Malformed operands** — e.g. `lw x1, bad` instead of `lw x1, x2, 16`
+- **Malformed base+offset operands** — e.g. `lw x1, bad` instead of `lw x1, 16(x2)`
 - **Control-flow offsets** — branch, JAL, and JALR source operands count instruction words; odd offsets are valid. B/J encoding doubles the offset, matching the RTL.
 - **Duplicate labels** — warns when the same label is defined twice
 - **Malformed label names** — must match `[A-Za-z_][A-Za-z0-9_.]*`

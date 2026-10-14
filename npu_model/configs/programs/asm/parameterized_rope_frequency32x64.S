@@ -14,18 +14,18 @@ loop_1:
 dma.load x1, x4, x3, 0
 dma.wait 0
 addi x31, x1, 0  # DMA and VLS bases both count words
-vload 0, x31, 0
+vload m0, 0(x31)
 delay 34
 addi x31, x1, 0  # DMA and VLS bases both count words
-vload 1, x31, 8
+vload m1, 8(x31)
 delay 34
-vcos 2, 0
+vcos.bf16 m2, m0
 delay 66
 addi x31, x2, 0  # DMA and VLS bases both count words
-vstore 2, x31, 0
+vstore m2, 0(x31)
 delay 34
 addi x31, x2, 0  # DMA and VLS bases both count words
-vstore 3, x31, 8
+vstore m3, 8(x31)
 delay 34
 dma.store x5, x2, x3, 0
 dma.wait 0

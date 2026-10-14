@@ -15,7 +15,7 @@ import torch
 
 from npu_model.configs.hardware.default import DefaultHardwareConfig
 from npu_model.configs.isa_definition import (
-    DMA_LOAD, DMA_STORE
+    DMA_LOAD, DMA_STORE,
 )
 from npu_model.hardware.arch_state import ArchState
 from npu_model.hardware.dma import DmaExecutionUnit
@@ -25,7 +25,7 @@ from npu_model.software import x
 from npu_model.software.instruction import Uop
 
 LINE = 8   # words per 32-byte VMEM line
-# (issue cycle, instruction, VMEM word address, DRAM address, bytes); x operands:
+# (issue cycle, instruction, channel, VMEM word address, DRAM address, bytes); x operands:
 # rd/rs1 carry the VMEM and DRAM addresses, rs2 the size, as the ISA defines.
 COMMANDS = [
     (1, DMA_LOAD, 0, 0 * LINE, 0x1000, 128),

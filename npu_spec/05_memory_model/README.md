@@ -29,15 +29,15 @@ Each channel supports:
 
 - at most one outstanding transfer
 - independent busy / completion state
-- `dma.wait ch` synchronization
+- `dma.wait N` synchronization
 
 The microarchitecture may implement the DMA channels with shared internal data paths or
 arbitration, provided the architecture-visible channel behavior is preserved.
 
-`dma.wait ch` behaves as a frontend fence:
+`dma.wait N` behaves as a frontend fence:
 
 - neither instruction allocates a normal execute-stage slot while it is holding decode
-- if channel `ch` is already done when `dma.wait ch` reaches decode, the instruction
+- if channel `N` is already done when `dma.wait N` reaches decode, the instruction
   spends that cycle in decode and retires directly
 - if channel `N` is not yet done, decode remains occupied until the transfer completes,
   then the instruction retires directly from decode
@@ -113,9 +113,9 @@ For the frozen baseline values:
 - one off-chip beat costs `2` core cycles
 - one VMEM beat costs `1` core cycle
 - one `vload` or `vstore` of a `1024`-byte tensor register takes `34` cycles
-- one `vmatpush.acc.fp8.*` or `vmatpop.fp8.*` of a `1024`-byte `FP8` tile takes
+- one `vmatpush.acc.fp8.*` or `vmatpop.fp8.acc.*` of a `1024`-byte `FP8` tile takes
   `32` cycles
-- one `vmatpush.acc.bf16.*` or `vmatpop.bf16.*` of a `2048`-byte `BF16` tile takes
+- one `vmatpush.acc.bf16.*` or `vmatpop.bf16.acc.*` of a `2048`-byte `BF16` tile takes
   `32` cycles
 
 ## Transfer Granularity by Structure

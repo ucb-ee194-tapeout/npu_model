@@ -301,7 +301,7 @@ class ExponentReg(RegBase):
 
     lower_bound = 0
     upper_bound = 32
-    fmt = ""  # bare number in assembly (baremetal/assembler.py syntax)
+    fmt = "e"
     reg_name = "exponent register"
 
 
@@ -319,7 +319,7 @@ class MatrixReg(RegBase):
 
     lower_bound = 0
     upper_bound = 64
-    fmt = ""  # bare number in assembly (baremetal/assembler.py syntax)
+    fmt = "m"
     reg_name = "matrix register"
 
 
@@ -338,7 +338,7 @@ class Accumulator(RegBase):
 
     lower_bound = 0
     upper_bound = 2
-    fmt = ""  # bare number in assembly (baremetal/assembler.py syntax)
+    fmt = "acc"
     reg_name = "accumulator"
 
 
@@ -355,7 +355,7 @@ class WeightBuffer(RegBase):
 
     lower_bound = 0
     upper_bound = 2
-    fmt = ""  # bare number in assembly (baremetal/assembler.py syntax)
+    fmt = "w"
     reg_name = "weight buffer"
 
 

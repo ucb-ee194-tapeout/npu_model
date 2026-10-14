@@ -43,52 +43,52 @@ dma.wait 2
 
 # --- VMEM -> MRF ---
 addi x31, x1, 0  # DMA and VLS bases both count words
-vload 0, x31, 0     # Q (fp8 tile)
+vload m0, 0(x31)     # Q (fp8 tile)
 delay 34
 addi x31, x2, 0  # DMA and VLS bases both count words
-vload 1, x31, 0     # K (fp8 tile)
+vload m1, 0(x31)     # K (fp8 tile)
 delay 34
 addi x31, x4, 0  # DMA and VLS bases both count words
-vload 2, x31, 0     # scale low half
+vload m2, 0(x31)     # scale low half
 delay 34
 addi x31, x4, 0  # DMA and VLS bases both count words
-vload 3, x31, 8    # scale high half
+vload m3, 8(x31)    # scale high half
 delay 34
 
 # --- Push K to WB slot 0, compute scores = Q @ K, pop bf16 ---
-vtrpose.xlu 1, 1   # MXU weights are streamed as columns
+vtrpose.xlu m1, m1   # MXU weights are streamed as columns
 delay 66
-vmatpush.w.mxu0 0, 1
+vmatpush.weight.mxu0 w0, m1
 delay 32
-vmatmul.mxu0 0, 0, 0
+vmatmul.mxu0 acc0, m0, w0
 delay 96
-vmatpop.bf16.mxu0 4, 0     # scores -> m4/m5
+vmatpop.bf16.acc.mxu0 m4, acc0     # scores -> m4/m5
 delay 32
 
 # scores_scaled = scores * scale
-vmul.bf16 6, 4, 2
+vmul.bf16 m6, m4, m2
 delay 66
 
 # --- Softmax (unnormalized variant: no max subtraction) ---
 # exp_scores = exp(scores_scaled)
-vexp 8, 6
+vexp.bf16 m8, m6
 delay 66
 # row_sum = sum(exp_scores) broadcast across columns
-vredsum.row.bf16 10, 8
+vredsum.row.bf16 m10, m8
 delay 39
 # inv_row_sum = 1 / row_sum
-vrecip.bf16 12, 10
+vrecip.bf16 m12, m10
 delay 66
 # softmax_scores = exp_scores * inv_row_sum
-vmul.bf16 14, 8, 12
+vmul.bf16 m14, m8, m12
 delay 66
 
 # --- Store softmax scores (bf16 tile) ---
 addi x31, x5, 0  # DMA and VLS bases both count words
-vstore 14, x31, 0
+vstore m14, 0(x31)
 delay 34
 addi x31, x5, 0  # DMA and VLS bases both count words
-vstore 15, x31, 8
+vstore m15, 8(x31)
 delay 34
 dma.store x10, x5, x12, 0
 dma.wait 0

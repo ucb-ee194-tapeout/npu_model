@@ -84,7 +84,7 @@
     ]
   },
   "load_response_no_bypass": {
-    "source": "addi x2, x0, 7\nlw x2, x0, 0\nnop\nnop\ncsrrw x0, 0x7c0, x2\ncsrrw x0, 0x7c0, x2\necall\n",
+    "source": "addi x2, x0, 7\nlw x2, 0(x0)\nnop\nnop\ncsrrw x0, 0x7c0, x2\ncsrrw x0, 0x7c0, x2\necall\n",
     "words": [
       "00700113",
       "00002103",

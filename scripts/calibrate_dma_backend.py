@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Score (or fit) the DMA memory backend against cycle deltas measured on the RTL.
 
-The programs ``calibration/dma/programs/perf_dma_*.S`` bank the mcycles delta around a DMA region into CSR_DBG1; the generated
-C harness prints it as ``dbg1_cycles``. This script runs the same programs
-through the Python model (the model's assembler reads the baremetal syntax directly) and
-compares the model's CSR_DBG1 with the measurement.
+The programs ``calibration/dma/programs/perf_dma_*.S`` bank the mcycles delta
+around a DMA region into CSR_DBG1; the generated C harness prints it as
+``dbg1_cycles``. This script runs the same programs through the Python model
+and compares the model's CSR_DBG1 with the measurement.
 
 Measurements come from ``calibration/dma/measurements/ee290sim_vcs.json`` by
 default (the refresh-off VCS run the bundled curve was made from), or from VCS
@@ -144,7 +144,7 @@ def parse_assignments(items: list[str], ranges: bool) -> dict:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--asm", nargs="*", type=Path,
-                        help="Baremetal-syntax .S files (default: calibration/dma/programs/perf_dma_*.S, probes excluded)")
+                        help=".S files (default: calibration/dma/programs/perf_dma_*.S, probes excluded)")
     parser.add_argument("--measurements", type=Path, default=MEASUREMENTS,
                         help="JSON of measured dbg1_cycles (default: the bundled VCS measurements)")
     parser.add_argument("--measurement-set", default="refresh_off",

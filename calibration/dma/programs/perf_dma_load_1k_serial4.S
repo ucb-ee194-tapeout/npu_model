@@ -5,32 +5,32 @@
 # @DRAM_BASE 0x90000000
 # @PERF_REPORT
 
-    LI    x5, 0x00000000
-    DMA.CONFIG x5, 0
-    LI    x12, 32
-    LI    x13, 1024
-    LI    x14, 4096
-    CSRRS x20, 0xC00, x0        # x20 = cycle count at start
-    ADDI  x6, x0, 0
-    LI    x10, 0x90000000
-    DMA.LOAD  x6, x10, x13, 0
-    DMA.WAIT  0
-    ADDI  x6, x0, 0
-    LI    x10, 0x90000400
-    DMA.LOAD  x6, x10, x13, 0
-    DMA.WAIT  0
-    ADDI  x6, x0, 0
-    LI    x10, 0x90000800
-    DMA.LOAD  x6, x10, x13, 0
-    DMA.WAIT  0
-    ADDI  x6, x0, 0
-    LI    x10, 0x90000C00
-    DMA.LOAD  x6, x10, x13, 0
-    DMA.WAIT  0
+    li    x5, 0x00000000
+    dma.config x5, 0
+    li    x12, 32
+    li    x13, 1024
+    li    x14, 4096
+    csrrs x20, 0xC00, x0        # x20 = cycle count at start
+    addi  x6, x0, 0
+    li    x10, 0x90000000
+    dma.load  x6, x10, x13, 0
+    dma.wait  0
+    addi  x6, x0, 0
+    li    x10, 0x90000400
+    dma.load  x6, x10, x13, 0
+    dma.wait  0
+    addi  x6, x0, 0
+    li    x10, 0x90000800
+    dma.load  x6, x10, x13, 0
+    dma.wait  0
+    addi  x6, x0, 0
+    li    x10, 0x90000C00
+    dma.load  x6, x10, x13, 0
+    dma.wait  0
 
-    CSRRS x21, 0xC00, x0        # x21 = cycle count at end
-    SUB   x22, x21, x20
-    CSRRW x0,  0xC11, x22       # stash in CSR_DBG1
-    ADDI  x30, x0, 1
-    CSRW  x30, 0xC10
-    ECALL
+    csrrs x21, 0xC00, x0        # x21 = cycle count at end
+    sub   x22, x21, x20
+    csrrw x0,  0xC11, x22       # stash in CSR_DBG1
+    addi  x30, x0, 1
+    csrrw x0, 0xC10, x30
+    ecall

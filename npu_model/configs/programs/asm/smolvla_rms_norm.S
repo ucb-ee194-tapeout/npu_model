@@ -12,37 +12,37 @@ dma.config x30, 0
 dma.wait 0
 dma.load x1, x5, x13, 0
 dma.load x11, x6, x13, 1
-vli.all 6, 0x3D00
+vli.all m6, 0x3D00
 delay 65
-vli.all 8, 0x3586
+vli.all m8, 0x3586
 delay 65
 dma.wait 0
 dma.wait 1
 addi x31, x1, 0  # DMA and VLS bases both count words
-vload 0, x31, 0
+vload m0, 0(x31)
 delay 34
 addi x31, x1, 0  # DMA and VLS bases both count words
-vload 1, x31, 8
+vload m1, 8(x31)
 delay 34
-vsquare.bf16 2, 0
+vsquare.bf16 m2, m0
 delay 66
-vredsum.row.bf16 4, 2
+vredsum.row.bf16 m4, m2
 delay 39
-vmul.bf16 10, 4, 6
+vmul.bf16 m10, m4, m6
 delay 66
-vadd.bf16 12, 10, 8
+vadd.bf16 m12, m10, m8
 delay 66
-vsqrt 14, 12
+vsqrt.bf16 m14, m12
 delay 66
-vrecip.bf16 4, 14
+vrecip.bf16 m4, m14
 delay 66
-vmul.bf16 6, 0, 4
+vmul.bf16 m6, m0, m4
 delay 66
 addi x31, x4, 0  # DMA and VLS bases both count words
-vstore 6, x31, 0
+vstore m6, 0(x31)
 delay 34
 addi x31, x4, 0  # DMA and VLS bases both count words
-vstore 7, x31, 8
+vstore m7, 8(x31)
 delay 34
 dma.store x9, x4, x13, 0
 dma.store x10, x15, x13, 1

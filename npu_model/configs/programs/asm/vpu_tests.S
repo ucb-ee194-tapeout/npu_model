@@ -31,30 +31,30 @@ dma.wait 0
 
 # --- VMEM -> MRF ---
 addi x31, x1, 0  # DMA and VLS bases both count words
-vload 0, x31, 0             # x h0
+vload m0, 0(x31)             # x h0
 delay 34
 addi x31, x1, 0  # DMA and VLS bases both count words
-vload 1, x31, 8            # x h1
+vload m1, 8(x31)            # x h1
 delay 34
 
 # --- Compute ---
-vadd.bf16 2, 0, 0        # (m2, m3) = x + x
+vadd.bf16 m2, m0, m0        # (m2, m3) = x + x
 delay 66
-vsub.bf16 4, 2, 0        # (m4, m5) = identity(x) = (x+x) - x
+vsub.bf16 m4, m2, m0        # (m4, m5) = identity(x) = (x+x) - x
 delay 66
-vsquare.bf16 6, 4         # (m6, m7) = identity^2
+vsquare.bf16 m6, m4         # (m6, m7) = identity^2
 delay 66
-vcube.bf16 8, 0           # (m8, m9) = x^3
+vcube.bf16 m8, m0           # (m8, m9) = x^3
 delay 66
-vmul.bf16 10, 6, 8       # (m10, m11) = result
+vmul.bf16 m10, m6, m8       # (m10, m11) = result
 delay 66
 
 # --- MRF -> VMEM -> DRAM ---
 addi x31, x2, 0  # DMA and VLS bases both count words
-vstore 10, x31, 0
+vstore m10, 0(x31)
 delay 34
 addi x31, x2, 0  # DMA and VLS bases both count words
-vstore 11, x31, 8
+vstore m11, 8(x31)
 delay 34
 dma.store x4, x2, x5, 0
 dma.wait 0

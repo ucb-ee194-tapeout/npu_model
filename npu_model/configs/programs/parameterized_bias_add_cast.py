@@ -1,7 +1,7 @@
 """Parameterized bias-add-cast kernel: fp8(x + bias) for 32×32.
 
 Fuses an elementwise bf16 addition (x + bias) with an fp8 quantization
-(unit-scale bf16 → fp8_e4m3fn cast via vfp8pack).
+(unit-scale bf16 → fp8_e4m3fn cast via vpack.bf16.fp8).
 
 DRAM layout (per _make_program):
   [dram_x   ]  2 × 1024 B  — row-major bf16 x   (H0 then H1)
@@ -17,7 +17,7 @@ MRF layout per tile:
   (v0, v1) = x bf16 LMUL=2 pair
   (v2, v3) = bias bf16 LMUL=2 pair
   (v4, v5) = x + bias  (vadd.bf16)
-  v6       = fp8(x + bias)  (vfp8pack)
+  v6       = fp8(x + bias)  (vpack.bf16.fp8)
 
 Constraint: single 32×32 tile only (M=N=32).
 """
@@ -54,7 +54,7 @@ def _tile_fp8(mat: torch.Tensor) -> torch.Tensor:
 
 
 def bias_add_cast_reference(x: torch.Tensor, bias: torch.Tensor) -> torch.Tensor:
-    """fp8(x + bias) with unit scale — matches vfp8pack seli=127 path."""
+    """fp8(x + bias) with unit scale — matches vpack.bf16.fp8 seli=127 path."""
     return (x.float() + bias.float()).to(torch.float8_e4m3fn)
 
 

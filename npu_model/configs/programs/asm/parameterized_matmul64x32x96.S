@@ -13,7 +13,7 @@
 # x10 = M_tiles (2)             x21 = N-tile counter
 #
 # DMA reads registers at execution time (516c after dispatch). x16 is only
-# advanced after dma.wait ch1 confirms the previous transfer is done, so the
+# advanced after dma.wait 1 confirms the previous transfer is done, so the
 # address is stable for the full transfer window.
 li x1, 0x800
 lui x2, 0x1
@@ -49,13 +49,13 @@ dma.load x1, x15, x5, 0
 dma.load x2, x16, x5, 1
 dma.wait 0
 addi x31, x1, 0  # DMA and VLS bases both count words
-vload 0, x31, 0
+vload m0, 0(x31)
 delay 34
 addi x21, x0, 0
 loop_1:
 dma.wait 1
 addi x31, x2, 0  # DMA and VLS bases both count words
-vload 1, x31, 0
+vload m1, 0(x31)
 delay 34
 addi x21, x21, 1
 bge x21, x11, no_prefetch
@@ -64,19 +64,19 @@ addi x0, x0, 0
 add x16, x16, x5
 dma.load x2, x16, x5, 1
 no_prefetch:
-vtrpose.xlu 1, 1   # MXU weights are streamed as columns
+vtrpose.xlu m1, m1   # MXU weights are streamed as columns
 delay 66
-vmatpush.w.mxu1 0, 1
+vmatpush.weight.mxu1 w0, m1
 delay 32
-vmatmul.mxu1 0, 0, 0
+vmatmul.mxu1 acc0, m0, w0
 delay 35
-vmatpop.bf16.mxu1 2, 0
+vmatpop.bf16.acc.mxu1 m2, acc0
 delay 32
 addi x31, x3, 0  # DMA and VLS bases both count words
-vstore 2, x31, 0
+vstore m2, 0(x31)
 delay 34
 srli x31, x4, 2   # DMA and VLS bases both count words
-vstore 3, x31, 0
+vstore m3, 0(x31)
 delay 34
 dma.store x17, x3, x6, 0
 dma.wait 0

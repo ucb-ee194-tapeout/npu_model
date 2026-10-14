@@ -14,6 +14,8 @@ from npu_model.isa import (
 )
 from npu_model.isa_patterns import (
     DirectImm,
+    CSRImm,
+    CSRReg,
     DMAConfig,
     DMATransfer,
     DMAWait,
@@ -21,8 +23,6 @@ from npu_model.isa_patterns import (
     ExponentOffsetLoad,
     Nullary,
     ScalarBaseOffsetStore,
-    CSRImm,
-    CSRReg,
     ScalarComputeImm,
     ScalarComputeShamt,
     ScalarBranchImm,
@@ -485,7 +485,7 @@ class VMUL_BF16(
         _write_mrf_bf16_pair(state, self.vd, state.math.mul(a, b))
 
 
-class VMIN_BF16(
+class VMINIMUM_BF16(
     TensorComputeBinary, VRType, exu=EXU.VECTOR, opcode=0b1010111, funct7=0b0000100
 ):
     def exec(self, state: ArchState) -> None:
@@ -502,7 +502,7 @@ class VREDMIN_BF16(
         _write_mrf_bf16_rows(state, self.vd, state.math.amin(x, 0).expand_as(x).contiguous())
 
 
-class VMAX_BF16(
+class VMAXIMUM_BF16(
     TensorComputeBinary, VRType, exu=EXU.VECTOR, opcode=0b1010111, funct7=0b0000110
 ):
     def exec(self, state: ArchState) -> None:
@@ -558,7 +558,7 @@ class VRECIP_BF16(
         _write_mrf_bf16_pair(state, self.vd, state.math.unary("rcp", x))
 
 
-class VEXP(
+class VEXP_BF16(
     TensorComputeUnary, VRType, exu=EXU.VECTOR, opcode=0b1010111, funct7=0b1000010
 ):
     def exec(self, state: ArchState) -> None:
@@ -566,7 +566,7 @@ class VEXP(
         _write_mrf_bf16_pair(state, self.vd, state.math.unary("exp", x))
 
 
-class VEXP2(
+class VEXP2_BF16(
     TensorComputeUnary, VRType, exu=EXU.VECTOR, opcode=0b1010111, funct7=0b1000011
 ):
     def exec(self, state: ArchState) -> None:
@@ -574,7 +574,7 @@ class VEXP2(
         _write_mrf_bf16_pair(state, self.vd, state.math.unary("exp2", x))
 
 
-class VFP8PACK(
+class VPACK_BF16_FP8(
     TensorComputeMixed, VRType, exu=EXU.VECTOR, opcode=0b1010111, funct7=0b1000100
 ):
     def exec(self, state: ArchState) -> None:
@@ -584,7 +584,7 @@ class VFP8PACK(
         state.write_mrf_fp8(self.vd, state.math.to_fp8(x.flatten(), state.read_erf(self.es1)))
 
 
-class VFP8UNPACK(
+class VUNPACK_FP8_BF16(
     TensorComputeMixed, VRType, exu=EXU.VECTOR, opcode=0b1010111, funct7=0b1000101
 ):
     def exec(self, state: ArchState) -> None:
@@ -594,7 +594,7 @@ class VFP8UNPACK(
         _write_mrf_bf16_rows(state, self.vd, y.reshape(2 * state.cfg.mrf_depth, -1))
 
 
-class VRELU(
+class VRELU_BF16(
     TensorComputeUnary, VRType, exu=EXU.VECTOR, opcode=0b1010111, funct7=0b1001000
 ):
     def exec(self, state: ArchState) -> None:
@@ -602,7 +602,7 @@ class VRELU(
         _write_mrf_bf16_pair(state, self.vd, state.math.unary("relu", x))
 
 
-class VSIN(
+class VSIN_BF16(
     TensorComputeUnary, VRType, exu=EXU.VECTOR, opcode=0b1010111, funct7=0b1001001
 ):
     def exec(self, state: ArchState) -> None:
@@ -610,7 +610,7 @@ class VSIN(
         _write_mrf_bf16_pair(state, self.vd, state.math.unary("sin", x))
 
 
-class VCOS(
+class VCOS_BF16(
     TensorComputeUnary, VRType, exu=EXU.VECTOR, opcode=0b1010111, funct7=0b1001010
 ):
     def exec(self, state: ArchState) -> None:
@@ -618,7 +618,7 @@ class VCOS(
         _write_mrf_bf16_pair(state, self.vd, state.math.unary("cos", x))
 
 
-class VTANH(
+class VTANH_BF16(
     TensorComputeUnary, VRType, exu=EXU.VECTOR, opcode=0b1010111, funct7=0b1001011
 ):
     def exec(self, state: ArchState) -> None:
@@ -626,7 +626,7 @@ class VTANH(
         _write_mrf_bf16_pair(state, self.vd, state.math.unary("tanh", x))
 
 
-class VLOG2(
+class VLOG2_BF16(
     TensorComputeUnary, VRType, exu=EXU.VECTOR, opcode=0b1010111, funct7=0b1001100
 ):
     def exec(self, state: ArchState) -> None:
@@ -634,7 +634,7 @@ class VLOG2(
         _write_mrf_bf16_pair(state, self.vd, state.math.unary("log2", x))
 
 
-class VSQRT(
+class VSQRT_BF16(
     TensorComputeUnary, VRType, exu=EXU.VECTOR, opcode=0b1010111, funct7=0b1001101
 ):
     def exec(self, state: ArchState) -> None:
@@ -824,7 +824,7 @@ class EBREAK(Nullary, IType, exu=EXU.SCALAR, opcode=0b1110011, funct3=0b000):
         state.halt_reason = "ebreak"
 
 
-class VMATPUSH_W_MXU0(
+class VMATPUSH_WEIGHT_MXU0(
     MXUWeightPush,
     VRType[WeightBuffer, MatrixReg],
     exu=EXU.MATRIX_SYSTOLIC,
@@ -835,7 +835,7 @@ class VMATPUSH_W_MXU0(
         state.write_wb_u8("mxu0", self.vd, state.mrf[self.vs1].view(torch.uint8))
 
 
-class VMATPUSH_W_MXU1(
+class VMATPUSH_WEIGHT_MXU1(
     MXUWeightPush,
     VRType[WeightBuffer, MatrixReg],
     exu=EXU.MATRIX_INNER,
@@ -894,7 +894,7 @@ class VMATPUSH_ACC_BF16_MXU1(
         state.write_acc_bf16("mxu1", self.vd, state.read_mrf_bf16_tile(self.vs1))
 
 
-class VMATPOP_FP8_MXU0(
+class VMATPOP_FP8_ACC_MXU0(
     MXUAccumulatorPopE1,
     VRType[MatrixReg, Accumulator],
     exu=EXU.MATRIX_SYSTOLIC,
@@ -908,7 +908,7 @@ class VMATPOP_FP8_MXU0(
         state.write_mrf_u8(self.vd, fp8.view(torch.uint8))
 
 
-class VMATPOP_FP8_MXU1(
+class VMATPOP_FP8_ACC_MXU1(
     MXUAccumulatorPopE1,
     VRType[MatrixReg, Accumulator],
     exu=EXU.MATRIX_INNER,
@@ -922,7 +922,7 @@ class VMATPOP_FP8_MXU1(
         state.write_mrf_u8(self.vd, fp8.view(torch.uint8))
 
 
-class VMATPOP_BF16_MXU0(
+class VMATPOP_BF16_ACC_MXU0(
     MXUAccumulatorPop,
     VRType[MatrixReg, Accumulator],
     exu=EXU.MATRIX_SYSTOLIC,
@@ -933,7 +933,7 @@ class VMATPOP_BF16_MXU0(
         state.write_mrf_bf16_tile(self.vd, state.read_acc_bf16("mxu0", self.vs2))
 
 
-class VMATPOP_BF16_MXU1(
+class VMATPOP_BF16_ACC_MXU1(
     MXUAccumulatorPop,
     VRType[MatrixReg, Accumulator],
     exu=EXU.MATRIX_INNER,
@@ -1004,6 +1004,7 @@ class DMA_STORE(DMATransfer, RType, exu=EXU.DMA, opcode=0b1111011, funct3=None, 
         length = state.read_xrf(self.rs2)
         data = state.read_vmem(state.dma_vmem_byte_address(state.read_xrf(self.rs1)), 0, length)
         state.write_dram(state.dma_dram_address(state.read_xrf(self.rd)), data)
+
 
 class DMA_CONFIG(DMAConfig, RType, exu=EXU.DMA, opcode=0b1111111, funct3=None, funct7=0b0000000):
     """``dma.config x(rs1), ch``: ``dma.base = x[rs1]``."""

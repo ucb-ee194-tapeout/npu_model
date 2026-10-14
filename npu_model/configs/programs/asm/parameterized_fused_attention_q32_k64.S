@@ -1,4 +1,4 @@
-seli 0, 127
+seli e0, 127
 addi x1, x0, 0
 addi x2, x0, 1024
 li x3, 0x800
@@ -26,43 +26,43 @@ dma.wait 1
 dma.load x4, x7, x10, 0
 dma.wait 0
 addi x31, x4, 0  # DMA and VLS bases both count words
-vload 2, x31, 0
+vload m2, 0(x31)
 delay 34
 addi x31, x4, 0  # DMA and VLS bases both count words
-vload 3, x31, 0
+vload m3, 0(x31)
 delay 34
 loop_2:
 dma.load x1, x6, x9, 0
 dma.wait 0
 addi x31, x1, 0  # DMA and VLS bases both count words
-vload 12, x31, 0
+vload m12, 0(x31)
 delay 34
 addi x31, x1, 0  # DMA and VLS bases both count words
-vload 13, x31, 8
+vload m13, 8(x31)
 delay 34
 # Quantize a column-blocked BF16 pair into row-major FP8 via acc1.
-vmatpush.acc.bf16.mxu0 1, 12
+vmatpush.acc.bf16.mxu0 acc1, m12
 delay 32
-vmatpop.fp8.mxu0 0, 0, 1
+vmatpop.fp8.acc.mxu0 m0, acc1, e0
 delay 32
 addi x31, x1, 0  # DMA and VLS bases both count words
-vload 12, x31, 16
+vload m12, 16(x31)
 delay 34
 addi x31, x1, 0  # DMA and VLS bases both count words
-vload 13, x31, 24
+vload m13, 24(x31)
 delay 34
 # Quantize a column-blocked BF16 pair into row-major FP8 via acc1.
-vmatpush.acc.bf16.mxu0 1, 12
+vmatpush.acc.bf16.mxu0 acc1, m12
 delay 32
-vmatpop.fp8.mxu0 1, 0, 1
+vmatpop.fp8.acc.mxu0 m1, acc1, e0
 delay 32
-vli.all 4, 0xC2C8
+vli.all m4,  0xC2C8
 delay 65
-vli.all 6, 0
+vli.all m6, 0
 delay 65
-vli.all 8, 0
+vli.all m8, 0
 delay 65
-vli.all 10, 0
+vli.all m10, 0
 delay 65
 addi x11, x13, 0
 addi x12, x14, 0
@@ -73,113 +73,113 @@ dma.load x3, x12, x9, 1
 dma.wait 0
 dma.wait 1
 addi x31, x2, 0  # DMA and VLS bases both count words
-vload 12, x31, 0
+vload m12, 0(x31)
 delay 34
 addi x31, x2, 0  # DMA and VLS bases both count words
-vload 13, x31, 8
+vload m13, 8(x31)
 delay 34
 # Quantize a column-blocked BF16 pair into row-major FP8 via acc1.
-vmatpush.acc.bf16.mxu0 1, 12
+vmatpush.acc.bf16.mxu0 acc1, m12
 delay 32
-vmatpop.fp8.mxu0 14, 0, 1
+vmatpop.fp8.acc.mxu0 m14, acc1, e0
 delay 32
-vtrpose.xlu 14, 14   # MXU weights are streamed as columns
+vtrpose.xlu m14, m14   # MXU weights are streamed as columns
 delay 66
-vmatpush.w.mxu0 0, 14
+vmatpush.weight.mxu0 w0, m14
 delay 32
-vmatmul.mxu0 0, 0, 0
+vmatmul.mxu0 acc0, m0, w0
 delay 96
 addi x31, x2, 0  # DMA and VLS bases both count words
-vload 12, x31, 16
+vload m12, 16(x31)
 delay 34
 addi x31, x2, 0  # DMA and VLS bases both count words
-vload 13, x31, 24
+vload m13, 24(x31)
 delay 34
 # Quantize a column-blocked BF16 pair into row-major FP8 via acc1.
-vmatpush.acc.bf16.mxu0 1, 12
+vmatpush.acc.bf16.mxu0 acc1, m12
 delay 32
-vmatpop.fp8.mxu0 14, 0, 1
+vmatpop.fp8.acc.mxu0 m14, acc1, e0
 delay 32
-vtrpose.xlu 14, 14   # MXU weights are streamed as columns
+vtrpose.xlu m14, m14   # MXU weights are streamed as columns
 delay 66
-vmatpush.w.mxu0 0, 14
+vmatpush.weight.mxu0 w0, m14
 delay 32
-vmatmul.acc.mxu0 0, 1, 0
+vmatmul.acc.mxu0 acc0, m1, w0
 delay 96
-vmatpop.bf16.mxu0 20, 0
+vmatpop.bf16.acc.mxu0 m20, acc0
 delay 32
-vmul.bf16 22, 20, 2
+vmul.bf16 m22, m20, m2
 delay 66
-vredmax.row.bf16 24, 22
+vredmax.row.bf16 m24, m22
 delay 34
-vmax.bf16 26, 4, 24
+vmaximum.bf16 m26, m4, m24
 delay 66
-vsub.bf16 24, 4, 26
+vsub.bf16 m24, m4, m26
 delay 66
-vexp 24, 24
+vexp.bf16 m24, m24
 delay 66
-vmul.bf16 8, 8, 24
+vmul.bf16 m8, m8, m24
 delay 66
-vmul.bf16 10, 10, 24
+vmul.bf16 m10, m10, m24
 delay 66
-vsub.bf16 28, 22, 26
+vsub.bf16 m28, m22, m26
 delay 66
-vexp 28, 28
+vexp.bf16 m28, m28
 delay 66
 # Quantize a column-blocked BF16 pair into row-major FP8 via acc1.
-vmatpush.acc.bf16.mxu0 1, 28
+vmatpush.acc.bf16.mxu0 acc1, m28
 delay 32
-vmatpop.fp8.mxu0 30, 0, 1
+vmatpop.fp8.acc.mxu0 m30, acc1, e0
 delay 32
 addi x31, x3, 0  # DMA and VLS bases both count words
-vload 16, x31, 0
+vload m16, 0(x31)
 delay 34
 addi x31, x3, 0  # DMA and VLS bases both count words
-vload 17, x31, 8
+vload m17, 8(x31)
 delay 34
 # Quantize a column-blocked BF16 pair into row-major FP8 via acc1.
-vmatpush.acc.bf16.mxu0 1, 16
+vmatpush.acc.bf16.mxu0 acc1, m16
 delay 32
-vmatpop.fp8.mxu0 18, 0, 1
+vmatpop.fp8.acc.mxu0 m18, acc1, e0
 delay 32
-vtrpose.xlu 18, 18   # MXU weights are streamed as columns
+vtrpose.xlu m18, m18   # MXU weights are streamed as columns
 delay 66
-vmatpush.w.mxu0 0, 18
+vmatpush.weight.mxu0 w0, m18
 delay 32
-vmatmul.mxu0 0, 30, 0
+vmatmul.mxu0 acc0, m30, w0
 delay 96
-vmatpop.bf16.mxu0 32, 0
+vmatpop.bf16.acc.mxu0 m32, acc0
 delay 32
-vadd.bf16 8, 8, 32
+vadd.bf16 m8, m8, m32
 delay 66
 addi x31, x3, 0  # DMA and VLS bases both count words
-vload 16, x31, 16
+vload m16, 16(x31)
 delay 34
 addi x31, x3, 0  # DMA and VLS bases both count words
-vload 17, x31, 24
+vload m17, 24(x31)
 delay 34
 # Quantize a column-blocked BF16 pair into row-major FP8 via acc1.
-vmatpush.acc.bf16.mxu0 1, 16
+vmatpush.acc.bf16.mxu0 acc1, m16
 delay 32
-vmatpop.fp8.mxu0 18, 0, 1
+vmatpop.fp8.acc.mxu0 m18, acc1, e0
 delay 32
-vtrpose.xlu 18, 18   # MXU weights are streamed as columns
+vtrpose.xlu m18, m18   # MXU weights are streamed as columns
 delay 66
-vmatpush.w.mxu0 0, 18
+vmatpush.weight.mxu0 w0, m18
 delay 32
-vmatmul.mxu0 0, 30, 0
+vmatmul.mxu0 acc0, m30, w0
 delay 96
-vmatpop.bf16.mxu0 32, 0
+vmatpop.bf16.acc.mxu0 m32, acc0
 delay 32
-vadd.bf16 10, 10, 32
+vadd.bf16 m10, m10, m32
 delay 66
-vmul.bf16 34, 24, 6
+vmul.bf16 m34, m24, m6
 delay 66
-vredsum.row.bf16 36, 28
+vredsum.row.bf16 m36, m28
 delay 39
-vadd.bf16 6, 34, 36
+vadd.bf16 m6, m34, m36
 delay 66
-vmov 4, 26
+vmov m4, m26
 delay 66
 add x11, x11, x9
 add x12, x12, x9
@@ -187,23 +187,23 @@ addi x18, x18, 1
 blt x18, x17, loop_1
 addi x0, x0, 0
 addi x0, x0, 0
-vrecip.bf16 34, 6
+vrecip.bf16 m34, m6
 delay 66
-vmul.bf16 8, 8, 34
+vmul.bf16 m8, m8, m34
 delay 66
-vmul.bf16 10, 10, 34
+vmul.bf16 m10, m10, m34
 delay 66
 addi x31, x5, 0  # DMA and VLS bases both count words
-vstore 8, x31, 0
+vstore m8, 0(x31)
 delay 34
 addi x31, x5, 0  # DMA and VLS bases both count words
-vstore 9, x31, 8
+vstore m9, 8(x31)
 delay 34
 addi x31, x5, 0  # DMA and VLS bases both count words
-vstore 10, x31, 16
+vstore m10, 16(x31)
 delay 34
 addi x31, x5, 0  # DMA and VLS bases both count words
-vstore 11, x31, 24
+vstore m11, 24(x31)
 delay 34
 dma.store x8, x5, x9, 0
 dma.wait 0

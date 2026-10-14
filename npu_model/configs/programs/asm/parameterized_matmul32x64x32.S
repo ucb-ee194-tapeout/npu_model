@@ -20,7 +20,7 @@
 # x26 = A[k=1] DRAM addr, x27 = B[k=1] DRAM addr
 #
 # ch0 is reused: A[k=0] sets ch0 first, then B[k=1] sets ch0 again after
-# ch0 is cleared by the first dma.wait ch0.
+# ch0 is cleared by the first dma.wait 0.
 li x1, 0x800
 lui x24, 0x1
 addi x24, x24, -1792
@@ -68,39 +68,39 @@ dma.load x24, x26, x5, 2
 dma.wait 0
 dma.load x25, x27, x5, 0
 addi x31, x1, 0  # DMA and VLS bases both count words
-vload 0, x31, 0
+vload m0, 0(x31)
 delay 34
 dma.wait 1
 addi x31, x2, 0  # DMA and VLS bases both count words
-vload 1, x31, 0
+vload m1, 0(x31)
 delay 34
-vtrpose.xlu 1, 1   # MXU weights are streamed as columns
+vtrpose.xlu m1, m1   # MXU weights are streamed as columns
 delay 66
-vmatpush.w.mxu1 0, 1
+vmatpush.weight.mxu1 w0, m1
 delay 32
-vmatmul.mxu1 0, 0, 0
+vmatmul.mxu1 acc0, m0, w0
 delay 35
 dma.wait 2
 addi x31, x24, 0  # DMA and VLS bases both count words
-vload 0, x31, 0
+vload m0, 0(x31)
 delay 34
 dma.wait 0
 addi x31, x25, 0  # DMA and VLS bases both count words
-vload 1, x31, 0
+vload m1, 0(x31)
 delay 34
-vtrpose.xlu 1, 1   # MXU weights are streamed as columns
+vtrpose.xlu m1, m1   # MXU weights are streamed as columns
 delay 66
-vmatpush.w.mxu1 0, 1
+vmatpush.weight.mxu1 w0, m1
 delay 32
-vmatmul.acc.mxu1 0, 0, 0
+vmatmul.acc.mxu1 acc0, m0, w0
 delay 35
-vmatpop.bf16.mxu1 2, 0
+vmatpop.bf16.acc.mxu1 m2, acc0
 delay 32
 addi x31, x3, 0  # DMA and VLS bases both count words
-vstore 2, x31, 0
+vstore m2, 0(x31)
 delay 34
 srli x31, x4, 2   # DMA and VLS bases both count words
-vstore 3, x31, 0
+vstore m3, 0(x31)
 delay 34
 dma.store x17, x3, x6, 0
 dma.wait 0

@@ -8,7 +8,7 @@ import torch
 from npu_model.configs.hardware.default import DefaultHardwareConfig
 from npu_model.configs.isa_definition import (
     VADD_BF16, VMOV, VLI_ALL, VLI_ROW, VLI_COL, VLI_ONE, VREDSUM_BF16,
-    VREDSUM_ROW_BF16, VREDMAX_ROW_BF16, VFP8PACK, VFP8UNPACK,
+    VREDSUM_ROW_BF16, VREDMAX_ROW_BF16, VPACK_BF16_FP8, VUNPACK_FP8_BF16,
     VSQUARE_BF16, VCUBE_BF16, VTRPOSE_XLU,
 )
 from npu_model.hardware.arch_state import ArchState
@@ -54,8 +54,8 @@ def fill_pair(state, bank, value):
     (VREDMAX_ROW_BF16(vd=m(4), vs1=m(0)), 2, 33, 64),
     (VREDSUM_ROW_BF16(vd=m(4), vs1=m(0)), 7, 38, 64),
     (VREDSUM_BF16(vd=m(4), vs1=m(0)), 66, 129, 64),
-    (VFP8PACK(vd=m(4), vs2=m(0), es1=e(0)), 3, 65, 32),
-    (VFP8UNPACK(vd=m(4), vs2=m(0), es1=e(0)), 3, 66, 64),
+    (VPACK_BF16_FP8(vd=m(4), vs2=m(0), es1=e(0)), 3, 65, 32),
+    (VUNPACK_FP8_BF16(vd=m(4), vs2=m(0), es1=e(0)), 3, 66, 64),
 ])
 def test_operation_write_edges(vpu, op, first, last, count):
     state = vpu.arch_state

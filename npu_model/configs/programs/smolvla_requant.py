@@ -2,7 +2,7 @@
 
 bf16 → fp8 requantization with unit scale (seli imm=127).
 Reads two contiguous 16x32 bf16 halves and packs to a contiguous 32x32
-fp8 tile via vfp8pack.
+fp8 tile via vpack.bf16.fp8.
 """
 
 import torch

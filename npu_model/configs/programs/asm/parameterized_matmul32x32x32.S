@@ -37,27 +37,27 @@ dma.load x1, x18, x5, 0
 dma.load x2, x19, x5, 1
 dma.wait 0
 addi x31, x1, 0  # DMA and VLS bases both count words
-vload 0, x31, 0
+vload m0, 0(x31)
 delay 34
 dma.wait 1
 addi x31, x2, 0  # DMA and VLS bases both count words
-vload 1, x31, 0
+vload m1, 0(x31)
 delay 34
-vtrpose.xlu 1, 1   # MXU weights are streamed as columns
+vtrpose.xlu m1, m1   # MXU weights are streamed as columns
 delay 66
-vmatpush.w.mxu1 0, 1
+vmatpush.weight.mxu1 w0, m1
 delay 32
-vmatmul.mxu1 0, 0, 0
+vmatmul.mxu1 acc0, m0, w0
 delay 35
 addi x18, x18, 1024
 add x19, x19, x7
-vmatpop.bf16.mxu1 2, 0
+vmatpop.bf16.acc.mxu1 m2, acc0
 delay 32
 addi x31, x3, 0  # DMA and VLS bases both count words
-vstore 2, x31, 0
+vstore m2, 0(x31)
 delay 34
 srli x31, x4, 2   # DMA and VLS bases both count words
-vstore 3, x31, 0
+vstore m3, 0(x31)
 delay 34
 dma.store x17, x3, x6, 0
 dma.wait 0

@@ -41,47 +41,47 @@ dma.wait 2
 
 # --- VMEM -> MRF (weights + activation) ---
 addi x31, x1, 0  # DMA and VLS bases both count words
-vload 0, x31, 0     # gate W (fp8)
+vload m0, 0(x31)     # gate W (fp8)
 delay 34
 addi x31, x2, 0  # DMA and VLS bases both count words
-vload 1, x31, 0     # up W (fp8)
+vload m1, 0(x31)     # up W (fp8)
 delay 34
 addi x31, x3, 0  # DMA and VLS bases both count words
-vload 2, x31, 0     # act (fp8)
+vload m2, 0(x31)     # act (fp8)
 delay 34
 
 # --- Push weights to MXU0 WB slots 0 and 1 ---
-vtrpose.xlu 0, 0   # MXU weights are streamed as columns
+vtrpose.xlu m0, m0   # MXU weights are streamed as columns
 delay 66
-vmatpush.w.mxu0 0, 0
+vmatpush.weight.mxu0 w0, m0
 delay 32
-vtrpose.xlu 1, 1   # MXU weights are streamed as columns
+vtrpose.xlu m1, m1   # MXU weights are streamed as columns
 delay 66
-vmatpush.w.mxu0 1, 1
+vmatpush.weight.mxu0 w1, m1
 delay 32
 
 # --- Matrix Multiplications ---
 # Gate projection: activation @ gate_weight -> acc0
-vmatmul.mxu0 0, 2, 0
+vmatmul.mxu0 acc0, m2, w0
 delay 96
-vmatpop.bf16.mxu0 4, 0     # gate -> m4/m5
+vmatpop.bf16.acc.mxu0 m4, acc0     # gate -> m4/m5
 delay 32
 # Up projection: activation @ up_weight -> acc0
-vmatmul.mxu0 0, 2, 1
+vmatmul.mxu0 acc0, m2, w1
 delay 96
-vmatpop.bf16.mxu0 6, 0     # up -> m6/m7
+vmatpop.bf16.acc.mxu0 m6, acc0     # up -> m6/m7
 delay 32
 
 # --- Element-wise Multiplication (GeGLU simplified: gate * up) ---
-vmul.bf16 8, 4, 6
+vmul.bf16 m8, m4, m6
 delay 66
 
 # --- Store Results ---
 addi x31, x4, 0  # DMA and VLS bases both count words
-vstore 8, x31, 0
+vstore m8, 0(x31)
 delay 34
 addi x31, x4, 0  # DMA and VLS bases both count words
-vstore 9, x31, 8
+vstore m9, 8(x31)
 delay 34
 dma.store x8, x4, x10, 0
 dma.wait 0

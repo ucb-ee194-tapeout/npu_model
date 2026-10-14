@@ -3,8 +3,8 @@
 Everything the measured DMA memory curve (`npu_model/configs/memory_curves/ee290sim_vcs_probe.json`)
 was made from, so it can be regenerated or re-measured from this repository alone.
 
-- `programs/perf_dma_*.S`: timing programs in the RTL repo's baremetal assembler
-  syntax. Each banks the mcycles delta around a DMA region into CSR_DBG1.
+- `programs/perf_dma_*.S`: timing programs. Each banks the mcycles delta around
+  a DMA region into CSR_DBG1.
   `perf_dma_probe_<rd>r_<bg>bg_<size>.S` (38 files, written by
   `scripts/gen_dma_probe_programs.py`) are the DMA-side Mess benchmark: one
   timed 32 B access on channel 0 against background traffic from `bg`
