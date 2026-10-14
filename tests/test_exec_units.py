@@ -36,7 +36,7 @@ MXU_OPERANDS = {
 
 def make(unit="VPU", numerics="rtl"):
     cfg = DefaultHardwareConfig()
-    cfg.arch_state_config = replace(cfg.arch_state_config, dram_size=4096, numerics=numerics)
+    cfg.arch_state_config = replace(cfg.arch_state_config, dram_base=0, dram_size=4096, numerics=numerics)
     state = ArchState(cfg.arch_state_config)
     generator = torch.Generator().manual_seed(0)
     random = lambda shape, scale=4: torch.randn(shape, generator=generator) * scale
@@ -52,8 +52,9 @@ def make(unit="VPU", numerics="rtl"):
     state.dram[:] = torch.randint(0, 256, state.dram.shape, generator=generator, dtype=torch.uint8)
     state.write_erf(0, 129)
     # Unaligned scalar address, VLS word address of byte 0x1000, a store value
-    # above 2**31, a DMA length, DRAM and VMEM addresses, and a DMA base.
-    for reg, value in zip(range(1, 8), (0x1003, 0x400, 0xDEADBEEF, 64, 0x100, 0x2000, 1)):
+    # above 2**31, a DMA length, a DRAM address, the DMA VMEM word address of
+    # byte 0x2000, and a DMA base.
+    for reg, value in zip(range(1, 8), (0x1003, 0x400, 0xDEADBEEF, 64, 0x100, 0x800, 1)):
         state.write_xrf(reg, value)
     return UNITS[unit](unit, Mock(spec=Logger), state, config=cfg)
 
@@ -91,7 +92,7 @@ def assert_same_state(got, expected):
     for bank, (a, b) in enumerate(zip(got.mrf, expected.mrf)):
         assert torch.equal(a, b), f"m{bank}"
     assert (got.xrf, got.erf, got.base) == (expected.xrf, expected.erf, expected.base)
-    assert torch.equal(got.vmem, expected.vmem) and torch.equal(got.dram, expected.dram)
+    assert torch.equal(got.vmem, expected.vmem) and torch.equal(got.dram.dense(), expected.dram.dense())
     for mxu in got.acc:
         for slot in range(2):
             assert torch.equal(got.acc[mxu][slot].view(torch.int16), expected.acc[mxu][slot].view(torch.int16)), (mxu, slot)
@@ -222,7 +223,7 @@ def test_dma_takes_registers_at_launch_and_memory_at_completion():
     unit, reference = make("DMA"), make("DMA").arch_state
     load = DMA_LOAD_CH0(rd=x(6), rs1=x(5), rs2=x(4))
     unit.tick(Uop(load))
-    unit.arch_state.write_xrf(6, 0x3000)  # Retargeting x6 mid-transfer has no effect,
+    unit.arch_state.write_xrf(6, 0xC00)  # Retargeting x6 mid-transfer has no effect,
     for state in (unit.arch_state, reference):
         state.dram[0x100:0x140] = 7  # but the source is read as the transfer completes.
     while unit.has_in_flight:

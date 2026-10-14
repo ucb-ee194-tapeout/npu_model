@@ -21,14 +21,14 @@
 #
 # DMA reads register values at execution time (~516c after dispatch).
 # x16 and x22 are only modified after dma.wait on the previous transfer.
-lui x1, 0x2
-lui x2, 0x2
-addi x2, x2, 1024
-lui x3, 0x3
-addi x3, x3, -2048
-lui x23, 0x3
-addi x23, x23, -1024
-lui x4, 0x3
+li x1, 0x800
+lui x2, 0x1
+addi x2, x2, -1792
+lui x3, 0x1
+addi x3, x3, -1536
+lui x23, 0x1
+addi x23, x23, -1280
+li x4, 0xc00
 lui x5, 0x3
 addi x5, x5, 1024
 addi x7, x0, 1024
@@ -43,9 +43,10 @@ lui x13, 0x1
 lui x14, 0x2
 addi x15, x0, 0
 addi x20, x0, 0
-dma.config.ch0 x0
+addi x30, x0, 1  # dma.base 1: DRAM operands address 4 GiB + offset (Program.dram_base)
+dma.config.ch0 x30
 dma.wait.ch0
-dma.config.ch1 x0
+dma.config.ch1 x30
 dma.wait.ch1
 dma.wait.ch0
 dma.wait.ch1
@@ -58,10 +59,10 @@ dma.load.ch0 x1, x18, x7
 dma.load.ch1 x2, x19, x7
 dma.wait.ch0
 dma.wait.ch1
-srli x31, x1, 2   # VLS bases count words; DMA bases count bytes
+addi x31, x1, 0  # DMA and VLS bases both count words
 vload m0, 0(x31)
 delay 34
-srli x31, x2, 2   # VLS bases count words; DMA bases count bytes
+addi x31, x2, 0  # DMA and VLS bases both count words
 vload m1, 0(x31)
 delay 34
 addi x21, x0, 0
@@ -70,7 +71,7 @@ add x22, x16, x6
 dma.load.ch0 x3, x16, x7
 dma.load.ch1 x23, x22, x7
 dma.wait.ch0
-srli x31, x3, 2   # VLS bases count words; DMA bases count bytes
+addi x31, x3, 0  # DMA and VLS bases both count words
 vload m2, 0(x31)
 delay 34
 vtrpose.xlu m2, m2   # MXU weights are streamed as columns
@@ -80,7 +81,7 @@ delay 32
 vmatmul.mxu1 acc0, m0, w0
 delay 35
 dma.wait.ch1
-srli x31, x23, 2   # VLS bases count words; DMA bases count bytes
+addi x31, x23, 0  # DMA and VLS bases both count words
 vload m2, 0(x31)
 delay 34
 vtrpose.xlu m2, m2   # MXU weights are streamed as columns
@@ -91,10 +92,10 @@ vmatmul.acc.mxu1 acc0, m1, w0
 delay 35
 vmatpop.bf16.acc.mxu1 m4, acc0
 delay 32
-srli x31, x4, 2   # VLS bases count words; DMA bases count bytes
+addi x31, x4, 0  # DMA and VLS bases both count words
 vstore m4, 0(x31)
 delay 34
-srli x31, x5, 2   # VLS bases count words; DMA bases count bytes
+srli x31, x5, 2   # DMA and VLS bases both count words
 vstore m5, 0(x31)
 delay 34
 dma.store.ch0 x17, x4, x6

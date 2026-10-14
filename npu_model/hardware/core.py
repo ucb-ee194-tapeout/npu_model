@@ -79,7 +79,7 @@ class Core(Module):
         self.ifu.load_program(program)
         if len(program.memory_regions) > 0:
             for base, arr in program.memory_regions:
-                self.arch_state.write_dram(base, arr.flatten().view(torch.uint8))
+                self.arch_state.write_dram(program.dram_base + base, arr.flatten().view(torch.uint8))
 
     def reset(self) -> None:
         """Reset all components."""
@@ -228,7 +228,8 @@ class Core(Module):
             self.logger.log_retire(self.issued_uop.id)
         else:
             target = self.exu_map[insn.exu]
-            if insn.exu == EXU.DMA and isinstance(insn, RType):
+            if insn.exu == EXU.DMA and isinstance(insn, RType) and not insn.mnemonic.startswith("dma.config"):
+                # Only transfers occupy a channel; dma.config writes dmaBaseReg at issue.
                 assert not state.check_flag(insn.funct3), (
                     f"Flag {insn.funct3} is already set, erroneous program"
                 )

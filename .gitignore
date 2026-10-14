@@ -23,3 +23,5 @@ wheels/
 # Reproducible RTL comparison fixtures and their simulator harnesses
 !tests/rtl/*.json
 !tests/rtl/scala/**/*.scala
+!npu_model/configs/memory_curves/*.json
+!calibration/**/*.json

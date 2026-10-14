@@ -4,10 +4,10 @@
 #   - vexp, vredsum.row, vrecip, vmul to implement softmax
 #
 # Register map:
-#   x1  = VMEM_QUERY_BASE  = 0x2000
-#   x2  = VMEM_KEY_BASE    = 0x2400
-#   x4  = VMEM_SCALE_BASE  = 0x2800
-#   x5  = VMEM_OUTPUT_BASE = 0x3000
+#   x1 = VMEM_QUERY_BASE = 0x800 (word address of byte 0x2000)
+#   x2 = VMEM_KEY_BASE = 0x900 (word address of byte 0x2400)
+#   x4 = VMEM_SCALE_BASE = 0xa00 (word address of byte 0x2800)
+#   x5 = VMEM_OUTPUT_BASE = 0xc00 (word address of byte 0x3000)
 #   x6  = DRAM_QUERY_BASE  = 0x0000
 #   x7  = DRAM_KEY_BASE    = 0x0400
 #   x9  = DRAM_SCALE_BASE  = 0x0800
@@ -16,10 +16,10 @@
 #   x12 = 2048  (bf16 tile bytes)
 
 # --- Register Setup (VMEM addresses) ---
-li x1, 0x2000           # VMEM_QUERY_BASE
-li x2, 0x2400           # VMEM_KEY_BASE
-li x4, 0x2800           # VMEM_SCALE_BASE
-li x5, 0x3000           # VMEM_OUTPUT_BASE
+li x1, 0x800  # VMEM_QUERY_BASE
+li x2, 0x900  # VMEM_KEY_BASE
+li x4, 0xa00  # VMEM_SCALE_BASE
+li x5, 0xc00  # VMEM_OUTPUT_BASE
 
 # --- Register Setup (DRAM addresses) ---
 addi x6, x0, 0          # DRAM_QUERY_BASE = 0x0000
@@ -31,7 +31,8 @@ addi x11, x0, 1024
 li x12, 2048
 
 # --- DRAM -> VMEM ---
-dma.config.ch0 x0
+addi x30, x0, 1  # dma.base 1: DRAM operands address 4 GiB + offset (Program.dram_base)
+dma.config.ch0 x30
 dma.wait.ch0
 dma.load.ch0 x1, x6, x11   # Q tile
 dma.load.ch1 x2, x7, x11   # K tile
@@ -41,16 +42,16 @@ dma.wait.ch1
 dma.wait.ch2
 
 # --- VMEM -> MRF ---
-srli x31, x1, 2   # VLS bases count words; DMA bases count bytes
+addi x31, x1, 0  # DMA and VLS bases both count words
 vload m0, 0(x31)     # Q (fp8 tile)
 delay 34
-srli x31, x2, 2   # VLS bases count words; DMA bases count bytes
+addi x31, x2, 0  # DMA and VLS bases both count words
 vload m1, 0(x31)     # K (fp8 tile)
 delay 34
-srli x31, x4, 2   # VLS bases count words; DMA bases count bytes
+addi x31, x4, 0  # DMA and VLS bases both count words
 vload m2, 0(x31)     # scale low half
 delay 34
-srli x31, x4, 2   # VLS bases count words; DMA bases count bytes
+addi x31, x4, 0  # DMA and VLS bases both count words
 vload m3, 8(x31)    # scale high half
 delay 34
 
@@ -83,10 +84,10 @@ vmul.bf16 m14, m8, m12
 delay 66
 
 # --- Store softmax scores (bf16 tile) ---
-srli x31, x5, 2   # VLS bases count words; DMA bases count bytes
+addi x31, x5, 0  # DMA and VLS bases both count words
 vstore m14, 0(x31)
 delay 34
-srli x31, x5, 2   # VLS bases count words; DMA bases count bytes
+addi x31, x5, 0  # DMA and VLS bases both count words
 vstore m15, 8(x31)
 delay 34
 dma.store.ch0 x10, x5, x12

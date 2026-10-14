@@ -26,12 +26,21 @@ The standalone Python checkout checks artifact hashes without requiring RTL.
 | `vector_traces.json` | `VectorEngineTop` | Every MREG read/write cycle, address and output bit; 29 operations, special encodings, overlap, mirrored reads, in-place move and last-write handoff |
 | `sa_traces.json`, `ipt_traces.json` | `SystolicArrayTop`, `InnerProductTreesTop` | Every MREG read/write cycle/address/data; all seven commands, accumulator chaining and overlapping weight push/compute |
 | `memory_traces.json` | `LSU`, `XluEngine` | Concurrent scalar/VLOAD/VSTORE and transpose requests, write data, scalar writeback; VMEM and MREG accesses |
+| `dma_traces.json` | `DmaEngine`, `Vmem` | Per-cycle TileLink A/D fires, VMEM read/write requests and grants, channel busy; six interleaved load/store commands, out-of-order responses, A-channel backpressure, LSU bank denials |
 | `arithmetic.json` | `E4M3FMA`, `AnchorAccumulationTree`, `FPUtils` converters | 512 seeded random/boundary cases, all 256 scale encodings and FP8 input encodings |
 | `configs/data/*.bin.gz` (under `npu_model/`) | Actual `VectorEngineTop` lane boxes | All 65,536 BF16 encodings for each of 11 unary operations |
 
 Memory-facing harnesses supply synchronous one-cycle responses. They test the
 engines and their command/response pipeline, without instantiating TileLink or
-a complete AtlasTile. The scalar harness uses a synchronous instruction ROM,
+a complete AtlasTile. The DMA harness is the exception: it instantiates the
+actual `DmaEngine` and `Vmem` with a scripted TileLink responder (per-beat
+latency `5 + 2 * (source % 4)`, `tl.a.ready` low every fifth cycle) and
+scripted LSU bank traffic. Because `DMA.scala` and `VMEM.scala` depend on
+rocket-chip, that harness is compiled by Chipyard's sbt project `sp26atlas`
+rather than the Mill `atlas` module; the regeneration script installs it under
+`src/test/scala/` (outside the Mill tree, which sbt excludes) and runs
+`testOnly atlas.dma.NpuModelDmaTraceTest` from the Chipyard root. Use
+`--only dma` to regenerate it alone. The scalar harness uses a synchronous instruction ROM,
 idle tensor engines, an explicitly driven DMA busy signal and a fixed scalar
 memory response (`0x12345678`). IMEM host arbitration and CSR counters have
 separate Python tests, rather than full-system RTL traces.

@@ -99,6 +99,33 @@ def test_pop_can_follow_first_result_while_compute_drains(mxu):
     assert state.read_mrf_bf16_tile(m(2)).float().tolist() == [[1] * 32] * 32
 
 
+def test_overwrite_compute_may_follow_pop_on_same_accumulator(mxu):
+    """AccumulationBuffers has one read port per buffer, but only an
+    accumulate-mode compute reads it; an overwrite compute may start the
+    cycle after a pop of the same accumulator (perf_mm_* baremetal tests)."""
+    state = mxu.arch_state
+    put_fp8(state, m(0), torch.ones(32, 32))
+    put_fp8(state, m(1), torch.ones(32, 32))
+    state.acc[mxu.mxu][0] = torch.full((32, 32), 3.0).to(torch.bfloat16)
+    tick(mxu, instruction(mxu, "VMATPUSH_WEIGHT", vd=w(0), vs1=m(1)))
+    for _ in range(mxu.compute_first + 32):
+        tick(mxu)
+    tick(mxu, instruction(mxu, "VMATPOP_BF16_ACC", vd=m(2), vs2=acc(0)))
+    tick(mxu, instruction(mxu, "VMATMUL", vd=acc(0), vs1=m(0), vs2=w(0)))
+    assert len(mxu.in_flight) == 2
+    for _ in range(mxu.compute_first + 32):
+        tick(mxu)
+    assert not mxu.has_in_flight
+    assert state.acc[mxu.mxu][0].float().tolist() == [[32] * 32] * 32
+    assert state.read_mrf_bf16_tile(m(2)).float().tolist() == [[3] * 32] * 32
+
+
+def test_accumulate_compute_during_pop_on_same_accumulator_is_rejected(mxu):
+    tick(mxu, instruction(mxu, "VMATPOP_BF16_ACC", vd=m(2), vs2=acc(0)))
+    with pytest.raises(RuntimeError, match="same accumulator"):
+        tick(mxu, instruction(mxu, "VMATMUL_ACC", vd=acc(0), vs1=m(0), vs2=w(0)))
+
+
 def test_second_compute_issues_on_last_feed_cycle(mxu):
     state = mxu.arch_state
     put_fp8(state, m(0), torch.ones(32, 32))

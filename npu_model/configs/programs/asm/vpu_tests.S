@@ -3,7 +3,7 @@
 # = (x+x - x)^2 * x^3 = x^2 * x^3 = x^5 (in bf16)
 #
 # Scalar register map:
-#   x1 = VMEM_INPUT  = 0x2000    x2 = VMEM_OUTPUT = 0x2800
+#   x1 = VMEM_INPUT = 0x800 (word address of byte 0x2000)    x2 = VMEM_OUTPUT = 0x2800
 #   x3 = DRAM_INPUT  = 0x0000    x4 = DRAM_OUTPUT = 0x0800
 #   x5 = 2048 (TILE_BYTES)
 #
@@ -13,9 +13,9 @@
 #   (m8, m9)   = x^3            (m10, m11) = result
 
 # --- Scalar setup ---
-lui x1, 0x2                 # x1 = 0x2000 VMEM_INPUT
-lui x2, 0x3                 # x2 = 0x3000
-addi x2, x2, -2048          # x2 = 0x2800 VMEM_OUTPUT
+li x1, 0x800  # x1 = 0x800000 VMEM_INPUT
+lui x2, 0x1  # x2 = 0x1000
+addi x2, x2, -1536  # x2 = 0x2800 VMEM_OUTPUT
 addi x3, x0, 0              # x3 = 0x0000 DRAM_INPUT
 lui x4, 0x1                 # x4 = 0x1000
 addi x4, x4, -2048          # x4 = 0x0800 DRAM_OUTPUT
@@ -23,16 +23,17 @@ lui x5, 0x1                 # x5 = 0x1000
 addi x5, x5, -2048          # x5 = 2048 (TILE_BYTES)
 
 # --- DMA: DRAM -> VMEM ---
-dma.config.ch0 x0
+addi x30, x0, 1  # dma.base 1: DRAM operands address 4 GiB + offset (Program.dram_base)
+dma.config.ch0 x30
 dma.wait.ch0
 dma.load.ch0 x1, x3, x5
 dma.wait.ch0
 
 # --- VMEM -> MRF ---
-srli x31, x1, 2   # VLS bases count words; DMA bases count bytes
+addi x31, x1, 0  # DMA and VLS bases both count words
 vload m0, 0(x31)             # x h0
 delay 34
-srli x31, x1, 2   # VLS bases count words; DMA bases count bytes
+addi x31, x1, 0  # DMA and VLS bases both count words
 vload m1, 8(x31)            # x h1
 delay 34
 
@@ -49,10 +50,10 @@ vmul.bf16 m10, m6, m8       # (m10, m11) = result
 delay 66
 
 # --- MRF -> VMEM -> DRAM ---
-srli x31, x2, 2   # VLS bases count words; DMA bases count bytes
+addi x31, x2, 0  # DMA and VLS bases both count words
 vstore m10, 0(x31)
 delay 34
-srli x31, x2, 2   # VLS bases count words; DMA bases count bytes
+addi x31, x2, 0  # DMA and VLS bases both count words
 vstore m11, 8(x31)
 delay 34
 dma.store.ch0 x4, x2, x5

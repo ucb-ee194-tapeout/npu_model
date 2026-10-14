@@ -986,8 +986,8 @@ class VMATMUL_ACC_MXU1(
 class _DMA_LOAD_CHN(ScalarComputeReg):
     def exec(self, state: ArchState) -> None:
         length = state.read_xrf(self.rs2)
-        data = state.read_dram(state.read_xrf(self.rs1), length)
-        state.write_vmem(state.read_xrf(self.rd), 0, data)
+        data = state.read_dram(state.dma_dram_address(state.read_xrf(self.rs1)), length)
+        state.write_vmem(state.dma_vmem_byte_address(state.read_xrf(self.rd)), 0, data)
 
 
 class DMA_LOAD_CH0(
@@ -1041,8 +1041,8 @@ class DMA_LOAD_CH7(
 class _DMA_STORE_CHN(ScalarComputeReg):
     def exec(self, state: ArchState) -> None:
         length = state.read_xrf(self.rs2)
-        data = state.read_vmem(state.read_xrf(self.rs1), 0, length)
-        state.write_dram(state.read_xrf(self.rd), data)
+        data = state.read_vmem(state.dma_vmem_byte_address(state.read_xrf(self.rs1)), 0, length)
+        state.write_dram(state.dma_dram_address(state.read_xrf(self.rd)), data)
 
 
 class DMA_STORE_CH0(

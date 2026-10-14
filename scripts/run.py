@@ -111,7 +111,7 @@ Examples:
         output_base, golden_tensor = program.golden_result
         size = golden_tensor.numel() * golden_tensor.element_size()
         print(
-            sim.core.arch_state.read_dram(output_base, size).view(golden_tensor.dtype)
+            sim.core.arch_state.read_dram(program.dram_base + output_base, size).view(golden_tensor.dtype)
         )
 
 

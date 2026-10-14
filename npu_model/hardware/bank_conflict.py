@@ -188,6 +188,7 @@ class BankConflictChecker:
         self._mreg_ports: dict[tuple[bool, int], tuple[int, int, str]] = {}
         self._mreg_cycle: int | None = None
         self._mreg_releases: list[tuple[str, bool, bool]] = []
+        self._vmem_ports: tuple[int, dict[int, str]] = (0, {})
 
     def reset(self) -> None:
         self._mrf_in_use.clear()
@@ -198,6 +199,28 @@ class BankConflictChecker:
         self._mreg_ports.clear()
         self._mreg_releases.clear()
         self._mreg_cycle = None
+        self._vmem_ports = (0, {})
+
+    # ------------------------------------------------------------------
+    # VMEM physical banks (Vmem.scala arbitration)
+    # ------------------------------------------------------------------
+
+    def announce_vmem_ports(self, cycle: int, banks: dict[int, str]) -> None:
+        """Declare the physical VMEM banks the LSU will access on ``cycle``.
+
+        LSU accesses are always granted and are fully determined by LSU state
+        before the cycle, so the LSU publishes them one cycle ahead. Units with
+        grant-based ports (the DMA) consult ``vmem_bank_owner`` in that cycle,
+        whatever the Python tick order.
+        """
+        self._vmem_ports = (cycle, dict(banks))
+
+    def vmem_bank_owner(self, cycle: int, bank: int) -> str | None:
+        """The LSU access holding ``bank`` on ``cycle``, or None if the bank is free."""
+        announced, banks = self._vmem_ports
+        if announced != cycle:
+            return None
+        return banks.get(bank)
 
     def begin_cycle(self, cycle: int) -> None:
         """Apply last edge's releases before this cycle's issue checks.

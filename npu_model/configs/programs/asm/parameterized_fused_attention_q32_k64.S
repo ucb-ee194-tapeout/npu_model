@@ -1,10 +1,10 @@
 seli e0, 127
 addi x1, x0, 0
-lui x2, 0x1
-lui x3, 0x2
-lui x4, 0x3
-lui x5, 0x3
-addi x5, x5, 1024
+addi x2, x0, 1024
+li x3, 0x800
+li x4, 0xc00
+lui x5, 0x1
+addi x5, x5, -768
 addi x6, x0, 0
 lui x7, 0x5
 lui x8, 0x5
@@ -16,27 +16,28 @@ lui x14, 0x3
 addi x15, x0, 1
 addi x17, x0, 2
 addi x16, x0, 0
-dma.config.ch0 x0
+addi x30, x0, 1  # dma.base 1: DRAM operands address 4 GiB + offset (Program.dram_base)
+dma.config.ch0 x30
 dma.wait.ch0
-dma.config.ch1 x0
+dma.config.ch1 x30
 dma.wait.ch1
 dma.wait.ch0
 dma.wait.ch1
 dma.load.ch0 x4, x7, x10
 dma.wait.ch0
-srli x31, x4, 2   # VLS bases count words; DMA bases count bytes
+addi x31, x4, 0  # DMA and VLS bases both count words
 vload m2, 0(x31)
 delay 34
-srli x31, x4, 2   # VLS bases count words; DMA bases count bytes
+addi x31, x4, 0  # DMA and VLS bases both count words
 vload m3, 0(x31)
 delay 34
 loop_2:
 dma.load.ch0 x1, x6, x9
 dma.wait.ch0
-srli x31, x1, 2   # VLS bases count words; DMA bases count bytes
+addi x31, x1, 0  # DMA and VLS bases both count words
 vload m12, 0(x31)
 delay 34
-srli x31, x1, 2   # VLS bases count words; DMA bases count bytes
+addi x31, x1, 0  # DMA and VLS bases both count words
 vload m13, 8(x31)
 delay 34
 # Quantize a column-blocked BF16 pair into row-major FP8 via acc1.
@@ -44,10 +45,10 @@ vmatpush.acc.bf16.mxu0 acc1, m12
 delay 32
 vmatpop.fp8.acc.mxu0 m0, acc1, e0
 delay 32
-srli x31, x1, 2   # VLS bases count words; DMA bases count bytes
+addi x31, x1, 0  # DMA and VLS bases both count words
 vload m12, 16(x31)
 delay 34
-srli x31, x1, 2   # VLS bases count words; DMA bases count bytes
+addi x31, x1, 0  # DMA and VLS bases both count words
 vload m13, 24(x31)
 delay 34
 # Quantize a column-blocked BF16 pair into row-major FP8 via acc1.
@@ -71,10 +72,10 @@ dma.load.ch0 x2, x11, x9
 dma.load.ch1 x3, x12, x9
 dma.wait.ch0
 dma.wait.ch1
-srli x31, x2, 2   # VLS bases count words; DMA bases count bytes
+addi x31, x2, 0  # DMA and VLS bases both count words
 vload m12, 0(x31)
 delay 34
-srli x31, x2, 2   # VLS bases count words; DMA bases count bytes
+addi x31, x2, 0  # DMA and VLS bases both count words
 vload m13, 8(x31)
 delay 34
 # Quantize a column-blocked BF16 pair into row-major FP8 via acc1.
@@ -88,10 +89,10 @@ vmatpush.weight.mxu0 w0, m14
 delay 32
 vmatmul.mxu0 acc0, m0, w0
 delay 96
-srli x31, x2, 2   # VLS bases count words; DMA bases count bytes
+addi x31, x2, 0  # DMA and VLS bases both count words
 vload m12, 16(x31)
 delay 34
-srli x31, x2, 2   # VLS bases count words; DMA bases count bytes
+addi x31, x2, 0  # DMA and VLS bases both count words
 vload m13, 24(x31)
 delay 34
 # Quantize a column-blocked BF16 pair into row-major FP8 via acc1.
@@ -130,10 +131,10 @@ vmatpush.acc.bf16.mxu0 acc1, m28
 delay 32
 vmatpop.fp8.acc.mxu0 m30, acc1, e0
 delay 32
-srli x31, x3, 2   # VLS bases count words; DMA bases count bytes
+addi x31, x3, 0  # DMA and VLS bases both count words
 vload m16, 0(x31)
 delay 34
-srli x31, x3, 2   # VLS bases count words; DMA bases count bytes
+addi x31, x3, 0  # DMA and VLS bases both count words
 vload m17, 8(x31)
 delay 34
 # Quantize a column-blocked BF16 pair into row-major FP8 via acc1.
@@ -151,10 +152,10 @@ vmatpop.bf16.acc.mxu0 m32, acc0
 delay 32
 vadd.bf16 m8, m8, m32
 delay 66
-srli x31, x3, 2   # VLS bases count words; DMA bases count bytes
+addi x31, x3, 0  # DMA and VLS bases both count words
 vload m16, 16(x31)
 delay 34
-srli x31, x3, 2   # VLS bases count words; DMA bases count bytes
+addi x31, x3, 0  # DMA and VLS bases both count words
 vload m17, 24(x31)
 delay 34
 # Quantize a column-blocked BF16 pair into row-major FP8 via acc1.
@@ -192,16 +193,16 @@ vmul.bf16 m8, m8, m34
 delay 66
 vmul.bf16 m10, m10, m34
 delay 66
-srli x31, x5, 2   # VLS bases count words; DMA bases count bytes
+addi x31, x5, 0  # DMA and VLS bases both count words
 vstore m8, 0(x31)
 delay 34
-srli x31, x5, 2   # VLS bases count words; DMA bases count bytes
+addi x31, x5, 0  # DMA and VLS bases both count words
 vstore m9, 8(x31)
 delay 34
-srli x31, x5, 2   # VLS bases count words; DMA bases count bytes
+addi x31, x5, 0  # DMA and VLS bases both count words
 vstore m10, 16(x31)
 delay 34
-srli x31, x5, 2   # VLS bases count words; DMA bases count bytes
+addi x31, x5, 0  # DMA and VLS bases both count words
 vstore m11, 24(x31)
 delay 34
 dma.store.ch0 x8, x5, x9

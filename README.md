@@ -3,9 +3,10 @@
 [![Tests](https://github.com/ucb-ee194-tapeout/npu_model/actions/workflows/test.yml/badge.svg)](https://github.com/ucb-ee194-tapeout/npu_model/actions/workflows/test.yml)
 
 An execution-driven, tick-based model of the Atlas NPU.
-The scalar frontend, instruction memory, LSU, MXU, VPU and XLU follow the default
-RTL in `../src/main/scala`, with cycle/data regressions against actual Verilator
-traces. DMA retains its existing timing approximation. See
+The scalar frontend, instruction memory, LSU, MXU, VPU, XLU and DMA engine follow
+the default RTL in `../src/main/scala`, with cycle/data regressions against actual
+Verilator traces. The off-chip memory behind the DMA's TileLink port is a
+parameterized backend (`npu_model/hardware/memory_backend.py`). See
 [RTL timing and validation](docs/rtl-timing.md) for timing, layouts, numerical
 behavior and validation boundaries, and [trace regeneration](tests/rtl/README.md)
 for the reproducible RTL harnesses.
@@ -98,8 +99,12 @@ Run a simulation with default configuration:
 uv run ./scripts/run.py --program MatmulProgram --hardware_config DefaultHardwareConfig -o matmul.json
 ```
 
-`DefaultHardwareConfig` models a `1 GiB` DRAM aperture for routine simulation.
-Use `FullDramHardwareConfig` to expose the full `16 GiB` DRAM address space.
+`DefaultHardwareConfig` maps DRAM as the EE290 simulation target does: `64 GiB`
+at `0x8000_0000`, materialized page by page on first touch. DMA addresses are
+the 64-bit `{dma.base, x[rs]}` the RTL forms, and DMA VMEM operands count
+32-bit words, as in `AtlasCore`. The supplied workloads program `dma.config`
+with base `1`, so their DRAM layouts (`Program.memory_regions`, `golden_result`)
+are offsets from `Program.dram_base = 4 GiB`.
 
 ### Custom Configuration
 

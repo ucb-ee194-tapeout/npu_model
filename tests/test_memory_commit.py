@@ -57,12 +57,14 @@ def make_dma_load_visibility_scenario(cfg: DefaultHardwareConfig) -> Scenario:
 
     instrs: list[Instruction] = [
             ADDI(rd=x(1), rs1=x(0), imm=VMEM_DST_BASE),
+            ADDI(rd=x(4), rs1=x(0), imm=VMEM_DST_BASE // 4),   # DMA VMEM operands count words
             ADDI(rd=x(2), rs1=x(0), imm=DRAM_SRC_BASE),
             ADDI(rd=x(3), rs1=x(0), imm=TRANSFER_BYTES),
-            DMA_CONFIG_CH0(rs1=x(0)),
+            ADDI(rd=x(5), rs1=x(0), imm=1),                    # dma.base 1 (Program.dram_base)
+            DMA_CONFIG_CH0(rs1=x(5)),
             DMA_WAIT_CH0(),
             DELAY(imm=1),
-            DMA_LOAD_CH0(rd=x(1), rs1=x(2), rs2=x(3)),
+            DMA_LOAD_CH0(rd=x(4), rs1=x(2), rs2=x(3)),
             LW(rd=x(10), imm=0, rs1=x(1)),
             DELAY(imm=latency_cycles),
             LW(rd=x(11), imm=0, rs1=x(1)),
