@@ -20,7 +20,7 @@
 # x26 = A[k=1] DRAM addr, x27 = B[k=1] DRAM addr
 #
 # ch0 is reused: A[k=0] sets ch0 first, then B[k=1] sets ch0 again after
-# ch0 is cleared by the first dma.wait 0.
+# ch0 is cleared by the first dma.wait ch0.
 li x1, 0x800
 lui x24, 0x1
 addi x24, x24, -1792
@@ -47,12 +47,12 @@ lui x14, 0x1
 addi x15, x0, 0
 addi x20, x0, 0
 addi x30, x0, 1  # dma.base 1: DRAM operands address 4 GiB + offset (Program.dram_base)
-dma.config x30, 0
-dma.wait 0
-dma.config x30, 1
-dma.wait 1
-dma.wait 0
-dma.wait 1
+dma.config x30, ch0
+dma.wait ch0
+dma.config x30, ch1
+dma.wait ch1
+dma.wait ch0
+dma.wait ch1
 loop_3:
 addi x16, x13, 0
 addi x17, x14, 0
@@ -62,15 +62,15 @@ addi x18, x15, 0
 add x26, x18, x5
 addi x19, x16, 0
 add x27, x19, x7
-dma.load x1, x18, x5, 0
-dma.load x2, x19, x5, 1
-dma.load x24, x26, x5, 2
-dma.wait 0
-dma.load x25, x27, x5, 0
+dma.load x1, x18, x5, ch0
+dma.load x2, x19, x5, ch1
+dma.load x24, x26, x5, ch2
+dma.wait ch0
+dma.load x25, x27, x5, ch0
 addi x31, x1, 0  # DMA and VLS bases both count words
 vload m0, 0(x31)
 delay 34
-dma.wait 1
+dma.wait ch1
 addi x31, x2, 0  # DMA and VLS bases both count words
 vload m1, 0(x31)
 delay 34
@@ -80,11 +80,11 @@ vmatpush.weight.mxu1 w0, m1
 delay 32
 vmatmul.mxu1 acc0, m0, w0
 delay 35
-dma.wait 2
+dma.wait ch2
 addi x31, x24, 0  # DMA and VLS bases both count words
 vload m0, 0(x31)
 delay 34
-dma.wait 0
+dma.wait ch0
 addi x31, x25, 0  # DMA and VLS bases both count words
 vload m1, 0(x31)
 delay 34
@@ -102,8 +102,8 @@ delay 34
 srli x31, x4, 2   # DMA and VLS bases both count words
 vstore m3, 0(x31)
 delay 34
-dma.store x17, x3, x6, 0
-dma.wait 0
+dma.store x17, x3, x6, ch0
+dma.wait ch0
 addi x16, x16, 1024
 add x17, x17, x6
 addi x21, x21, 1

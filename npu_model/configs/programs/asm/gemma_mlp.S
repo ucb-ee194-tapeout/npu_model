@@ -30,14 +30,14 @@ li x10, 2048            # bf16 tile bytes (32*32*2)
 
 # --- DRAM -> VMEM ---
 addi x30, x0, 1  # dma.base 1: DRAM operands address 4 GiB + offset (Program.dram_base)
-dma.config x30, 0
-dma.wait 0
-dma.load x1, x5, x9, 0    # gate weight tile
-dma.load x2, x6, x9, 1    # up weight tile
-dma.load x3, x7, x9, 2    # activation tile
-dma.wait 0
-dma.wait 1
-dma.wait 2
+dma.config x30, ch0
+dma.wait ch0
+dma.load x1, x5, x9, ch0    # gate weight tile
+dma.load x2, x6, x9, ch1    # up weight tile
+dma.load x3, x7, x9, ch2    # activation tile
+dma.wait ch0
+dma.wait ch1
+dma.wait ch2
 
 # --- VMEM -> MRF (weights + activation) ---
 addi x31, x1, 0  # DMA and VLS bases both count words
@@ -83,5 +83,5 @@ delay 34
 addi x31, x4, 0  # DMA and VLS bases both count words
 vstore m9, 8(x31)
 delay 34
-dma.store x8, x4, x10, 0
-dma.wait 0
+dma.store x8, x4, x10, ch0
+dma.wait ch0

@@ -6,30 +6,30 @@
 # @PERF_REPORT
 
     li    x5, 0x00000000
-    dma.config x5, 0
+    dma.config x5, ch0
     li    x12, 32
     li    x13, 1024
     li    x14, 4096
     csrrs x20, 0xC00, x0        # x20 = cycle count at start
     addi  x6, x0, 0
     li    x10, 0x90000000
-    dma.load  x6, x10, x13, 0
-    dma.wait  0
+    dma.load  x6, x10, x13, ch0
+    dma.wait  ch0
     delay 200
     addi  x6, x0, 0
     li    x10, 0x90000400
-    dma.load  x6, x10, x13, 0
-    dma.wait  0
+    dma.load  x6, x10, x13, ch0
+    dma.wait  ch0
     delay 200
     addi  x6, x0, 0
     li    x10, 0x90000800
-    dma.load  x6, x10, x13, 0
-    dma.wait  0
+    dma.load  x6, x10, x13, ch0
+    dma.wait  ch0
     delay 200
     addi  x6, x0, 0
     li    x10, 0x90000C00
-    dma.load  x6, x10, x13, 0
-    dma.wait  0
+    dma.load  x6, x10, x13, ch0
+    dma.wait  ch0
     delay 200
 
     csrrs x21, 0xC00, x0        # x21 = cycle count at end

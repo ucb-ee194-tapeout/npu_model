@@ -8,16 +8,16 @@ addi x13, x0, 1024
 addi x11, x1, 256
 addi x15, x4, 256
 addi x30, x0, 1  # dma.base 1: DRAM operands address 4 GiB + offset (Program.dram_base)
-dma.config x30, 0
-dma.wait 0
-dma.load x1, x5, x13, 0
-dma.load x11, x6, x13, 1
+dma.config x30, ch0
+dma.wait ch0
+dma.load x1, x5, x13, ch0
+dma.load x11, x6, x13, ch1
 vli.all m6, 0x3D00
 delay 65
 vli.all m8, 0x3586
 delay 65
-dma.wait 0
-dma.wait 1
+dma.wait ch0
+dma.wait ch1
 addi x31, x1, 0  # DMA and VLS bases both count words
 vload m0, 0(x31)
 delay 34
@@ -44,7 +44,7 @@ delay 34
 addi x31, x4, 0  # DMA and VLS bases both count words
 vstore m7, 8(x31)
 delay 34
-dma.store x9, x4, x13, 0
-dma.store x10, x15, x13, 1
-dma.wait 0
-dma.wait 1
+dma.store x9, x4, x13, ch0
+dma.store x10, x15, x13, ch1
+dma.wait ch0
+dma.wait ch1

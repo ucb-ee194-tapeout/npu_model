@@ -989,7 +989,7 @@ class VMATMUL_ACC_MXU1(
 
 
 class DMA_LOAD(DMATransfer, RType, exu=EXU.DMA, opcode=0b1111011, funct3=None, funct7=0b0000000):
-    """``dma.load x(rd), x(rs1), x(rs2), ch``: DRAM ``{base, x[rs1]}`` -> VMEM word ``x[rd]``, ``x[rs2]`` bytes."""
+    """``dma.load x(rd), x(rs1), x(rs2), ch<N>``: DRAM ``{base, x[rs1]}`` -> VMEM word ``x[rd]``, ``x[rs2]`` bytes."""
 
     def exec(self, state: ArchState) -> None:
         length = state.read_xrf(self.rs2)
@@ -998,7 +998,7 @@ class DMA_LOAD(DMATransfer, RType, exu=EXU.DMA, opcode=0b1111011, funct3=None, f
 
 
 class DMA_STORE(DMATransfer, RType, exu=EXU.DMA, opcode=0b1111011, funct3=None, funct7=0b0000001):
-    """``dma.store x(rd), x(rs1), x(rs2), ch``: VMEM word ``x[rs1]`` -> DRAM ``{base, x[rd]}``, ``x[rs2]`` bytes."""
+    """``dma.store x(rd), x(rs1), x(rs2), ch<N>``: VMEM word ``x[rs1]`` -> DRAM ``{base, x[rd]}``, ``x[rs2]`` bytes."""
 
     def exec(self, state: ArchState) -> None:
         length = state.read_xrf(self.rs2)
@@ -1007,14 +1007,14 @@ class DMA_STORE(DMATransfer, RType, exu=EXU.DMA, opcode=0b1111011, funct3=None, 
 
 
 class DMA_CONFIG(DMAConfig, RType, exu=EXU.DMA, opcode=0b1111111, funct3=None, funct7=0b0000000):
-    """``dma.config x(rs1), ch``: ``dma.base = x[rs1]``."""
+    """``dma.config x(rs1), ch<N>``: ``dma.base = x[rs1]``."""
 
     def exec(self, state: ArchState) -> None:
         state.base = state.read_xrf(self.rs1)
 
 
 class DMA_WAIT(DMAWait, RType, exu=EXU.DMA, opcode=0b1111111, funct3=None, funct7=0b0000001):
-    """``dma.wait ch``: frontend fence until channel ``ch`` is idle."""
+    """``dma.wait ch<N>``: frontend fence until channel ``N`` is idle."""
 
     def exec(self, state: ArchState) -> None:
         pass

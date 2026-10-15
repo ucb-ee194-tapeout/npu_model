@@ -15,10 +15,10 @@ def fields(word: int) -> tuple[int, int, int]:
 @pytest.mark.parametrize("channel", range(8))
 def test_dma_words_follow_the_spec(channel: int):
     words = {name: stream_to_instrs(io.StringIO(text))[0].to_bytecode() & 0xFFFFFFFF for name, text in {
-        "config": f"dma.config x5, {channel}",
-        "wait": f"dma.wait {channel}",
-        "load": f"dma.load x6, x10, x12, {channel}",
-        "store": f"dma.store x3, x8, x12, {channel}",
+        "config": f"dma.config x5, ch{channel}",
+        "wait": f"dma.wait ch{channel}",
+        "load": f"dma.load x6, x10, x12, ch{channel}",
+        "store": f"dma.store x3, x8, x12, ch{channel}",
     }.items()}
     assert fields(words["config"]) == (0b0000000, channel, 0b1111111)
     assert fields(words["wait"]) == (0b0000001, channel, 0b1111111)

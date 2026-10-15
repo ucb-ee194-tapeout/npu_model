@@ -18,24 +18,24 @@ addi x13, x0, 3
 lui x14, 0x1
 addi x14, x14, -2048
 addi x30, x0, 1  # dma.base 1: DRAM operands address 4 GiB + offset (Program.dram_base)
-dma.config x30, 0
-dma.wait 0
-dma.config x30, 1
-dma.wait 1
-dma.wait 0
-dma.wait 1
+dma.config x30, ch0
+dma.wait ch0
+dma.config x30, ch1
+dma.wait ch1
+dma.wait ch0
+dma.wait ch1
 lui x15, 0x2
 addi x15, x15, -2048
-dma.load x2, x15, x5, 0
-dma.load x7, x15, x5, 1
-dma.wait 0
-dma.wait 1
+dma.load x2, x15, x5, ch0
+dma.load x7, x15, x5, ch1
+dma.wait ch0
+dma.wait ch1
 lui x15, 0x2
 addi x15, x15, -1024
-dma.load x3, x15, x5, 0
-dma.load x8, x15, x5, 1
-dma.wait 0
-dma.wait 1
+dma.load x3, x15, x5, ch0
+dma.load x8, x15, x5, ch1
+dma.wait ch0
+dma.wait ch1
 addi x31, x3, 0  # DMA and VLS bases both count words
 vload m8, 0(x31)
 delay 34
@@ -45,16 +45,16 @@ delay 34
 loop_1:
 add x15, x10, x5
 add x16, x11, x5
-dma.load x1, x10, x5, 0
-dma.load x6, x15, x5, 1
+dma.load x1, x10, x5, ch0
+dma.load x6, x15, x5, ch1
 addi x31, x2, 0  # DMA and VLS bases both count words
 vload m6, 0(x31)
 delay 34
 addi x31, x2, 0  # DMA and VLS bases both count words
 vload m7, 8(x31)
 delay 34
-dma.wait 0
-dma.wait 1
+dma.wait ch0
+dma.wait ch1
 addi x31, x1, 0  # DMA and VLS bases both count words
 vload m0, 0(x31)
 delay 34
@@ -81,10 +81,10 @@ delay 34
 addi x31, x4, 0  # DMA and VLS bases both count words
 vstore m7, 8(x31)
 delay 34
-dma.store x11, x4, x5, 0
-dma.store x16, x9, x5, 1
-dma.wait 0
-dma.wait 1
+dma.store x11, x4, x5, ch0
+dma.store x16, x9, x5, ch1
+dma.wait ch0
+dma.wait ch1
 add x10, x10, x14
 add x11, x11, x14
 addi x12, x12, 1

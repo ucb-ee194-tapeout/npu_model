@@ -56,7 +56,7 @@ def program(rd: int, bg: int, size: int, probe_store: bool, repeats: int) -> str
                            bg_bytes=bg * size * repeats)]
     emit = lines.append
     emit("    li    x5, 0x00000000")
-    emit("    dma.config x5, 0")
+    emit("    dma.config x5, ch0")
     # Registers: x5 config, x8/x10 probe VMEM/DRAM, x12/x13 sizes, x20-x23 timers,
     # x1..x7 background VMEM words, x24..x30 background DRAM addresses.
     emit("    li    x12, 32")
@@ -75,20 +75,20 @@ def program(rd: int, bg: int, size: int, probe_store: bool, repeats: int) -> str
         for ch in range(1, bg + 1):
             is_load = (100 * (ch - 1)) // bg < rd       # first ceil(rd%) of the channels load
             if is_load:
-                emit(f"    dma.load  x{ch}, x{23 + ch}, x13, {ch}")
+                emit(f"    dma.load  x{ch}, x{23 + ch}, x13, ch{ch}")
             else:
-                emit(f"    dma.store x{23 + ch}, x{ch}, x13, {ch}")
+                emit(f"    dma.store x{23 + ch}, x{ch}, x13, ch{ch}")
         if rep == 0:
             emit("    csrrs x21, 0xC00, x0        # x21 = probe issue")
             if probe_store:
-                emit("    dma.store x10, x8, x12, 0")
+                emit("    dma.store x10, x8, x12, ch0")
             else:
-                emit("    dma.load  x8, x10, x12, 0")
-            emit("    dma.wait  0")
+                emit("    dma.load  x8, x10, x12, ch0")
+            emit("    dma.wait  ch0")
             emit("    csrrs x22, 0xC00, x0        # x22 = probe done")
             emit("    addi  x0, x0, 0             # keep CSR reads apart")
         for ch in range(1, bg + 1):
-            emit(f"    dma.wait  {ch}")
+            emit(f"    dma.wait  ch{ch}")
     emit("    csrrs x23, 0xC00, x0        # x23 = traffic phase end")
     emit("    sub   x22, x22, x21         # probe cycles")
     emit("    sub   x23, x23, x20         # traffic phase cycles")

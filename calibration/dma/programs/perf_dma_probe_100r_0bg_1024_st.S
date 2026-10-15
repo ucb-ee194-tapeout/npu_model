@@ -8,7 +8,7 @@
 # @PERF_REPORT
 
     li    x5, 0x00000000
-    dma.config x5, 0
+    dma.config x5, ch0
     li    x12, 32
     li    x13, 1024
     li    x8, 0
@@ -16,8 +16,8 @@
     csrrs x20, 0xC00, x0        # x20 = traffic phase start
     addi  x0, x0, 0             # keep CSR reads apart
     csrrs x21, 0xC00, x0        # x21 = probe issue
-    dma.store x10, x8, x12, 0
-    dma.wait  0
+    dma.store x10, x8, x12, ch0
+    dma.wait  ch0
     csrrs x22, 0xC00, x0        # x22 = probe done
     addi  x0, x0, 0             # keep CSR reads apart
     csrrs x23, 0xC00, x0        # x23 = traffic phase end

@@ -252,7 +252,7 @@ def test_responses_out_of_order_retire_slots_out_of_order(dma):
         tick(dma)
     assert not state.check_flag(1), "channel 1 retired first"
     assert state.check_flag(0)
-    assert dma.in_flight[0].insn.mnemonic == "dma.load"
+    assert dma.in_flight[0].insn.mnemonic == "dma.load" and dma.in_flight[0].insn.ch == 0
     run(dma)
     assert not state.check_flag(0)
 

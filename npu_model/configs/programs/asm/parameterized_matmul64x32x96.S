@@ -13,7 +13,7 @@
 # x10 = M_tiles (2)             x21 = N-tile counter
 #
 # DMA reads registers at execution time (516c after dispatch). x16 is only
-# advanced after dma.wait 1 confirms the previous transfer is done, so the
+# advanced after dma.wait ch1 confirms the previous transfer is done, so the
 # address is stable for the full transfer window.
 li x1, 0x800
 lui x2, 0x1
@@ -36,24 +36,24 @@ addi x14, x14, 1024
 addi x15, x0, 0
 addi x20, x0, 0
 addi x30, x0, 1  # dma.base 1: DRAM operands address 4 GiB + offset (Program.dram_base)
-dma.config x30, 0
-dma.wait 0
-dma.config x30, 1
-dma.wait 1
-dma.wait 0
-dma.wait 1
+dma.config x30, ch0
+dma.wait ch0
+dma.config x30, ch1
+dma.wait ch1
+dma.wait ch0
+dma.wait ch1
 loop_2:
 addi x17, x14, 0
 addi x16, x13, 0
-dma.load x1, x15, x5, 0
-dma.load x2, x16, x5, 1
-dma.wait 0
+dma.load x1, x15, x5, ch0
+dma.load x2, x16, x5, ch1
+dma.wait ch0
 addi x31, x1, 0  # DMA and VLS bases both count words
 vload m0, 0(x31)
 delay 34
 addi x21, x0, 0
 loop_1:
-dma.wait 1
+dma.wait ch1
 addi x31, x2, 0  # DMA and VLS bases both count words
 vload m1, 0(x31)
 delay 34
@@ -62,7 +62,7 @@ bge x21, x11, no_prefetch
 addi x0, x0, 0
 addi x0, x0, 0
 add x16, x16, x5
-dma.load x2, x16, x5, 1
+dma.load x2, x16, x5, ch1
 no_prefetch:
 vtrpose.xlu m1, m1   # MXU weights are streamed as columns
 delay 66
@@ -78,8 +78,8 @@ delay 34
 srli x31, x4, 2   # DMA and VLS bases both count words
 vstore m3, 0(x31)
 delay 34
-dma.store x17, x3, x6, 0
-dma.wait 0
+dma.store x17, x3, x6, ch0
+dma.wait ch0
 add x17, x17, x6
 blt x21, x11, loop_1
 addi x0, x0, 0

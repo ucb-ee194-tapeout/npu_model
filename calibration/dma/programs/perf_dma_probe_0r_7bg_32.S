@@ -8,7 +8,7 @@
 # @PERF_REPORT
 
     li    x5, 0x00000000
-    dma.config x5, 0
+    dma.config x5, ch0
     li    x12, 32
     li    x13, 32
     li    x8, 0
@@ -29,67 +29,67 @@
     li    x30, 0x90001800
     csrrs x20, 0xC00, x0        # x20 = traffic phase start
     addi  x0, x0, 0             # keep CSR reads apart
-    dma.store x24, x1, x13, 1
-    dma.store x25, x2, x13, 2
-    dma.store x26, x3, x13, 3
-    dma.store x27, x4, x13, 4
-    dma.store x28, x5, x13, 5
-    dma.store x29, x6, x13, 6
-    dma.store x30, x7, x13, 7
+    dma.store x24, x1, x13, ch1
+    dma.store x25, x2, x13, ch2
+    dma.store x26, x3, x13, ch3
+    dma.store x27, x4, x13, ch4
+    dma.store x28, x5, x13, ch5
+    dma.store x29, x6, x13, ch6
+    dma.store x30, x7, x13, ch7
     csrrs x21, 0xC00, x0        # x21 = probe issue
-    dma.load  x8, x10, x12, 0
-    dma.wait  0
+    dma.load  x8, x10, x12, ch0
+    dma.wait  ch0
     csrrs x22, 0xC00, x0        # x22 = probe done
     addi  x0, x0, 0             # keep CSR reads apart
-    dma.wait  1
-    dma.wait  2
-    dma.wait  3
-    dma.wait  4
-    dma.wait  5
-    dma.wait  6
-    dma.wait  7
-    dma.store x24, x1, x13, 1
-    dma.store x25, x2, x13, 2
-    dma.store x26, x3, x13, 3
-    dma.store x27, x4, x13, 4
-    dma.store x28, x5, x13, 5
-    dma.store x29, x6, x13, 6
-    dma.store x30, x7, x13, 7
-    dma.wait  1
-    dma.wait  2
-    dma.wait  3
-    dma.wait  4
-    dma.wait  5
-    dma.wait  6
-    dma.wait  7
-    dma.store x24, x1, x13, 1
-    dma.store x25, x2, x13, 2
-    dma.store x26, x3, x13, 3
-    dma.store x27, x4, x13, 4
-    dma.store x28, x5, x13, 5
-    dma.store x29, x6, x13, 6
-    dma.store x30, x7, x13, 7
-    dma.wait  1
-    dma.wait  2
-    dma.wait  3
-    dma.wait  4
-    dma.wait  5
-    dma.wait  6
-    dma.wait  7
-    dma.store x24, x1, x13, 1
-    dma.store x25, x2, x13, 2
-    dma.store x26, x3, x13, 3
-    dma.store x27, x4, x13, 4
-    dma.store x28, x5, x13, 5
-    dma.store x29, x6, x13, 6
-    dma.store x30, x7, x13, 7
-    dma.wait  1
-    dma.wait  2
-    dma.wait  3
-    dma.wait  4
-    dma.wait  5
-    dma.wait  6
-    dma.wait  7
+    dma.wait  ch1
+    dma.wait  ch2
+    dma.wait  ch3
+    dma.wait  ch4
+    dma.wait  ch5
+    dma.wait  ch6
+    dma.wait  ch7
+    dma.store x24, x1, x13, ch1
+    dma.store x25, x2, x13, ch2
+    dma.store x26, x3, x13, ch3
+    dma.store x27, x4, x13, ch4
+    dma.store x28, x5, x13, ch5
+    dma.store x29, x6, x13, ch6
+    dma.store x30, x7, x13, ch7
+    dma.wait  ch1
+    dma.wait  ch2
+    dma.wait  ch3
+    dma.wait  ch4
+    dma.wait  ch5
+    dma.wait  ch6
+    dma.wait  ch7
+    dma.store x24, x1, x13, ch1
+    dma.store x25, x2, x13, ch2
+    dma.store x26, x3, x13, ch3
+    dma.store x27, x4, x13, ch4
+    dma.store x28, x5, x13, ch5
+    dma.store x29, x6, x13, ch6
+    dma.store x30, x7, x13, ch7
+    dma.wait  ch1
+    dma.wait  ch2
+    dma.wait  ch3
+    dma.wait  ch4
+    dma.wait  ch5
+    dma.wait  ch6
+    dma.wait  ch7
+    dma.store x24, x1, x13, ch1
+    dma.store x25, x2, x13, ch2
+    dma.store x26, x3, x13, ch3
+    dma.store x27, x4, x13, ch4
+    dma.store x28, x5, x13, ch5
+    dma.store x29, x6, x13, ch6
+    dma.store x30, x7, x13, ch7
+    dma.wait  ch1
+    dma.wait  ch2
+    dma.wait  ch3
+    dma.wait  ch4
+    dma.wait  ch5
+    dma.wait  ch6
+    dma.wait  ch7
     csrrs x23, 0xC00, x0        # x23 = traffic phase end
     sub   x22, x22, x21         # probe cycles
     sub   x23, x23, x20         # traffic phase cycles

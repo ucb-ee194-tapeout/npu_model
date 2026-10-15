@@ -10,18 +10,18 @@ addi x5, x0, 256
 # --- 2. Configure DMA Channels ---
 # Configure Base Address x1 (0)
 addi x30, x0, 1  # dma.base 1: DRAM operands address 4 GiB + offset (Program.dram_base)
-dma.config x30, 0
-dma.wait 0
+dma.config x30, ch0
+dma.wait ch0
 
 # --- 3. Load thing ---
 # Load 1024 bytes (x2) from DRAM offset x1 to VMEM word 0 on Channel 0
 # Note: rd is the VMEM word address, rs1 the DRAM offset, rs2 the length. Base address comes from dma.config
-dma.load x0, x1, x2, 0
+dma.load x0, x1, x2, ch0
 # Load 1024 bytes (x2) from DRAM offset x2 to VMEM word x5 (byte 1024) on Channel 1
-dma.load x5, x2, x2, 1
+dma.load x5, x2, x2, ch1
 # Wait to get these things in VMEM
-dma.wait 0
-dma.wait 1
+dma.wait ch0
+dma.wait ch1
 # Move VMEM data to actual computational registers
 # vload VMEM(x1=0) -> MRF 2
 srli x31, x0, 2   # VLS bases count words; DMA bases count bytes
@@ -41,8 +41,8 @@ delay 32
 # We do not need to reconfigure the DMA channels if the base addresses are unchanged
 # Issue DMA loads again (DRAM -> VMEM). Sizes must be non-zero multiples of
 # 32 bytes: DmaEngine asserts on a zero-beat command.
-dma.load x3, x0, x2, 0
-dma.load x4, x1, x2, 1
+dma.load x3, x0, x2, ch0
+dma.load x4, x1, x2, ch1
 delay 16
 
 # --- 5. Do matmul ---
@@ -54,7 +54,7 @@ seli e0, 127
 vmatpop.fp8.acc.mxu0 m0, acc0, e0
 # delay 32
 # Wait to finish unnecessary loads
-dma.wait 0
-dma.wait 1
+dma.wait ch0
+dma.wait ch1
 # End delay
 delay 0

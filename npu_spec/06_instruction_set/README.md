@@ -379,10 +379,10 @@ Rows are ordered by hex value.
 | `dma.wait`               | `R`      | `1111111` | `000 ~ 111`             | `0000001`        | `7F/01`    | DMA Wait                          | `wait_until_dma_channel_idle(channel=ch);` |
 
 
-DMA instructions take the channel as a trailing immediate operand, `ch` in
-`0..7`, encoded in `funct3`: `dma.load x(rd), x(rs1), x(rs2), ch`,
-`dma.store x(rd), x(rs1), x(rs2), ch`, `dma.config x(rs1), ch` and
-`dma.wait ch`. CSR instructions use the RISC-V operand order
+DMA instructions take the channel as a trailing named operand, `ch0`-`ch7`,
+encoded in `funct3`: `dma.load x(rd), x(rs1), x(rs2), ch<N>`,
+`dma.store x(rd), x(rs1), x(rs2), ch<N>`, `dma.config x(rs1), ch<N>` and
+`dma.wait ch<N>`. CSR instructions use the RISC-V operand order
 `csrrw x(rd), csr, x(rs1)`; the immediate forms (`csrrwi`, `csrrsi`, `csrrci`)
 take a 5-bit immediate in place of `rs1`.
 

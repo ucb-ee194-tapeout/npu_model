@@ -615,14 +615,19 @@ class MXUMatMul(InstructionPattern):
     vs2: WeightBuffer
     params = [acc_vd, m_vs1, w_vs2]
 
+class _ChannelFunct3:
+    """funct3 of a DMA instruction: None on the class (operand-dependent), the channel on an instance."""
+    def __get__(self, insn, owner=None):
+        return None if insn is None else Funct3(int(insn.ch))
+
+
 class _DMAChannel:
-    """The channel operand of a DMA instruction is its funct3 field."""
+    """The channel operand of a DMA instruction is its funct3 field; ``ch`` is the only stored field."""
     ch: Channel
-    funct3 = None  # per instance: the channel fills it (see _set_channel)
+    funct3 = _ChannelFunct3()
 
     def _set_channel(self, ch: Channel) -> None:
         self.ch = Channel(ch)
-        self.funct3 = Funct3(int(self.ch))
 
 
 @dataclass(init=False)
@@ -643,8 +648,8 @@ class CSRReg(InstructionPattern):
 
     def __init__(self, rd: ScalarReg, rs1: ScalarReg, imm: Imm12):
         self.rd = rd
+        self.imm = Imm12(imm)   # assigned before rs1 so str() follows the operand order
         self.rs1 = rs1
-        self.imm = Imm12(imm)
 
 
 @dataclass(init=False)
@@ -665,15 +670,15 @@ class CSRImm(InstructionPattern):
 
     def __init__(self, rd: ScalarReg, rs1: Shamt, imm: Imm12):
         self.rd = rd
-        self.rs1 = Shamt(rs1)
         self.imm = Imm12(imm)
+        self.rs1 = Shamt(rs1)
 
 
 @dataclass(init=False)
 class DMATransfer(_DMAChannel, InstructionPattern):
     """
-    Instruction pattern for DMA transfers: `instr x(rd), x(rs1), x(rs2), ch`
-    (`dma.load`, `dma.store`). The channel is an immediate, 0-7, encoded in funct3.
+    Instruction pattern for DMA transfers: `instr x(rd), x(rs1), x(rs2), ch<N>`
+    (`dma.load`, `dma.store`). The channel `ch0`-`ch7` is encoded in funct3.
     """
     rd: ScalarReg
     rs1: ScalarReg
@@ -690,7 +695,7 @@ class DMATransfer(_DMAChannel, InstructionPattern):
 
 @dataclass(init=False)
 class DMAConfig(_DMAChannel, InstructionPattern):
-    """Instruction pattern for `dma.config x(rs1), ch`."""
+    """Instruction pattern for `dma.config x(rs1), ch<N>`."""
     rs1: ScalarReg
     ch: Channel
     params = [x_rs1, ch]
@@ -702,7 +707,7 @@ class DMAConfig(_DMAChannel, InstructionPattern):
 
 @dataclass(init=False)
 class DMAWait(_DMAChannel, InstructionPattern):
-    """Instruction pattern for `dma.wait ch`."""
+    """Instruction pattern for `dma.wait ch<N>`."""
     ch: Channel
     params = [ch]
 
