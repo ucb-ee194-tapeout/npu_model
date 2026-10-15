@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Callable, ClassVar, Self, Any, get_type_hints
 
 from .isa import UJType, SBType
-from .isa_types import Named, Bundled, AsmError, BoundedInt, ScalarReg, ExponentReg, MatrixReg, WeightBuffer, Accumulator, Shamt, Imm12, SBImm12, Imm16, Imm20, Imm21
+from .isa_types import Named, Bundled, AsmError, BoundedInt, ScalarReg, ExponentReg, MatrixReg, WeightBuffer, Accumulator, Channel, Funct3, Shamt, Imm12, SBImm12, Imm16, Imm20, Imm21
 
 # - Named Args ----------------------------------------------
 # Used to significantly clean up linting and assembling code
@@ -32,6 +32,9 @@ w_vs2    = Named(WeightBuffer, "vs2")
 acc_vd   = Named(Accumulator, "vd")
 acc_vs2  = Named(Accumulator, "vs2")
 
+# DMA channel
+ch       = Named(Channel, "DMA channel", "ch")
+
 # Immediates and Labels
 shamt    = Named(Shamt, "shift amount", "imm")
 imm12    = Named(Imm12, "12-bit immediate", "imm")
@@ -39,6 +42,7 @@ sbimm12  = Named(SBImm12, "12-bit SB immediate or label", "imm", True)
 imm16    = Named(Imm16, "16-bit immediate", "imm")
 imm20    = Named(Imm20, "20-bit immediate", "imm")
 imm20_lb = Named(Imm20, "20-bit immediate or label", "imm", True)
+uimm5    = Named(Shamt, "5-bit immediate", "rs1")   # CSR immediate forms carry it in rs1
 
 # Offset-Immediate formats
 x_rs1_imm12 = Bundled(x_rs1, imm12)
@@ -611,33 +615,104 @@ class MXUMatMul(InstructionPattern):
     vs2: WeightBuffer
     params = [acc_vd, m_vs1, w_vs2]
 
-@dataclass()
-class DMARegUnary(InstructionPattern):
-    """
-    Instruction pattern for DMA instructions with one scalar register operand.
+class _ChannelFunct3:
+    """funct3 of a DMA instruction: None on the class (operand-dependent), the channel on an instance."""
+    def __get__(self, insn, owner=None):
+        return None if insn is None else Funct3(int(insn.ch))
 
-    Matches assembly patterns of the form `instr x(rs1)`. This pattern is
-    used for `dma.config.N`.
+
+class _DMAChannel:
+    """The channel operand of a DMA instruction is its funct3 field; ``ch`` is the only stored field."""
+    ch: Channel
+    funct3 = _ChannelFunct3()
+
+    def _set_channel(self, ch: Channel) -> None:
+        self.ch = Channel(ch)
+
+
+@dataclass(init=False)
+class CSRReg(InstructionPattern):
+    """
+    Instruction pattern for the CSR register forms: `instr x(rd), csr, x(rs1)`
+    (`csrrw`, `csrrs`, `csrrc`), the CSR number second as in RISC-V.
 
     Attributes:
+        rd: The destination scalar register.
+        imm: The 12-bit CSR number.
         rs1: The source scalar register.
     """
-
+    rd: ScalarReg
+    imm: Imm12
     rs1: ScalarReg
-    params = [x_rs1]
+    params = [x_rd, imm12, x_rs1]
 
-    @classmethod
-    def from_asm(
-        cls, tokens: list[str], resolve: Callable[[str], int] = lambda x: int(x, 0)
-    ) -> Self:
-        if tokens[0] != cls.mnemonic:
-            raise ValueError(
-                f"Attempted to construct {cls.mnemonic} with tokens for {tokens[0]}."
-            )
+    def __init__(self, rd: ScalarReg, rs1: ScalarReg, imm: Imm12):
+        self.rd = rd
+        self.imm = Imm12(imm)   # assigned before rs1 so str() follows the operand order
+        self.rs1 = rs1
 
-        rs1 = ScalarReg(tokens[1])
 
-        return cls(rs1=rs1)
+@dataclass(init=False)
+class CSRImm(InstructionPattern):
+    """
+    Instruction pattern for the CSR immediate forms: `instr x(rd), csr, uimm5`
+    (`csrrwi`, `csrrsi`, `csrrci`); the 5-bit immediate is encoded in rs1.
+
+    Attributes:
+        rd: The destination scalar register.
+        imm: The 12-bit CSR number.
+        rs1: The 5-bit immediate.
+    """
+    rd: ScalarReg
+    imm: Imm12
+    rs1: Shamt
+    params = [x_rd, imm12, uimm5]
+
+    def __init__(self, rd: ScalarReg, rs1: Shamt, imm: Imm12):
+        self.rd = rd
+        self.imm = Imm12(imm)
+        self.rs1 = Shamt(rs1)
+
+
+@dataclass(init=False)
+class DMATransfer(_DMAChannel, InstructionPattern):
+    """
+    Instruction pattern for DMA transfers: `instr x(rd), x(rs1), x(rs2), ch<N>`
+    (`dma.load`, `dma.store`). The channel `ch0`-`ch7` is encoded in funct3.
+    """
+    rd: ScalarReg
+    rs1: ScalarReg
+    rs2: ScalarReg
+    ch: Channel
+    params = [x_rd, x_rs1, x_rs2, ch]
+
+    def __init__(self, rd: ScalarReg, rs1: ScalarReg, rs2: ScalarReg, ch: Channel):
+        self.rd = rd
+        self.rs1 = rs1
+        self.rs2 = rs2
+        self._set_channel(ch)
+
+
+@dataclass(init=False)
+class DMAConfig(_DMAChannel, InstructionPattern):
+    """Instruction pattern for `dma.config x(rs1), ch<N>`."""
+    rs1: ScalarReg
+    ch: Channel
+    params = [x_rs1, ch]
+
+    def __init__(self, rs1: ScalarReg, ch: Channel):
+        self.rs1 = rs1
+        self._set_channel(ch)
+
+
+@dataclass(init=False)
+class DMAWait(_DMAChannel, InstructionPattern):
+    """Instruction pattern for `dma.wait ch<N>`."""
+    ch: Channel
+    params = [ch]
+
+    def __init__(self, ch: Channel):
+        self._set_channel(ch)
 
 @dataclass()
 class Nullary(InstructionPattern):

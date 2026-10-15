@@ -24,10 +24,10 @@ addi x5, x5, -2048          # x5 = 2048 (TILE_BYTES)
 
 # --- DMA: DRAM -> VMEM ---
 addi x30, x0, 1  # dma.base 1: DRAM operands address 4 GiB + offset (Program.dram_base)
-dma.config.ch0 x30
-dma.wait.ch0
-dma.load.ch0 x1, x3, x5
-dma.wait.ch0
+dma.config x30, ch0
+dma.wait ch0
+dma.load x1, x3, x5, ch0
+dma.wait ch0
 
 # --- VMEM -> MRF ---
 addi x31, x1, 0  # DMA and VLS bases both count words
@@ -56,5 +56,5 @@ delay 34
 addi x31, x2, 0  # DMA and VLS bases both count words
 vstore m11, 8(x31)
 delay 34
-dma.store.ch0 x4, x2, x5
-dma.wait.ch0
+dma.store x4, x2, x5, ch0
+dma.wait ch0

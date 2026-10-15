@@ -80,9 +80,10 @@ class RType(Instruction, instr=False):
             | opcode_b
         )
 
-    def __init_subclass__(cls, exu: EXU, opcode: OpcodeL, funct3: Funct3L, funct7: Funct7L, mnemonic: str | None = None) -> None:
+    def __init_subclass__(cls, exu: EXU, opcode: OpcodeL, funct3: Funct3L | None, funct7: Funct7L, mnemonic: str | None = None) -> None:
         mnemonic = mnemonic if mnemonic != None else cls.__name__.lower().replace("_",".")
-        cls.funct3 = Funct3(funct3)
+        if funct3 is not None:  # None: funct3 is an operand (the DMA channel), see isa_patterns
+            cls.funct3 = Funct3(funct3)
         cls.funct7 = Funct7(funct7)
         IsaSpec.R[mnemonic] = cls
         return super().__init_subclass__(exu, mnemonic, opcode, instr=True)
@@ -259,15 +260,15 @@ class VRType[VD: (MatrixReg,Accumulator,WeightBuffer) = MatrixReg, VS2: (MatrixR
         vd  = self.vd  if hasattr(self, 'vd')  else 0
 
         funct7_b = _mask(self.funct7, 7) # Bits 31:25
-        vs2_b    = _mask(vs2, 5)          # Bits 24:20 (5 bits)
-        vs1_b    = _mask(vs1, 7)          # Bits 19:13 (7 bits)
-        vd_b     = _mask(vd, 6)           # Bits 12:7  (6 bits)
+        vs2_b    = _mask(vs2, 6)          # Bits 24:19 (6 bits, ScalarDecoder vr_vs2)
+        vs1_b    = _mask(vs1, 6)          # Bits 18:13 (6 bits, vr_vs1)
+        vd_b     = _mask(vd, 6)           # Bits 12:7  (6 bits, vr_vd)
         opcode_b = _mask(self.opcode, 7)  # Bits 6:0
 
         return (
-            (funct7_b << 25) | 
-            (vs2_b << 19)    | # Fixed: Shift 20 puts vs2 in 24:20
-            (vs1_b << 13)    | # Fixed: Shift 13 puts vs1 in 19:13
+            (funct7_b << 25) |
+            (vs2_b << 19)    |
+            (vs1_b << 13)    |
             (vd_b << 7)      | 
             opcode_b
         )

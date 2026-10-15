@@ -32,14 +32,14 @@ li x12, 2048
 
 # --- DRAM -> VMEM ---
 addi x30, x0, 1  # dma.base 1: DRAM operands address 4 GiB + offset (Program.dram_base)
-dma.config.ch0 x30
-dma.wait.ch0
-dma.load.ch0 x1, x6, x11   # Q tile
-dma.load.ch1 x2, x7, x11   # K tile
-dma.load.ch2 x4, x9, x12   # scale (bf16 tile)
-dma.wait.ch0
-dma.wait.ch1
-dma.wait.ch2
+dma.config x30, ch0
+dma.wait ch0
+dma.load x1, x6, x11, ch0   # Q tile
+dma.load x2, x7, x11, ch1   # K tile
+dma.load x4, x9, x12, ch2   # scale (bf16 tile)
+dma.wait ch0
+dma.wait ch1
+dma.wait ch2
 
 # --- VMEM -> MRF ---
 addi x31, x1, 0  # DMA and VLS bases both count words
@@ -90,5 +90,5 @@ delay 34
 addi x31, x5, 0  # DMA and VLS bases both count words
 vstore m15, 8(x31)
 delay 34
-dma.store.ch0 x10, x5, x12
-dma.wait.ch0
+dma.store x10, x5, x12, ch0
+dma.wait ch0

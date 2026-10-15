@@ -29,15 +29,15 @@ Each channel supports:
 
 - at most one outstanding transfer
 - independent busy / completion state
-- `dma.wait.chN` synchronization
+- `dma.wait chN` synchronization
 
 The microarchitecture may implement the DMA channels with shared internal data paths or
 arbitration, provided the architecture-visible channel behavior is preserved.
 
-`dma.wait.chN` behaves as a frontend fence:
+`dma.wait chN` behaves as a frontend fence:
 
 - neither instruction allocates a normal execute-stage slot while it is holding decode
-- if channel `N` is already done when `dma.wait.chN` reaches decode, the instruction
+- if channel `N` is already done when `dma.wait chN` reaches decode, the instruction
   spends that cycle in decode and retires directly
 - if channel `N` is not yet done, decode remains occupied until the transfer completes,
   then the instruction retires directly from decode

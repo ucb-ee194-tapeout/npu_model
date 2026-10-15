@@ -8,7 +8,7 @@ import torch
 
 from npu_model.configs.hardware.default import DefaultHardwareConfig
 from npu_model.configs.isa_definition import (
-    DMA_CONFIG_CH0, DMA_LOAD_CH0, DMA_STORE_CH1, LB, LBU, LH, LHU, LW, SB, SELD, SH, SW,
+    DMA_CONFIG, DMA_LOAD, DMA_STORE, LB, LBU, LH, LHU, LW, SB, SELD, SH, SW,
     VADD_BF16, VLI_ALL, VLI_COL, VLOAD, VMATMUL_MXU0, VMATPUSH_WEIGHT_MXU0, VSTORE,
 )
 from npu_model.configs.numerics import NUMERICS
@@ -109,8 +109,8 @@ MEMORY_CASES = [
     )
 ] + [
     ("DMA", insn) for insn in (
-        DMA_LOAD_CH0(rd=x(6), rs1=x(5), rs2=x(4)), DMA_STORE_CH1(rd=x(5), rs1=x(6), rs2=x(4)),
-        DMA_CONFIG_CH0(rs1=x(7)),
+        DMA_LOAD(ch=0, rd=x(6), rs1=x(5), rs2=x(4)), DMA_STORE(ch=1, rd=x(5), rs1=x(6), rs2=x(4)),
+        DMA_CONFIG(ch=0, rs1=x(7)),
     )
 ]
 CASES = ([("VPU", name) for name in sorted(VPU_OP_LATENCIES)]
@@ -221,7 +221,7 @@ def test_load_after_store_sees_the_stored_word():
 
 def test_dma_takes_registers_at_launch_and_memory_at_completion():
     unit, reference = make("DMA"), make("DMA").arch_state
-    load = DMA_LOAD_CH0(rd=x(6), rs1=x(5), rs2=x(4))
+    load = DMA_LOAD(ch=0, rd=x(6), rs1=x(5), rs2=x(4))
     unit.tick(Uop(load))
     unit.arch_state.write_xrf(6, 0xC00)  # Retargeting x6 mid-transfer has no effect,
     for state in (unit.arch_state, reference):

@@ -20,12 +20,12 @@ addi x6, x0, 1024   # tile byte length
 
 # --- DRAM -> VMEM ---
 addi x30, x0, 1  # dma.base 1: DRAM operands address 4 GiB + offset (Program.dram_base)
-dma.config.ch0 x30
-dma.wait.ch0
-dma.load.ch0 x1, x4, x6    # activations -> VMEM[x1]
-dma.load.ch1 x2, x5, x6    # weights -> VMEM[x2]
-dma.wait.ch0
-dma.wait.ch1
+dma.config x30, ch0
+dma.wait ch0
+dma.load x1, x4, x6, ch0    # activations -> VMEM[x1]
+dma.load x2, x5, x6, ch1    # weights -> VMEM[x2]
+dma.wait ch0
+dma.wait ch1
 
 # --- VMEM -> MRF ---
 addi x31, x1, 0  # DMA and VLS bases both count words
@@ -62,8 +62,8 @@ addi x10, x10, -2048        # x10 = 0x0800 (DRAM output, first half)
 addi x11, x10, 1024         # x11 = 0x0C00 (DRAM output, second half)
 # IMPORTANT: DMA ops read XRF at *execute* time. Since DMA now has non-trivial
 # latency (based on XRF[rs2] length), don't mutate x3 between the two stores.
-dma.store.ch0 x10, x3, x6
+dma.store x10, x3, x6, ch0
 addi x12, x3, 256  # x12 = VMEM second half; can't mutate x3 during ch0
-dma.store.ch1 x11, x12, x6
-dma.wait.ch0
-dma.wait.ch1
+dma.store x11, x12, x6, ch1
+dma.wait ch0
+dma.wait ch1

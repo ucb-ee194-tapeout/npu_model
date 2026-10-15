@@ -55,49 +55,49 @@ def program(rd: int, bg: int, size: int, probe_store: bool, repeats: int) -> str
                            probe="store" if probe_store else "load", last=bg, size=size, rd=rd,
                            bg_bytes=bg * size * repeats)]
     emit = lines.append
-    emit("    LI    x5, 0x00000000")
-    emit("    DMA.CONFIG x5, 0")
+    emit("    li    x5, 0x00000000")
+    emit("    dma.config x5, ch0")
     # Registers: x5 config, x8/x10 probe VMEM/DRAM, x12/x13 sizes, x20-x23 timers,
     # x1..x7 background VMEM words, x24..x30 background DRAM addresses.
-    emit("    LI    x12, 32")
-    emit(f"    LI    x13, {size}")
-    emit(f"    LI    x8, {PROBE_VMEM_WORD}")
-    emit(f"    LI    x10, {PROBE_DRAM:#x}")
+    emit("    li    x12, 32")
+    emit(f"    li    x13, {size}")
+    emit(f"    li    x8, {PROBE_VMEM_WORD}")
+    emit(f"    li    x10, {PROBE_DRAM:#x}")
     # Background: each channel re-issues its transfer `repeats` times so the
     # memory stays loaded for the whole probe. Channels alternate loads and
     # stores to hit the requested mix.
     for ch in range(1, bg + 1):
-        emit(f"    LI    x{ch}, {BG_VMEM_WORD + 256 * (ch - 1)}")
-        emit(f"    LI    x{23 + ch}, {BG_BASE + max(size, 1024) * (ch - 1):#x}")
-    emit("    CSRRS x20, 0xC00, x0        # x20 = traffic phase start")
-    emit("    ADDI  x0, x0, 0             # keep CSR reads apart")
+        emit(f"    li    x{ch}, {BG_VMEM_WORD + 256 * (ch - 1)}")
+        emit(f"    li    x{23 + ch}, {BG_BASE + max(size, 1024) * (ch - 1):#x}")
+    emit("    csrrs x20, 0xC00, x0        # x20 = traffic phase start")
+    emit("    addi  x0, x0, 0             # keep CSR reads apart")
     for rep in range(repeats):
         for ch in range(1, bg + 1):
             is_load = (100 * (ch - 1)) // bg < rd       # first ceil(rd%) of the channels load
             if is_load:
-                emit(f"    DMA.LOAD  x{ch}, x{23 + ch}, x13, {ch}")
+                emit(f"    dma.load  x{ch}, x{23 + ch}, x13, ch{ch}")
             else:
-                emit(f"    DMA.STORE x{23 + ch}, x{ch}, x13, {ch}")
+                emit(f"    dma.store x{23 + ch}, x{ch}, x13, ch{ch}")
         if rep == 0:
-            emit("    CSRRS x21, 0xC00, x0        # x21 = probe issue")
+            emit("    csrrs x21, 0xC00, x0        # x21 = probe issue")
             if probe_store:
-                emit("    DMA.STORE x10, x8, x12, 0")
+                emit("    dma.store x10, x8, x12, ch0")
             else:
-                emit("    DMA.LOAD  x8, x10, x12, 0")
-            emit("    DMA.WAIT  0")
-            emit("    CSRRS x22, 0xC00, x0        # x22 = probe done")
-            emit("    ADDI  x0, x0, 0             # keep CSR reads apart")
+                emit("    dma.load  x8, x10, x12, ch0")
+            emit("    dma.wait  ch0")
+            emit("    csrrs x22, 0xC00, x0        # x22 = probe done")
+            emit("    addi  x0, x0, 0             # keep CSR reads apart")
         for ch in range(1, bg + 1):
-            emit(f"    DMA.WAIT  {ch}")
-    emit("    CSRRS x23, 0xC00, x0        # x23 = traffic phase end")
-    emit("    SUB   x22, x22, x21         # probe cycles")
-    emit("    SUB   x23, x23, x20         # traffic phase cycles")
-    emit("    SLLI  x23, x23, 16")
-    emit("    OR    x22, x22, x23")
-    emit("    CSRRW x0,  0xC11, x22       # stash in CSR_DBG1")
-    emit("    ADDI  x30, x0, 1")
-    emit("    CSRW  x30, 0xC10")
-    emit("    ECALL")
+            emit(f"    dma.wait  ch{ch}")
+    emit("    csrrs x23, 0xC00, x0        # x23 = traffic phase end")
+    emit("    sub   x22, x22, x21         # probe cycles")
+    emit("    sub   x23, x23, x20         # traffic phase cycles")
+    emit("    slli  x23, x23, 16")
+    emit("    or    x22, x22, x23")
+    emit("    csrrw x0,  0xC11, x22       # stash in CSR_DBG1")
+    emit("    addi  x30, x0, 1")
+    emit("    csrrw x0, 0xC10, x30")
+    emit("    ecall")
     return name, "\n".join(lines) + "\n"
 
 

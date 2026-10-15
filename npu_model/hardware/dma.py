@@ -248,7 +248,7 @@ class DmaExecutionUnit(ExecutionUnit):
             raise RuntimeError(f"{mnemonic} VMEM range exceeds VMEM capacity")
         dram_addr = state.dma_dram_address(dram_operand)
         state._check_dram_window(dram_addr, dram_addr + nbytes, f"{mnemonic} transfer")
-        writes = self._WRITES[mnemonic.rsplit(".", 1)[0]]
+        writes = self._WRITES[mnemonic]
         staged = StagedExecution(uop, state, [], writes, self.name)
         return _Slot(uop, staged, int(insn.funct3), is_store, vmem_addr, dram_addr,
                      nbytes // self.beat_bytes, self.cycle)

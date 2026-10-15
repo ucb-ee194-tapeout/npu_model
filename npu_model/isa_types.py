@@ -377,6 +377,17 @@ class Shamt(BoundedInt):
     fmt = "shamt"
 
 
+class Channel(RegBase):
+    """
+    Represents a DMA channel, ``ch0``-``ch7``, carried in funct3 of the DMA instructions.
+    """
+
+    lower_bound = 0
+    upper_bound = 8
+    fmt = "ch"
+    reg_name = "DMA channel"
+
+
 # Imm12
 class Imm12(BoundedInt):
     """

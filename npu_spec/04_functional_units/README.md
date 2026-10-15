@@ -72,7 +72,7 @@ instruction; see Spacing instructions with `DELAY`.
 | XLU | `vtrpose.xlu` | 66 cycles |
 | DMA | `dma.config` | 1 cycle |
 | DMA | `dma.load`, `dma.store` | Variable; see formula below |
-| Frontend | `dma.wait.chN` | Waits until that channel completes |
+| Frontend | `dma.wait` | Waits until that channel completes |
 
 For the default hardware configuration, a DMA transfer of `N` bytes takes
 `max(2 * ceil((N + 8) / 4), ceil(N / 64))` cycles, with a minimum of one cycle.
@@ -229,8 +229,8 @@ Decode must enforce the reserved-zero rules defined by the ISA, including:
 - `vmatpush.acc.*`: `vs2 = 0` and `vd[5:1] = 0`
 - `vmatpop.*`: `vs1 = 0` and `vs2[5:1] = 0`
 - `vmatmul.*`: `vd[5:1] = 0` and `vs2[5:1] = 0`
-- `dma.config.chN` and `dma.wait.chN`: `rd = x0`
-- `dma.wait.chN`: `rs1 = x0`
+- `dma.config` and `dma.wait`: `rd = x0`
+- `dma.wait`: `rs1 = x0`
 
 Decode must also enforce pair-register legality for instructions whose semantics
 consume or produce `{m[r], m[r + 1]}`:

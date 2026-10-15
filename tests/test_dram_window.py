@@ -54,10 +54,10 @@ def test_dma_launch_outside_the_window_raises():
         ADDI(rd=x(1), rs1=x(0), imm=0),                    # VMEM word 0
         ADDI(rd=x(2), rs1=x(0), imm=0x100),                # DRAM 0x100 with base 0: unmapped
         ADDI(rd=x(3), rs1=x(0), imm=64),
-        DMA_CONFIG_CH0(rs1=x(0)),
-        DMA_WAIT_CH0(),
-        DMA_LOAD_CH0(rd=x(1), rs1=x(2), rs2=x(3)),
-        DMA_WAIT_CH0(),
+        DMA_CONFIG(ch=0, rs1=x(0)),
+        DMA_WAIT(ch=0),
+        DMA_LOAD(ch=0, rd=x(1), rs1=x(2), rs2=x(3)),
+        DMA_WAIT(ch=0),
     ])
     program.memory_regions = []
     with pytest.raises(AssertionError, match="outside the mapped window"):
@@ -72,10 +72,10 @@ def test_program_regions_land_at_the_program_base_and_dma_reads_them_back():
         ADDI(rd=x(2), rs1=x(0), imm=0x100),                # offset into Program.dram_base
         ADDI(rd=x(3), rs1=x(0), imm=64),
         ADDI(rd=x(4), rs1=x(0), imm=1),                    # dma.base 1 = 4 GiB = Program.dram_base
-        DMA_CONFIG_CH0(rs1=x(4)),
-        DMA_WAIT_CH0(),
-        DMA_LOAD_CH0(rd=x(1), rs1=x(2), rs2=x(3)),
-        DMA_WAIT_CH0(),
+        DMA_CONFIG(ch=0, rs1=x(4)),
+        DMA_WAIT(ch=0),
+        DMA_LOAD(ch=0, rd=x(1), rs1=x(2), rs2=x(3)),
+        DMA_WAIT(ch=0),
     ])
     program.memory_regions = [(0x100, payload)]
     assert program.dram_base == 1 << 32

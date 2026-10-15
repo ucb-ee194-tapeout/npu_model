@@ -12,22 +12,22 @@ addi x9, x0, 2
 lui x10, 0x1
 addi x10, x10, -2048
 addi x30, x0, 1  # dma.base 1: DRAM operands address 4 GiB + offset (Program.dram_base)
-dma.config.ch0 x30
-dma.wait.ch0
-dma.config.ch1 x30
-dma.wait.ch1
-dma.wait.ch0
-dma.wait.ch1
+dma.config x30, ch0
+dma.wait ch0
+dma.config x30, ch1
+dma.wait ch1
+dma.wait ch0
+dma.wait ch1
 loop_1:
 add x11, x6, x3
 add x12, x7, x3
-dma.load.ch0 x1, x6, x3
-dma.load.ch1 x4, x11, x3
-dma.wait.ch0
+dma.load x1, x6, x3, ch0
+dma.load x4, x11, x3, ch1
+dma.wait ch0
 addi x31, x1, 0  # DMA and VLS bases both count words
 vload m0, 0(x31)
 delay 34
-dma.wait.ch1
+dma.wait ch1
 addi x31, x1, 0  # DMA and VLS bases both count words
 vload m1, 8(x31)
 delay 34
@@ -49,10 +49,10 @@ delay 34
 addi x31, x2, 0  # DMA and VLS bases both count words
 vstore m13, 8(x31)
 delay 34
-dma.store.ch0 x7, x2, x3
-dma.store.ch1 x12, x5, x3
-dma.wait.ch0
-dma.wait.ch1
+dma.store x7, x2, x3, ch0
+dma.store x12, x5, x3, ch1
+dma.wait ch0
+dma.wait ch1
 add x6, x6, x10
 add x7, x7, x10
 addi x8, x8, 1

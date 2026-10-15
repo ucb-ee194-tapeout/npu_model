@@ -14,7 +14,7 @@ Bank mappings used by this checker:
 from typing import TYPE_CHECKING
 from npu_model.isa import VRType
 from ..isa_types import MatrixReg, WeightBuffer, Accumulator
-from npu_model.isa_patterns import TensorBaseOffset, TensorComputeBinary, TensorComputeUnary, DirectImm, MXUAccumulatorPop, MXUWeightPush, MXUAccumulatorPopE1, MXUAccumulatorPush, MXUMatMul, ScalarComputeReg
+from npu_model.isa_patterns import TensorBaseOffset, TensorComputeBinary, TensorComputeUnary, DirectImm, MXUAccumulatorPop, MXUWeightPush, MXUAccumulatorPopE1, MXUAccumulatorPush, MXUMatMul, DMATransfer
 from npu_model.configs.isa_definition import VMOV, VPACK_BF16_FP8, VUNPACK_FP8_BF16
 
 if TYPE_CHECKING:
@@ -118,12 +118,12 @@ def vmem_accesses(insn: Instruction, arch_state: ArchState) -> frozenset[int]:
         length = arch_state.cfg.mrf_depth * arch_state.cfg.mrf_width
         return _vmem_range_to_banks(addr, length)
 
-    if isinstance(insn, ScalarComputeReg):
-        if insn.mnemonic.startswith("dma.load.ch"):
+    if isinstance(insn, DMATransfer):
+        if insn.mnemonic == "dma.load":
             vmem_addr = arch_state.read_xrf(insn.rd)
             length = arch_state.read_xrf(insn.rs2)
             return _vmem_range_to_banks(vmem_addr, length)
-        if insn.mnemonic.startswith("dma.store.ch"):
+        if insn.mnemonic == "dma.store":
             vmem_addr = arch_state.read_xrf(insn.rs1)
             length = arch_state.read_xrf(insn.rs2)
             return _vmem_range_to_banks(vmem_addr, length)

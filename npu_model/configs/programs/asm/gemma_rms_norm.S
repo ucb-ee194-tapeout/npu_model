@@ -21,12 +21,12 @@ li x7, 2048         # bf16 tile bytes
 
 # --- DRAM -> VMEM ---
 addi x30, x0, 1  # dma.base 1: DRAM operands address 4 GiB + offset (Program.dram_base)
-dma.config.ch0 x30
-dma.wait.ch0
-dma.load.ch0 x1, x4, x7    # input
-dma.load.ch1 x2, x5, x7    # eps
-dma.wait.ch0
-dma.wait.ch1
+dma.config x30, ch0
+dma.wait ch0
+dma.load x1, x4, x7, ch0    # input
+dma.load x2, x5, x7, ch1    # eps
+dma.wait ch0
+dma.wait ch1
 
 # --- VMEM -> MRF ---
 addi x31, x1, 0  # DMA and VLS bases both count words
@@ -75,5 +75,5 @@ delay 34
 addi x31, x3, 0  # DMA and VLS bases both count words
 vstore m21, 8(x31)
 delay 34
-dma.store.ch0 x6, x3, x7
-dma.wait.ch0
+dma.store x6, x3, x7, ch0
+dma.wait ch0

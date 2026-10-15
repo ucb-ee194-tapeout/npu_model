@@ -13,7 +13,7 @@ import torch
 
 from npu_model.configs.hardware.default import DefaultHardwareConfig
 from npu_model.configs.isa_definition import (
-    DMA_CONFIG_CH0, DMA_LOAD_CH0, DMA_LOAD_CH1, DMA_LOAD_CH2, DMA_STORE_CH1, DMA_STORE_CH3,
+    DMA_CONFIG, DMA_LOAD, DMA_STORE,
 )
 from npu_model.hardware.arch_state import ArchState
 from npu_model.hardware.dma import DmaExecutionUnit
@@ -71,8 +71,8 @@ def run(unit, max_cycles=4096):
     return events
 
 
-LOAD = DMA_LOAD_CH0(rd=x(1), rs1=x(2), rs2=x(4))      # 64 B: two beats, DRAM 0x100 -> VMEM 0
-STORE = DMA_STORE_CH1(rd=x(6), rs1=x(1), rs2=x(4))    # 64 B: two beats, VMEM 0 -> DRAM 0x2000
+LOAD = DMA_LOAD(ch=0, rd=x(1), rs1=x(2), rs2=x(4))      # 64 B: two beats, DRAM 0x100 -> VMEM 0
+STORE = DMA_STORE(ch=1, rd=x(6), rs1=x(1), rs2=x(4))    # 64 B: two beats, VMEM 0 -> DRAM 0x2000
 
 
 def test_load_issues_one_beat_per_cycle_from_the_cycle_after_launch(dma):
@@ -196,7 +196,7 @@ def test_lsu_access_denies_the_store_path_vmem_read(dma):
 def test_dma_write_beats_dma_read_to_the_same_bank(dma):
     """Vmem.scala: DMA write > DMA read. A 1 KiB store behind a load reads bank 0 too."""
     launch(dma, LOAD)                                           # 1: load slot active from 2
-    launch(dma, DMA_STORE_CH1(rd=x(6), rs1=x(1), rs2=x(3)))     # 2: load Get 0
+    launch(dma, DMA_STORE(ch=1, rd=x(6), rs1=x(1), rs2=x(3)))     # 2: load Get 0
     tick(dma)                                                   # 3: load Get 1; load dispatched at the edge
     event = tick(dma)                                           # 4: store is now the request head
     assert event.vmem_read == [0, 0, True]
@@ -215,8 +215,8 @@ def test_dma_write_beats_dma_read_to_the_same_bank(dma):
 
 def test_commands_pipeline_across_channels(dma):
     """Beats of the next command issue while the first command's data is still returning."""
-    launch(dma, DMA_LOAD_CH0(rd=x(1), rs1=x(2), rs2=x(3)))    # 1: 32 beats
-    second = launch(dma, DMA_LOAD_CH1(rd=x(5), rs1=x(6), rs2=x(3)))    # 2: 32 beats, VMEM 1024; Get 0
+    launch(dma, DMA_LOAD(ch=0, rd=x(1), rs1=x(2), rs2=x(3)))    # 1: 32 beats
+    second = launch(dma, DMA_LOAD(ch=1, rd=x(5), rs1=x(6), rs2=x(3)))    # 2: 32 beats, VMEM 1024; Get 0
     assert second.a == [0, 0x100, False]
     events = run(dma)
     fires = [event.cycle for event in events if event.a is not None]
@@ -228,9 +228,9 @@ def test_commands_pipeline_across_channels(dma):
 
 def test_outstanding_beats_are_capped_at_max_in_flight(dma):
     dma.backend = FixedLatencyBackend(latency=200)
-    launch(dma, DMA_LOAD_CH0(rd=x(1), rs1=x(2), rs2=x(3)))    # 32 beats
-    launch(dma, DMA_LOAD_CH1(rd=x(5), rs1=x(6), rs2=x(3)))    # 32 beats
-    launch(dma, DMA_LOAD_CH2(rd=x(7), rs1=x(6), rs2=x(3)))    # 3: 32 more, must wait
+    launch(dma, DMA_LOAD(ch=0, rd=x(1), rs1=x(2), rs2=x(3)))    # 32 beats
+    launch(dma, DMA_LOAD(ch=1, rd=x(5), rs1=x(6), rs2=x(3)))    # 32 beats
+    launch(dma, DMA_LOAD(ch=2, rd=x(7), rs1=x(6), rs2=x(3)))    # 3: 32 more, must wait
     while dma.cycle < 201:
         tick(dma)
     assert dma.backend.outstanding == 64
@@ -246,13 +246,13 @@ def test_responses_out_of_order_retire_slots_out_of_order(dma):
     """A fast second command retires before a slow first one (per-slot counters)."""
     dma.backend = FixedLatencyBackend(latency=4, latency_fn=lambda r: 40 if r.address < 0x1000 else 4)
     launch(dma, LOAD)                                           # two slow beats at 0x100
-    launch(dma, DMA_LOAD_CH1(rd=x(5), rs1=x(6), rs2=x(4)))      # two fast beats at 0x2000
+    launch(dma, DMA_LOAD(ch=1, rd=x(5), rs1=x(6), rs2=x(4)))      # two fast beats at 0x2000
     state = dma.arch_state
     for _ in range(8):
         tick(dma)
     assert not state.check_flag(1), "channel 1 retired first"
     assert state.check_flag(0)
-    assert dma.in_flight[0].insn.mnemonic == "dma.load.ch0"
+    assert dma.in_flight[0].insn.mnemonic == "dma.load" and dma.in_flight[0].insn.ch == 0
     run(dma)
     assert not state.check_flag(0)
 
@@ -262,7 +262,7 @@ def test_source_id_in_flight_blocks_its_reuse(dma):
     dma.num_ids = 2                                             # small ID space for the test
     dma.max_in_flight = 2
     dma.backend = FixedLatencyBackend(latency=4, latency_fn=lambda r: 20 if r.source == 0 else 1)
-    launch(dma, DMA_LOAD_CH0(rd=x(1), rs1=x(2), rs2=x(3)))
+    launch(dma, DMA_LOAD(ch=0, rd=x(1), rs1=x(2), rs2=x(3)))
     fires = []
     for _ in range(12):
         event = tick(dma)
@@ -275,14 +275,14 @@ def test_source_id_in_flight_blocks_its_reuse(dma):
 
 def test_backend_backpressure_stalls_channel_a(dma):
     dma.backend = FixedLatencyBackend(latency=4, accept_fn=lambda cycle: cycle % 3 != 0)
-    launch(dma, DMA_LOAD_CH0(rd=x(1), rs1=x(2), rs2=x(3)))
+    launch(dma, DMA_LOAD(ch=0, rd=x(1), rs1=x(2), rs2=x(3)))
     fires = [event.cycle for event in run(dma) if event.a is not None]
     assert len(fires) == 32 and not any(cycle % 3 == 0 for cycle in fires)
 
 
 def test_link_rate_limits_beat_acceptance(dma):
     dma.backend = FixedLatencyBackend(latency=4, cycles_per_beat=16)
-    launch(dma, DMA_LOAD_CH0(rd=x(1), rs1=x(2), rs2=x(3)))
+    launch(dma, DMA_LOAD(ch=0, rd=x(1), rs1=x(2), rs2=x(3)))
     fires = [event.cycle for event in run(dma) if event.a is not None]
     assert fires == [2 + 16 * i for i in range(32)]
     assert dma.cycle == fires[-1] + 4
@@ -291,12 +291,12 @@ def test_link_rate_limits_beat_acceptance(dma):
 def test_dma_config_updates_the_base_at_issue_without_a_slot(dma):
     state = dma.arch_state
     state.base = 1
-    dma.tick(Uop(DMA_CONFIG_CH0(rs1=x(1))))                     # T: base := x1 = 0, no slot, no flag
+    dma.tick(Uop(DMA_CONFIG(ch=0, rs1=x(1))))                     # T: base := x1 = 0, no slot, no flag
     assert state.base == 0 and not dma.has_in_flight and dma.last_cycle.busy == [False] * 8
     launch(dma, LOAD)                                           # T+1 launch already sees the new base
     assert dma._slots[0].dram_addr == 0x100
     state.write_xrf(8, 1)
-    dma.tick(Uop(DMA_CONFIG_CH0(rs1=x(8))))                     # Not queued behind the in-flight load.
+    dma.tick(Uop(DMA_CONFIG(ch=0, rs1=x(8))))                     # Not queued behind the in-flight load.
     assert state.base == 1 and len(dma._slots) == 1
 
 
@@ -320,23 +320,23 @@ def test_default_backend_is_the_vcs_measured_curve(dma):
 def test_zero_and_unaligned_sizes_are_rejected(dma):
     dma.arch_state.write_xrf(9, 0)
     with pytest.raises(RuntimeError, match="multiples of 32"):
-        launch(dma, DMA_LOAD_CH0(rd=x(1), rs1=x(2), rs2=x(9)))
+        launch(dma, DMA_LOAD(ch=0, rd=x(1), rs1=x(2), rs2=x(9)))
     dma.arch_state.write_xrf(9, 48)
     with pytest.raises(RuntimeError, match="multiples of 32"):
-        launch(dma, DMA_LOAD_CH1(rd=x(1), rs1=x(2), rs2=x(9)))
+        launch(dma, DMA_LOAD(ch=1, rd=x(1), rs1=x(2), rs2=x(9)))
 
 
 def test_busy_channel_reissue_is_rejected(dma):
     launch(dma, LOAD)
     with pytest.raises(RuntimeError, match="channel 0 is busy"):
-        dma.tick(Uop(DMA_LOAD_CH0(rd=x(5), rs1=x(2), rs2=x(4))))
+        dma.tick(Uop(DMA_LOAD(ch=0, rd=x(5), rs1=x(2), rs2=x(4))))
 
 
 def test_word_addressed_vmem_operands_follow_atlascore(dma):
     state = dma.arch_state
     state.write_xrf(9, 256)                                     # word 256 = byte 1024
     expected = state.dram[0x100:0x140].clone()
-    launch(dma, DMA_LOAD_CH0(rd=x(9), rs1=x(2), rs2=x(4)))
+    launch(dma, DMA_LOAD(ch=0, rd=x(9), rs1=x(2), rs2=x(4)))
     assert dma._slots[0].vmem_addr == 1024
     run(dma)
     assert torch.equal(state.vmem[1024:1088], expected)
@@ -346,13 +346,13 @@ def test_vmem_operand_low_word_bits_and_high_bits_are_dropped(dma):
     # vmemLineAddr = vmemAddr(wordAddrBits-1, wordOffBits): bits [18:3] for 1.5 MiB.
     state = dma.arch_state
     state.write_xrf(9, 256 + 5)                                 # not line aligned: same line
-    launch(dma, DMA_LOAD_CH0(rd=x(9), rs1=x(2), rs2=x(4)))
+    launch(dma, DMA_LOAD(ch=0, rd=x(9), rs1=x(2), rs2=x(4)))
     assert dma._slots[0].vmem_addr == 1024
     dma.abort()
     state.write_xrf(9, (1 << 19) + 256)                         # bit 19 is above wordAddrBits
-    launch(dma, DMA_LOAD_CH0(rd=x(9), rs1=x(2), rs2=x(4)))
+    launch(dma, DMA_LOAD(ch=0, rd=x(9), rs1=x(2), rs2=x(4)))
     assert dma._slots[0].vmem_addr == 1024
     dma.abort()
     state.write_xrf(9, (393216 - 8) + 8)                        # one line past the last
     with pytest.raises(RuntimeError, match="exceeds VMEM capacity"):
-        launch(dma, DMA_LOAD_CH0(rd=x(9), rs1=x(2), rs2=x(4)))
+        launch(dma, DMA_LOAD(ch=0, rd=x(9), rs1=x(2), rs2=x(4)))
