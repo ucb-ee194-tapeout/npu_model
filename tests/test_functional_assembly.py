@@ -1,6 +1,7 @@
 """Parser and execution coverage for the channel-free ``.fs`` dialect."""
 
 import pytest
+import torch
 
 from npu_model.functional import (
     FunctionalAssemblyError,
@@ -9,7 +10,7 @@ from npu_model.functional import (
     load_functional_assembly,
     parse_functional_assembly,
 )
-from npu_model.isa_types import MatrixReg, ScalarReg
+from npu_model.isa_types import Accumulator, MatrixReg, ScalarReg, WeightBuffer
 
 
 def test_virtual_registers_execute_scalar_operations_and_strip_comments():
@@ -45,6 +46,54 @@ def test_parser_assigns_disjoint_virtual_matrix_backing_slots():
     )
 
     assert program.register_ids[MatrixReg] == {"first": 0, "second": 2}
+
+
+def test_named_vector_matrix_registers_execute_and_report_values():
+    program = parse_functional_assembly(
+        """
+        vli.all m.seed, 0x3f80
+        vadd.bf16 m.doubled, m.seed, m.seed
+        """
+    )
+
+    result = FunctionalInterpreter().run(program)
+    named = result.named_registers(program)["m"]
+    seed = result.state.read_mrf_bf16_tile(program.register_ids[MatrixReg]["seed"])
+    doubled = result.state.read_mrf_bf16_tile(program.register_ids[MatrixReg]["doubled"])
+
+    assert program.register_ids[MatrixReg] == {"seed": 0, "doubled": 2}
+    assert named["seed"].numel() == 32 * 32  # one 32x32-byte matrix slot
+    assert torch.all(named["seed"].view(torch.bfloat16) == 1.0)
+    assert torch.all(named["doubled"].view(torch.bfloat16) == 2.0)
+    assert torch.all(seed == 1.0)
+    assert torch.all(doubled == 2.0)
+
+
+def test_named_weight_buffer_and_accumulator_flow_through_mxu():
+    fp8_ones = torch.ones((32, 32), dtype=torch.float8_e4m3fn).view(torch.uint8)
+    program = parse_functional_assembly(
+        """
+        addi x.vmem_base, x.zero, 0
+        vload m.activation, 0(x.vmem_base)
+        vload m.weights, 32(x.vmem_base)
+        vmatpush.weight.mxu0 w.kernel, m.weights
+        vmatmul.mxu0 acc.product, m.activation, w.kernel
+        vmatpop.bf16.acc.mxu0 m.output, acc.product
+        """
+    )
+
+    result = FunctionalInterpreter().run(program, vmem={0: fp8_ones, 4096: fp8_ones})
+    named = result.named_registers(program)
+    acc_id = program.register_ids[Accumulator]["product"]
+    matrix_id = program.register_ids[MatrixReg]["output"]
+
+    assert program.register_ids[WeightBuffer] == {"kernel": 0}
+    assert named["w.mxu0"]["kernel"].numel() == 32 * 32
+    assert torch.equal(named["w.mxu0"]["kernel"], fp8_ones.flatten())
+    assert torch.all(named["acc.mxu0"]["product"] == 32.0)
+    assert torch.all(named["acc.mxu1"]["product"] == 0.0)
+    assert torch.all(result.state.read_mrf_bf16_tile(matrix_id) == 32.0)
+    assert result.state.read_acc_bf16("mxu0", acc_id).shape == (32, 32)
 
 
 def test_labels_drive_functional_control_flow_without_delay_slots():
