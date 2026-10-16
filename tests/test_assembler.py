@@ -5,6 +5,7 @@ import pytest
 from npu_model.configs.isa_definition import *  # noqa: F401, F403
 from npu_model.util.converter import input_to_program
 from npu_model.lsp.linter import lint_text
+from npu_model.isa_types import Bundled, ExponentReg, Imm12, MatrixReg, Named, ScalarReg
 
 
 # Reference encoders built field-by-field from the RISC-V layouts, independent
@@ -135,6 +136,33 @@ def test_matrix_transfer_and_matmul_parse_correctly() -> None:
     assert mul.vd == 0
     assert mul.vs1 == 5
     assert mul.vs2 == 0
+
+
+@pytest.mark.parametrize("reg_type, signed, unsigned, offset", [
+    (ScalarReg, "-8(x2)", "0xff8(x2)", -8),
+    (ExponentReg, "-1(e2)", "0xfff(e2)", -1),
+    (MatrixReg, "-1(m2)", "0xfff(m2)", -1),
+])
+def test_negative_bundled_offsets_match_unsigned_encoding(reg_type, signed, unsigned, offset) -> None:
+    bundle = Bundled(Named(reg_type, "rs1"), Named(Imm12, "imm"))
+    assert bundle.lint(signed, [], 1, False) == []
+    parsed = bundle.parse_token(signed, int)
+    assert parsed == {"rs1": 2, "imm": offset}
+    assert LW(rd=1, **parsed).to_bytecode() == LW(rd=1, **bundle.parse_token(unsigned, int)).to_bytecode()
+
+
+def test_negative_memory_offset_assembles() -> None:
+    assert input_to_program(io.StringIO("lw x1, -8(x2)")).assemble() == [_i_type(0b0000011, 0b010, 1, 2, 0xff8)]
+
+
+@pytest.mark.parametrize("reg_type, prefix", [(ScalarReg, "x"), (ExponentReg, "e"), (MatrixReg, "m")])
+@pytest.mark.parametrize("offset", [-2049, 4096])
+def test_bundled_offsets_outside_12_bit_range_are_rejected(reg_type, prefix, offset) -> None:
+    bundle = Bundled(Named(reg_type, "rs1"), Named(Imm12, "imm"))
+    operand = f"{offset}({prefix}2)"
+    assert bundle.lint(operand, [], 1, False)
+    with pytest.raises(ExceptionGroup):
+        bundle.parse_token(operand, int)
 
 
 @pytest.mark.parametrize("mnemonic", ["beq", "bne", "blt", "bge", "bltu", "bgeu"])
