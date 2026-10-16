@@ -8,7 +8,7 @@ import re
 from typing import TextIO
 
 from npu_model.configs import isa_definition as _isa_definition  # noqa: F401
-from npu_model.configs.isa_definition import DMA_CONFIG_CH0, DMA_LOAD_CH0, DMA_STORE_CH0
+from npu_model.configs.isa_definition import DMA_CONFIG, DMA_LOAD, DMA_STORE
 from npu_model.isa import Instruction, IsaSpec, SBType, UJType
 from npu_model.isa_patterns import Bundled
 from npu_model.isa_types import (
@@ -55,9 +55,9 @@ _LABEL = Named.is_label
 # share the existing architectural data-movement semantics; channel choice is
 # intentionally absent from the functional state.
 _FUNCTIONAL_ALIASES: dict[str, type[Instruction]] = {
-    "dma.load": DMA_LOAD_CH0,
-    "dma.store": DMA_STORE_CH0,
-    "dma.config": DMA_CONFIG_CH0,
+    "dma.load": DMA_LOAD,
+    "dma.store": DMA_STORE,
+    "dma.config": DMA_CONFIG,
 }
 
 _FORBIDDEN = {
@@ -238,7 +238,8 @@ def parse_functional_assembly(source: TextIO | str) -> FunctionalProgram:
         instruction_type = operations.get(mnemonic)
         if instruction_type is None:
             raise FunctionalAssemblyError(f"unsupported functional mnemonic '{mnemonic}'", line_number)
-        params = instruction_type.params
+        channel_free_dma = mnemonic in _FUNCTIONAL_ALIASES
+        params = instruction_type.params[:-1] if channel_free_dma else instruction_type.params
         if len(tokens) != len(params) + 1:
             raise FunctionalAssemblyError(
                 f"'{mnemonic}' expects {len(params)} operand(s), got {len(tokens) - 1}",
@@ -257,6 +258,10 @@ def parse_functional_assembly(source: TextIO | str) -> FunctionalProgram:
                         register_ids=register_ids,
                     )
                 )
+            if channel_free_dma:
+                # The functional dialect has no channel state. Reuse the true
+                # instruction's data movement with an internal canonical ch0.
+                kwargs["ch"] = 0
             instruction = instruction_type(**kwargs)
         except (ValueError, TypeError, ExceptionGroup) as exc:
             raise FunctionalAssemblyError(str(exc), line_number) from exc

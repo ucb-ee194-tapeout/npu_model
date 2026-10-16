@@ -263,6 +263,18 @@ class FunctionalState:
     def read_acc_bf16(self, unit: str, ws: int) -> torch.Tensor:
         return self.acc[unit][ws].clone()
 
+    def dma_vmem_byte_address(self, operand: int) -> int:
+        """Map the DMA's VMEM word operand to its 32-byte line address."""
+        line_bytes = 32
+        words = self.cfg.vmem_size // 4
+        word_addr_bits = max(1, (words - 1).bit_length())
+        line = (operand & ((1 << word_addr_bits) - 1)) >> 3
+        return line * line_bytes
+
+    def dma_dram_address(self, operand: int) -> int:
+        """Return the DMA's 32-bit DRAM offset; read/write add ``dma.base``."""
+        return operand & 0xFFFFFFFF
+
     @staticmethod
     def _csr_address(address: int) -> int:
         known = (0xC00, 0xC01, 0xC02, 0xC03, 0xC10, 0xC11)
