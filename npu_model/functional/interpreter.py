@@ -29,6 +29,12 @@ class FunctionalResult:
                     output[f"{file_name}.{unit}"] = {
                         name: _copy_value(file[index]) for name, index in names.items()
                     }
+            elif file_name == "m":
+                # A matrix name is both halves of its two-slot tile.
+                output[file_name] = {
+                    name: torch.cat((self.state.mrf[index], self.state.mrf[index + 1]))
+                    for name, index in names.items()
+                }
             else:
                 file = _register_file(self.state, file_name)
                 output[file_name] = {
@@ -46,8 +52,6 @@ def _register_file(state: FunctionalState, prefix: str, unit: str = "mxu0"):
         return state.xrf
     if prefix == "e":
         return state.erf
-    if prefix == "m":
-        return state.mrf
     if prefix == "w":
         return state.wb[unit]
     if prefix == "acc":
@@ -59,7 +63,7 @@ class FunctionalInterpreter:
     """Execute instruction semantics without hardware timing or allocation."""
 
     def __init__(self, config: FunctionalConfig | None = None):
-        self.state = FunctionalState(config)
+        self.config = config
 
     def run(
         self,
@@ -71,8 +75,7 @@ class FunctionalInterpreter:
     ) -> FunctionalResult:
         if max_instructions <= 0:
             raise ValueError("max_instructions must be positive")
-        state = self.state
-        state.reset()
+        state = FunctionalState(self.config)
         for offset, data in (dram or {}).items():
             state.load_dram(offset, data)
         for offset, data in (vmem or {}).items():

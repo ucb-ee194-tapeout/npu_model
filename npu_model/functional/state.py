@@ -8,6 +8,7 @@ from typing import Callable, Generic, TypeVar
 import torch
 
 from npu_model.configs.numerics import NUMERICS
+from npu_model.hardware.arch_state import ArchState
 from npu_model.hardware.config import ArchStateConfig
 
 T = TypeVar("T")
@@ -88,10 +89,11 @@ class SparseByteMemory:
             cursor += count
             data_offset += count
 
-    def load(self, offset: int, data: torch.Tensor | bytes | bytearray) -> None:
-        if not isinstance(data, torch.Tensor):
-            data = torch.tensor(list(data), dtype=torch.uint8)
-        self[offset:offset + data.numel()] = data
+
+def _image_bytes(data: torch.Tensor | bytes | bytearray) -> torch.Tensor:
+    if isinstance(data, torch.Tensor):
+        return data.detach().cpu().contiguous().flatten().view(torch.uint8)
+    return torch.frombuffer(bytearray(data), dtype=torch.uint8)
 
 
 @dataclass
@@ -104,11 +106,10 @@ class FunctionalConfig:
     num_e_registers: int = 2**63
     num_m_registers: int = 2**63
     num_wb_registers: int = 2**63
-    dram_size: int = 1 * 1024 * 1024 * 1024
+    dram_size: int = 0x10_0000_0000  # the timed default: 64 GiB from dram_base
+    dram_base: int = 0x8000_0000
     vmem_size: int = 1536 * 1024
     numerics: str = "rtl"
-    randomize_init: bool = False
-    init_seed: int = 42
 
 
 class FunctionalState:
@@ -138,7 +139,7 @@ class FunctionalState:
             "mxu0": VirtualFile(lambda: torch.zeros((cfg.mrf_depth, acc_cols), dtype=torch.bfloat16)),
             "mxu1": VirtualFile(lambda: torch.zeros((cfg.mrf_depth, acc_cols), dtype=torch.bfloat16)),
         }
-        self.dram = SparseByteMemory(cfg.dram_size)
+        self.dram = SparseByteMemory(cfg.dram_base + cfg.dram_size)
         self.vmem = SparseByteMemory(cfg.vmem_size)
         self.base = 0
         self.execute_pc = 0
@@ -148,28 +149,6 @@ class FunctionalState:
         self.halt_reason: str | None = None
         self._csr_values = {addr: 0 for addr in (0xC00, 0xC01, 0xC02, 0xC03, 0xC10, 0xC11)}
         self._csr_written: set[int] = set()
-
-    def reset(self) -> None:
-        self.xrf = VirtualFile(lambda: 0)
-        self.erf = VirtualFile(lambda: 0)
-        self.mrf = VirtualFile(lambda: torch.zeros(self.cfg.mrf_depth * self.cfg.mrf_width, dtype=torch.uint8))
-        self.wb = {
-            unit: VirtualFile(lambda: torch.zeros(self.cfg.wb_width, dtype=torch.uint8))
-            for unit in ("mxu0", "mxu1")
-        }
-        acc_cols = self.cfg.mrf_width // torch.bfloat16.itemsize * 2
-        self.acc = {
-            unit: VirtualFile(lambda: torch.zeros((self.cfg.mrf_depth, acc_cols), dtype=torch.bfloat16))
-            for unit in ("mxu0", "mxu1")
-        }
-        self.dram = SparseByteMemory(self.cfg.dram_size)
-        self.vmem = SparseByteMemory(self.cfg.vmem_size)
-        self.base = 0
-        self.execute_pc = self.npc = 0
-        self.redirect_requested = self.halted = False
-        self.halt_reason = None
-        self._csr_values = {addr: 0 for addr in (0xC00, 0xC01, 0xC02, 0xC03, 0xC10, 0xC11)}
-        self._csr_written.clear()
 
     def set_npc(self, value: int) -> None:
         self.npc = value & 0xFFFFFFFF
@@ -271,9 +250,11 @@ class FunctionalState:
         line = (operand & ((1 << word_addr_bits) - 1)) >> 3
         return line * line_bytes
 
-    def dma_dram_address(self, operand: int) -> int:
-        """Return the DMA's 32-bit DRAM offset; read/write add ``dma.base``."""
-        return operand & 0xFFFFFFFF
+    # Share the timed model's DMA address formation and mapped DRAM window.
+    dma_dram_address = ArchState.dma_dram_address
+    _check_dram_window = ArchState._check_dram_window
+    read_dram = ArchState.read_dram
+    write_dram = ArchState.write_dram
 
     @staticmethod
     def _csr_address(address: int) -> int:
@@ -294,19 +275,6 @@ class FunctionalState:
         self._csr_values[address] = value & 0xFFFFFFFF
         self._csr_written.add(address)
 
-    def read_dram(self, offset: int, length: int) -> torch.Tensor:
-        address = (self.base << 32) | offset
-        if address < 0 or address + length > self.cfg.dram_size:
-            raise AssertionError(f"DRAM read out of bounds: [{address}, {address + length})")
-        return self.dram[address:address + length]
-
-    def write_dram(self, offset: int, data: torch.Tensor) -> None:
-        address = (self.base << 32) | offset
-        data = data.flatten().to(torch.uint8)
-        if address < 0 or address + data.numel() > self.cfg.dram_size:
-            raise AssertionError(f"DRAM write out of bounds: [{address}, {address + data.numel()})")
-        self.dram[address:address + data.numel()] = data
-
     def read_vmem(self, base: int, offset: int, length: int) -> torch.Tensor:
         address = base + offset
         if address < 0 or address + length > self.cfg.vmem_size:
@@ -320,8 +288,8 @@ class FunctionalState:
             raise AssertionError(f"VMEM write out of bounds: [{address}, {address + data.numel()})")
         self.vmem[address:address + data.numel()] = data
 
-    def load_dram(self, offset: int, data: torch.Tensor | bytes | bytearray) -> None:
-        self.dram.load(offset, data)
+    def load_dram(self, address: int, data: torch.Tensor | bytes | bytearray) -> None:
+        self.write_dram(address, _image_bytes(data))
 
     def load_vmem(self, offset: int, data: torch.Tensor | bytes | bytearray) -> None:
-        self.vmem.load(offset, data)
+        self.write_vmem(offset, 0, _image_bytes(data))

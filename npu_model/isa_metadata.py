@@ -7,6 +7,7 @@ serialize its result as JSON.
 
 from __future__ import annotations
 
+from contextlib import suppress
 from typing import Any
 
 from .isa import (
@@ -64,7 +65,7 @@ def _type_info(typ: type) -> dict[str, Any]:
 
 def _operand_access(mnemonic: str, name: str) -> str:
     """Return an instruction operand's dataflow role where it is knowable."""
-    if name == "imm":
+    if name in {"imm", "ch"}:
         return "immediate"
     if mnemonic.startswith(("dma.load", "dma.store")):
         return "read"
@@ -96,6 +97,28 @@ def _format_type(instruction: type) -> type | None:
     return None
 
 
+def _fields(instruction: type) -> list[Any]:
+    return [field for param in instruction.params
+            for field in ([param.imm, param.reg] if isinstance(param, Bundled) else [param])]
+
+
+def _encode(instruction: type, **values: int) -> int:
+    return instruction(**{f.repr: f.inner(values.get(f.repr, 0)) for f in _fields(instruction)}).to_bytecode()
+
+
+def _match_mask(instruction: type) -> tuple[int, int]:
+    """The canonical encoder's fixed bits: those no operand value changes."""
+    word = _encode(instruction)
+    operand_bits = 0
+    for field in _fields(instruction):
+        inner = field.inner
+        for value in (-1, -2) if inner.lower_bound < 0 else (inner.upper_bound - 1,):  # -2: even-only offsets
+            with suppress(ExceptionGroup):
+                operand_bits |= word ^ _encode(instruction, **{field.repr: value})
+    mask = ~operand_bits & 0xFFFFFFFF
+    return word & mask, mask
+
+
 def _param_info(param: Any, position: int, mnemonic: str) -> dict[str, Any]:
     if isinstance(param, Bundled):
         fields = [param.imm, param.reg]
@@ -118,14 +141,15 @@ def _param_info(param: Any, position: int, mnemonic: str) -> dict[str, Any]:
     }
 
 
-def instruction_metadata(mnemonic: str, instruction: type) -> dict[str, Any]:
-    """Describe one registered true-assembly instruction."""
+def instruction_metadata(mnemonic: str, instruction: type, params: list[Any] | None = None) -> dict[str, Any]:
+    """Describe one registered true-assembly instruction, or its ``params`` form."""
     fmt = _format_type(instruction)
     encoding: dict[str, int] = {}
     for field in ("opcode", "funct2", "funct3", "funct7"):
         value = getattr(instruction, field, None)
         if isinstance(value, int):
             encoding[field] = int(value)
+    encoding["match"], encoding["mask"] = _match_mask(instruction)
     return {
         "mnemonic": mnemonic,
         "instruction_class": instruction.__name__,
@@ -134,7 +158,7 @@ def instruction_metadata(mnemonic: str, instruction: type) -> dict[str, Any]:
         "format": fmt.__name__ if fmt else None,
         "operands": [
             _param_info(param, index, mnemonic)
-            for index, param in enumerate(instruction.params, start=1)
+            for index, param in enumerate(instruction.params if params is None else params, start=1)
         ],
         "encoding": {
             **encoding,
@@ -154,19 +178,17 @@ def export_isa() -> dict[str, Any]:
         instruction_metadata(mnemonic, instruction)
         for mnemonic, instruction in sorted(IsaSpec.operations.items())
     ]
-    from .functional.program import _functional_operations
+    from .functional.program import _functional_operations, functional_params
 
     functional_instructions = []
     for mnemonic, instruction in sorted(_functional_operations().items()):
-        item = instruction_metadata(mnemonic, instruction)
-        item["functional_supported"] = True
+        params = functional_params(instruction)
+        item = instruction_metadata(mnemonic, instruction, params)
         # Functional operations do not have binary encodings of their own.
         # In particular, channel-free DMA forms are semantic aliases, not CH0.
         item.pop("encoding")
-        if mnemonic in {"dma.load", "dma.store", "dma.config"}:
-            item["true_assembly_mnemonics"] = [
-                f"{mnemonic}.ch{channel}" for channel in range(8)
-            ]
+        if len(params) < len(instruction.params):
+            item["omitted_true_operands"] = ["ch"]
         functional_instructions.append(item)
     return {
         "schema_version": SCHEMA_VERSION,
@@ -181,17 +203,6 @@ def export_isa() -> dict[str, Any]:
         "functional_assembly": {
             "extension": ".fs",
             "instructions": functional_instructions,
-            "excluded": [
-                "delay",
-                "dma.wait.ch<N>",
-                "dma.load/store/config.ch<N> (channel-free spellings are used)",
-                "ecall and ebreak",
-                "csrr/csrw aliases (use csrrs/csrrw forms)",
-            ],
-            "dma_spellings": {
-                "dma.load": [f"dma.load.ch{channel}" for channel in range(8)],
-                "dma.store": [f"dma.store.ch{channel}" for channel in range(8)],
-                "dma.config": [f"dma.config.ch{channel}" for channel in range(8)],
-            },
+            "excluded": sorted(m for m, i in IsaSpec.operations.items() if not i.functional),
         },
     }

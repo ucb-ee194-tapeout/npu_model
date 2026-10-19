@@ -8,17 +8,16 @@ import re
 from typing import TextIO
 
 from npu_model.configs import isa_definition as _isa_definition  # noqa: F401
-from npu_model.configs.isa_definition import DMA_CONFIG, DMA_LOAD, DMA_STORE
 from npu_model.isa import Instruction, IsaSpec, SBType, UJType
 from npu_model.isa_patterns import Bundled
 from npu_model.isa_types import (
     BoundedInt,
+    Channel,
     Imm21,
     MatrixReg,
     Named,
     RegBase,
     SBImm12,
-    ScalarReg,
 )
 
 
@@ -47,24 +46,9 @@ class FunctionalProgram:
     register_ids: dict[type[RegBase], dict[str, int]] = field(default_factory=dict)
 
 
-_VIRTUAL_REGISTER = re.compile(r"^([A-Za-z][A-Za-z0-9]*)\.([A-Za-z_][A-Za-z0-9_.]*)$")
+_VIRTUAL_REGISTER = re.compile(r"^([A-Za-z][A-Za-z0-9]*)\.([A-Za-z_][A-Za-z0-9_.]*)(?:\[([01])\])?$")
 _BUNDLE = re.compile(r"^(.+)\(([^()]*)\)$")
 _LABEL = Named.is_label
-
-# Functional DMA has no channel operand.  These canonical implementations
-# share the existing architectural data-movement semantics; channel choice is
-# intentionally absent from the functional state.
-_FUNCTIONAL_ALIASES: dict[str, type[Instruction]] = {
-    "dma.load": DMA_LOAD,
-    "dma.store": DMA_STORE,
-    "dma.config": DMA_CONFIG,
-}
-
-_FORBIDDEN = {
-    "delay",
-    "ecall",
-    "ebreak",
-}
 
 
 def _strip_comment(line: str) -> str:
@@ -86,18 +70,17 @@ def _register_index(
             f"expected virtual {register_type.reg_name} like "
             f"'{register_type.fmt}.name', got '{token}'"
         )
-    name = match.group(2)
+    name, half = match.group(2), match.group(3)
+    if half and register_type is not MatrixReg:
+        raise ValueError(f"only matrix names have halves, got '{token}'")
     names = register_ids.setdefault(register_type, {})
     if name not in names:
         # The shared semantic helpers use adjacent MRF slots for BF16 pairs.
         # Give each virtual matrix name a disjoint two-slot backing window;
         # this is not physical allocation and has no architectural limit.
         stride = 2 if register_type is MatrixReg else 1
-        # Start above zero because shared architectural write helpers reserve
-        # physical x0.  This is only an internal virtual ID.
-        base = 1 if register_type is ScalarReg else 0
-        names[name] = base + len(names) * stride
-    return names[name]
+        names[name] = len(names) * stride
+    return names[name] + int(half or 0)
 
 
 def _parse_value(
@@ -177,13 +160,12 @@ def _parse_param(
 
 
 def _functional_operations() -> dict[str, type[Instruction]]:
-    operations: dict[str, type[Instruction]] = {}
-    for mnemonic, instruction in IsaSpec.operations.items():
-        if not getattr(instruction, "functional", True):
-            continue
-        operations[mnemonic] = instruction
-    operations.update(_FUNCTIONAL_ALIASES)
-    return operations
+    return {mnemonic: instruction for mnemonic, instruction in IsaSpec.operations.items() if instruction.functional}
+
+
+def functional_params(instruction: type[Instruction]) -> list[Named]:
+    """The `.fs` operands of ``instruction``: its true operands without a DMA channel."""
+    return [param for param in instruction.params if getattr(param, "inner", None) is not Channel]
 
 
 def parse_functional_assembly(source: TextIO | str) -> FunctionalProgram:
@@ -223,23 +205,15 @@ def parse_functional_assembly(source: TextIO | str) -> FunctionalProgram:
     pc = 0
     for line_number, source_line, tokens in entries:
         mnemonic = tokens[0].lower()
-        if mnemonic in _FORBIDDEN:
+        if mnemonic in IsaSpec.operations and mnemonic not in operations:
             raise FunctionalAssemblyError(
                 f"'{mnemonic}' is not part of the functional instruction subset",
-                line_number,
-            )
-        if mnemonic.startswith("dma.wait") or mnemonic.startswith(
-            ("dma.load.ch", "dma.store.ch", "dma.config.ch")
-        ):
-            raise FunctionalAssemblyError(
-                f"'{mnemonic}' is channel-specific or a synchronization operation; .fs omits these",
                 line_number,
             )
         instruction_type = operations.get(mnemonic)
         if instruction_type is None:
             raise FunctionalAssemblyError(f"unsupported functional mnemonic '{mnemonic}'", line_number)
-        channel_free_dma = mnemonic in _FUNCTIONAL_ALIASES
-        params = instruction_type.params[:-1] if channel_free_dma else instruction_type.params
+        params = functional_params(instruction_type)
         if len(tokens) != len(params) + 1:
             raise FunctionalAssemblyError(
                 f"'{mnemonic}' expects {len(params)} operand(s), got {len(tokens) - 1}",
@@ -258,7 +232,7 @@ def parse_functional_assembly(source: TextIO | str) -> FunctionalProgram:
                         register_ids=register_ids,
                     )
                 )
-            if channel_free_dma:
+            if len(params) < len(instruction_type.params):
                 # The functional dialect has no channel state. Reuse the true
                 # instruction's data movement with an internal canonical ch0.
                 kwargs["ch"] = 0

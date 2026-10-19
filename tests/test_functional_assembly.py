@@ -1,5 +1,7 @@
 """Parser and execution coverage for the channel-free ``.fs`` dialect."""
 
+import io
+
 import pytest
 import torch
 
@@ -10,7 +12,10 @@ from npu_model.functional import (
     load_functional_assembly,
     parse_functional_assembly,
 )
+from npu_model.isa import IsaSpec
+from npu_model.isa_metadata import export_isa
 from npu_model.isa_types import Accumulator, MatrixReg, ScalarReg, WeightBuffer
+from npu_model.util.converter import stream_to_instrs
 
 
 def test_virtual_registers_execute_scalar_operations_and_strip_comments():
@@ -33,10 +38,10 @@ def test_virtual_registers_execute_scalar_operations_and_strip_comments():
         "total": 16,
     }
     assert program.register_ids[ScalarReg] == {
-        "left": 1,
-        "zero": 2,
-        "right": 3,
-        "total": 4,
+        "left": 0,
+        "zero": 1,
+        "right": 2,
+        "total": 3,
     }
 
 
@@ -62,7 +67,7 @@ def test_named_vector_matrix_registers_execute_and_report_values():
     doubled = result.state.read_mrf_bf16_tile(program.register_ids[MatrixReg]["doubled"])
 
     assert program.register_ids[MatrixReg] == {"seed": 0, "doubled": 2}
-    assert named["seed"].numel() == 32 * 32  # one 32x32-byte matrix slot
+    assert named["seed"].numel() == 2 * 32 * 32  # both 32x32-byte matrix slots
     assert torch.all(named["seed"].view(torch.bfloat16) == 1.0)
     assert torch.all(named["doubled"].view(torch.bfloat16) == 2.0)
     assert torch.all(seed == 1.0)
@@ -94,6 +99,29 @@ def test_named_weight_buffer_and_accumulator_flow_through_mxu():
     assert torch.all(named["acc.mxu1"]["product"] == 0.0)
     assert torch.all(result.state.read_mrf_bf16_tile(matrix_id) == 32.0)
     assert result.state.read_acc_bf16("mxu0", acc_id).shape == (32, 32)
+
+
+def test_matrix_halves_load_and_store_both_slots_of_a_bf16_tile():
+    fp8 = bytes(512) + bytes([0x38]) * 512  # FP8 zeros, then ones
+    program = parse_functional_assembly(
+        """
+        addi x.base, x.zero, 0
+        seli e.scale, 127
+        vload m.packed, 0(x.base)
+        vunpack.fp8.bf16 m.output, m.packed, e.scale
+        vstore m.output, 16(x.base)
+        vstore m.output[1], 32(x.base)
+        vload m.copy[1], 32(x.base)
+        """
+    )
+
+    result = FunctionalInterpreter().run(program, vmem={0: fp8})
+    named = result.named_registers(program)["m"]
+    ones = torch.ones(512, dtype=torch.bfloat16).view(torch.uint8)
+
+    assert torch.equal(named["output"], torch.cat((torch.zeros(1024, dtype=torch.uint8), ones)))
+    assert torch.equal(result.state.vmem[4096:5120], ones)
+    assert torch.equal(named["copy"][1024:], ones)
 
 
 def test_labels_drive_functional_control_flow_without_delay_slots():
@@ -144,7 +172,7 @@ def test_channel_free_dma_config_load_store_copy_bytes_atomically():
     payload = bytes(range(32))
     program = parse_functional_assembly(
         """
-        addi x.base, x.zero, 0
+        addi x.base, x.zero, 1
         dma.config x.base
         addi x.vmem, x.zero, 0
         addi x.source, x.zero, 64
@@ -155,11 +183,32 @@ def test_channel_free_dma_config_load_store_copy_bytes_atomically():
         """
     )
 
-    result = FunctionalInterpreter().run(program, dram={64: payload})
+    result = FunctionalInterpreter().run(program, dram={(1 << 32) + 64: payload})
 
     assert result.instructions_executed == 8
     assert result.state.vmem[0:32].tolist() == list(payload)
-    assert result.state.read_dram(128, 32).tolist() == list(payload)
+    assert result.state.read_dram((1 << 32) + 128, 32).tolist() == list(payload)
+
+
+@pytest.mark.parametrize(("offset", "mapped"), [("addi x.offset, x.zero, 0x40", False), ("lui x.offset, 0x80000", True)])
+def test_dma_uses_the_timed_dram_window(offset, mapped):
+    program = parse_functional_assembly(f"{offset}\naddi x.length, x.zero, 32\ndma.load x.vmem, x.offset, x.length")
+
+    if mapped:
+        FunctionalInterpreter().run(program)
+    else:
+        with pytest.raises(FunctionalAssemblyError, match="outside the mapped window"):
+            FunctionalInterpreter().run(program)
+
+
+def test_memory_images_keep_tensor_bytes_and_each_run_its_own_state():
+    image = torch.ones((2, 2), dtype=torch.bfloat16)
+    model = FunctionalInterpreter()
+    first = model.run(parse_functional_assembly("addi x.a, x.zero, 1"), vmem={0: image})
+    model.run(parse_functional_assembly("addi x.a, x.zero, 2"))
+
+    assert torch.equal(first.state.vmem[0:8], image.flatten().view(torch.uint8))
+    assert first.state.read_xrf(0) == 1
 
 
 def test_channel_free_dma_respects_configured_dram_base():
@@ -191,8 +240,9 @@ def test_channel_free_dma_respects_configured_dram_base():
         ("beq x.a, x.b, missing", "undefined label"),
         ("addi x.a, e.scale, 1", "expected virtual scalar register"),
         ("not_an_instruction x.a", "unsupported functional mnemonic"),
-        ("dma.wait 0", "channel-specific or a synchronization operation"),
-        ("dma.load.ch0 x.a, x.b, x.c", "channel-specific or a synchronization operation"),
+        ("addi x.a[1], x.zero, 1", "only matrix names have halves"),
+        ("dma.wait ch0", "not part of the functional instruction subset"),
+        ("dma.load.ch0 x.a, x.b, x.c", "unsupported functional mnemonic"),
         ("delay 4", "not part of the functional instruction subset"),
     ],
 )
@@ -217,7 +267,7 @@ def test_memory_access_failures_include_the_instruction_line():
     )
     config = FunctionalConfig(dram_size=64, vmem_size=64)
 
-    with pytest.raises(FunctionalAssemblyError, match=r"line 5: executing 'dma.load'.*DRAM read out of bounds"):
+    with pytest.raises(FunctionalAssemblyError, match=r"line 5: executing 'dma.load'.*outside the mapped window"):
         FunctionalInterpreter(config).run(program)
 
 
@@ -229,3 +279,42 @@ def test_load_functional_assembly_reads_a_file(tmp_path):
     result = FunctionalInterpreter().run(program)
 
     assert result.named_registers(program)["x"]["result"] == 12
+
+
+def _example(item, functional):
+    tokens = []
+    for operand in item["operands"]:
+        values = []
+        for field in operand["fields"]:
+            kind = field["type"].get("kind")
+            fmt = field["type"].get("format")
+            if kind == "register":
+                values.append(f"{fmt}.{field['name']}" if functional else f"{fmt}1")
+            else:
+                values.append("ch1" if fmt == "ch" else "0")
+        tokens.append(f"{values[0]}({values[1]})" if len(values) == 2 else values[0])
+    return " ".join([item["mnemonic"], ", ".join(tokens)])
+
+
+def test_exported_isa_parses_encodes_and_matches_the_functional_subset():
+    manifest = export_isa()
+    functional = manifest["functional_assembly"]
+    keys = {item["mnemonic"]: item["encoding"] for item in manifest["instructions"]}
+
+    for item in manifest["instructions"]:
+        [instruction] = stream_to_instrs(io.StringIO(_example(item, functional=False)))
+        assert type(instruction) is IsaSpec.operations[item["mnemonic"]]
+        assert instruction.to_bytecode() & item["encoding"]["mask"] == item["encoding"]["match"]
+    for item in functional["instructions"]:
+        [entry] = parse_functional_assembly(_example(item, functional=True)).instructions
+        assert type(entry.instruction) is IsaSpec.operations[item["mnemonic"]]
+    for mnemonic in functional["excluded"]:
+        with pytest.raises(FunctionalAssemblyError, match="not part of the functional instruction subset"):
+            parse_functional_assembly(mnemonic)
+
+    assert {item["mnemonic"] for item in functional["instructions"]} | set(functional["excluded"]) == set(keys)
+    assert keys["ecall"]["match"] == 0x00000073 and keys["ebreak"]["match"] == 0x00100073
+    assert keys["srai"]["match"] != keys["srli"]["match"]
+    for a, key_a in keys.items():
+        for b, key_b in keys.items():
+            assert a == b or (key_a["match"] ^ key_b["match"]) & key_a["mask"] & key_b["mask"], (a, b)

@@ -1020,5 +1020,7 @@ class DMA_CONFIG(DMAConfig, RType, exu=EXU.DMA, opcode=0b1111111, funct3=None, f
 class DMA_WAIT(DMAWait, RType, exu=EXU.DMA, opcode=0b1111111, funct3=None, funct7=0b0000001):
     """``dma.wait ch<N>``: frontend fence until channel ``N`` is idle."""
 
+    functional = False
+
     def exec(self, state: ArchState) -> None:
         pass
