@@ -748,6 +748,8 @@ class JALR(
 
 
 class DELAY(UnaryImm, IType, exu=EXU.SCALAR, opcode=0b1100111, funct3=0b001):
+    functional = False
+
     def exec(self, state: ArchState) -> None:
         pass
 
@@ -810,6 +812,7 @@ class CSRRCI(CSRImm, CSRType, exu=EXU.SCALAR, opcode=0b1110011, funct3=0b111):
 
 class ECALL(Nullary, IType, exu=EXU.SCALAR, opcode=0b1110011, funct3=0b000):
     imm: Imm12 = Imm12(0)
+    functional = False
 
     def exec(self, state: ArchState) -> None:
         state.halted = True
@@ -818,6 +821,7 @@ class ECALL(Nullary, IType, exu=EXU.SCALAR, opcode=0b1110011, funct3=0b000):
 
 class EBREAK(Nullary, IType, exu=EXU.SCALAR, opcode=0b1110011, funct3=0b000):
     imm: Imm12 = Imm12(1)
+    functional = False
 
     def exec(self, state: ArchState) -> None:
         state.halted = True
@@ -1015,6 +1019,8 @@ class DMA_CONFIG(DMAConfig, RType, exu=EXU.DMA, opcode=0b1111111, funct3=None, f
 
 class DMA_WAIT(DMAWait, RType, exu=EXU.DMA, opcode=0b1111111, funct3=None, funct7=0b0000001):
     """``dma.wait ch<N>``: frontend fence until channel ``N`` is idle."""
+
+    functional = False
 
     def exec(self, state: ArchState) -> None:
         pass
