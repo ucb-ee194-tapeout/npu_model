@@ -137,6 +137,27 @@ uv run scripts/run.py --hardware_config DefaultHardwareConfig -p AddiProgram -o 
 3. Load the generated trace file (`.json`)
 4. Explore cycle-by-cycle execution flow
 
+### Speed of Light
+
+`npu_speed_of_light/roofline.py` reports the fewest cycles a program's work
+could take. It runs the program, charges each throughput-limited resource
+(DRAM, each MXU, the VPU, the XLU, the VLOAD and VSTORE paths, and S1) for the
+work it did, and compares the largest charge with the measured cycles. The
+charges come from the units' own definitions, and DRAM time from replaying the
+program's transfers on a fresh DMA engine and memory backend, so the bound
+follows the model as it changes.
+
+```bash
+uv run python -m npu_speed_of_light.roofline MatmulProgram
+uv run python -m npu_speed_of_light.roofline program.S --memory fixed --latency 43 --cycles-per-beat 1
+```
+
+The memory backend defaults to the measured Mess curve; `--curve` names
+another curve file, and `--memory fixed` selects the fixed-latency link
+(`--latency` and `--cycles-per-beat` default to the spec's link parameters).
+`--json` prints the report for scripts, and `speed_of_light(program, config)`
+returns it from Python.
+
 
 ### Running tests
 
@@ -199,6 +220,8 @@ npu_model/
 │   │   └── logger.py      # Perfetto trace logger
 │   ├── isa.py             # ISA framework
 │   └── simulation.py      # Simulation orchestration
+├── npu_speed_of_light/
+│   └── roofline.py        # Speed of light and roofline of a program
 ├── scripts/
 │   └── run.py             # Main simulation runner
 └── pyproject.toml         # Project dependencies

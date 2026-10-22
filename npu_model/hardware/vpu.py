@@ -53,6 +53,23 @@ VPU_OP_LATENCIES = {
     "vli.one": 33,
     "vunpack.fp8.bf16": 67,
 }
+ISSUE_SLOTS = 2
+"""Software-scheduled issue slots; see ``takes_both_slots``."""
+
+
+def issue_cycles(mnemonic: str) -> int:
+    """Cycles an instruction holds its issue slot, through its last write."""
+    return VPU_OP_LATENCIES[mnemonic] - 1
+
+
+def takes_both_slots(mnemonic: str) -> bool:
+    """Two-input instructions and row reductions use both read ports."""
+    return mnemonic in _TWO_INPUT | _ROW_REDUCE
+
+
+def shares_logic(left: str, right: str) -> bool:
+    """Whether two instructions use the same lane logic, so never overlap."""
+    return left == right or any(left in group and right in group for group in _GROUPS)
 
 
 @dataclass
@@ -97,17 +114,12 @@ class VectorExecutionUnit(ExecutionUnit):
         self._pending_completions.clear()
         self._complete_count = 0
 
-    @staticmethod
-    def _double(mnemonic: str) -> bool:
-        return mnemonic in _TWO_INPUT | _ROW_REDUCE
-
-    @staticmethod
-    def _share_logic(left: str, right: str) -> bool:
-        return left == right or any(left in group and right in group for group in _GROUPS)
+    _double = staticmethod(takes_both_slots)
+    _share_logic = staticmethod(shares_logic)
 
     def _issue_blocked(self, name: str, cycle: int) -> bool:
         live = [op for op in self.operations if cycle - op.issued < op.write_last]
-        return bool(live and (len(live) == 2 or self._double(name)
+        return bool(live and (len(live) == ISSUE_SLOTS or self._double(name)
                     or any(self._double(op.uop.insn.mnemonic)
                            or self._share_logic(name, op.uop.insn.mnemonic) for op in live)))
 
@@ -130,7 +142,7 @@ class VectorExecutionUnit(ExecutionUnit):
         live = [op for op in self.operations if self.cycle - op.issued < op.write_last]
         if self._issue_blocked(name, self.cycle):
             raise RuntimeError(f"VPU command {name} issued while its issue-busy bit is set")
-        slot = next(index for index in (0, 1) if all(op.slot != index for op in live))
+        slot = next(index for index in range(ISSUE_SLOTS) if all(op.slot != index for op in live))
         vli = name.startswith("vli.")
         pair_write = name not in {"vpack.bf16.fp8", "vli.col", "vli.one"}
         if pair_write and int(insn.vd) & 1:
@@ -157,7 +169,7 @@ class VectorExecutionUnit(ExecutionUnit):
         staged = StagedExecution(uop, self.arch_state, [("mrf", bank) for bank in reads],
                                  [("mrf", bank) for bank in writes], "VectorFSM")
         op = _VectorOperation(uop, self.cycle, slot, owner, frozenset(reads), writes,
-                              read_last, latency - 1, staged)
+                              read_last, issue_cycles(name), staged)
         self.operations.append(op)
         uop.execute_delay = latency
         self._total_instructions += 1

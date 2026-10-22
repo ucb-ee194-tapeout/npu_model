@@ -6,6 +6,9 @@ from .exu import ExecutionUnit, StagedExecution
 from ..software.instruction import Uop
 from ..isa import EXU
 
+TRANSPOSE_CYCLES = 66
+"""Cycles a transpose holds the engine, from issue through its last row write."""
+
 
 class CrossLaneExecutionUnit(ExecutionUnit):
     def __init__(self, name, logger, arch_state, lane_id=0, config=None):
@@ -52,7 +55,7 @@ class CrossLaneExecutionUnit(ExecutionUnit):
             self.staged = StagedExecution(uop, self.arch_state, [("mrf", source)],
                                           [("mrf", destination)], "XluEngine")
             self._total_instructions += 1
-            uop.execute_delay = 66
+            uop.execute_delay = TRANSPOSE_CYCLES
             self.logger.log_stage_start(uop.id, "E", lane=self.lane_id, cycle=self.cycle)
         if self.in_flight is None:
             return
@@ -73,8 +76,8 @@ class CrossLaneExecutionUnit(ExecutionUnit):
             destination = int(insn.vd)
             checker.access_mreg(self.cycle, destination, row, True, self.owner)
             self.arch_state.read_mrf_u8(destination)[row] = self.staged.result(("mrf", destination))[row]
-        self.in_flight.execute_delay = max(0, 65 - age)
-        if age == 65:
+        self.in_flight.execute_delay = max(0, TRANSPOSE_CYCLES - 1 - age)
+        if age == TRANSPOSE_CYCLES - 1:
             checker.release_mreg(self.owner)
             self._pending_completions.append(self.in_flight)
             self.in_flight = None
