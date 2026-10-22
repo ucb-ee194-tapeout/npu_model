@@ -137,7 +137,8 @@ class FixedLatencyBackend(MemoryBackend):
         if not self.can_accept(request.cycle):
             raise RuntimeError(f"memory backend refused beat {request} on cycle {request.cycle}")
         self._last_accept = request.cycle
-        if self._issued:
+        # Spacing falls between beats, so the first beat adds none.
+        if self._issued > 0:
             self.port_cycles += self.cycles_per_beat
         entry = (request.cycle + self._latency_for(request), self._issued, request)
         self._issued += 1
@@ -374,7 +375,8 @@ class CurveMemoryBackend(MemoryBackend):
             peak_bw, _ = self.curve_peak(read_pct)
             ready = max(ready, self._last_ready + 1.0 / peak_bw)
             self._last_ready = ready
-            if self._issued:
+            # Spacing falls between beats, so the first beat adds none.
+            if self._issued > 0:
                 self.port_cycles += 1.0 / peak_bw
         entry = (math.ceil(ready - 1e-9), self._issued, request)
         self._issued += 1

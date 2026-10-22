@@ -102,61 +102,88 @@ def execute(program: Program, config: HardwareConfig, max_cycles: int) -> Execut
     core = sim.core
     engine = next(unit for unit in core.exus if isinstance(unit, DmaExecutionUnit))
     launches: Counter[tuple[EXU, str]] = Counter()
-    beats: Counter[bool] = Counter()
+    beats: Counter[str] = Counter()
     tick = core.tick
 
     def observed_tick() -> None:
         tick()
-        if (uop := core.issued_uop) is not None:
+        uop = core.issued_uop
+        if uop is not None:
             launches[uop.insn.exu, uop.insn.mnemonic] += 1
-        if (beat := engine.last_cycle.a) is not None:
-            beats[beat[2]] += 1
+        # The engine records this cycle's beat, if any, as [source, address, is_store].
+        beat = engine.last_cycle.a
+        if beat is not None:
+            is_store = beat[2]
+            beats["store" if is_store else "load"] += 1
 
     core.tick = observed_tick  # type: ignore[method-assign]
     try:
         sim.run(max_cycles=max_cycles)
         if not core.is_finished():
             raise RuntimeError(f"program did not finish within {max_cycles} cycles")
-        return Execution(sim.cycle_count, launches, beats[False], beats[True], engine.backend.port_cycles)
+        return Execution(sim.cycle_count, launches, beats["load"], beats["store"], engine.backend.port_cycles)
     finally:
         sim.close()
 
 
-def mxu_cycles(launches: Counter[str]) -> int:
-    """Sequencer port and push-path time for one MXU's commands."""
+def command_kinds(launches: Counter[str]) -> Counter[str]:
+    """MXU launches counted by ``mxu.PORT_CHOICES`` kind."""
     kinds: Counter[str] = Counter()
     for mnemonic, count in launches.items():
         kinds[mxu.command_kind(mnemonic)] += count
-    ports = sorted({port for choices in mxu.PORT_CHOICES.values() for choice in choices for port in choice})
+    return kinds
+
+
+def mxu_cycles(launches: Counter[str]) -> int:
+    """Sequencer port and push-path time for one MXU's commands."""
+    kinds = command_kinds(launches)
+    ports: set[int] = set()
+    for choices in mxu.PORT_CHOICES.values():
+        for choice in choices:
+            ports.update(choice)
+
+    # For each set of ports, add up how many of them every command must hold
+    # (the fewest any of its choices takes) and spread that over the set.
     cycles = 0
-    # Each command holds, of any set of ports, at least as many as the fewest
-    # its choices take from that set.
     for size in range(1, len(ports) + 1):
-        for group in itertools.combinations(ports, size):
-            load = sum(count * min(len(set(choice) & set(group)) for choice in mxu.PORT_CHOICES[kind])
-                       for kind, count in kinds.items())
-            cycles = max(cycles, -(-load * mxu.PORT_CYCLES // size))
-    paths: Counter[str] = Counter()
+        for group in itertools.combinations(sorted(ports), size):
+            held = 0
+            for kind, count in kinds.items():
+                fewest = min(len(set(choice) & set(group)) for choice in mxu.PORT_CHOICES[kind])
+                held += count * fewest
+            cycles = max(cycles, math.ceil(held * mxu.PORT_CYCLES / size))
+
+    # Pushes on one path write one at a time.
+    pushes: Counter[str] = Counter()
     for kind, count in kinds.items():
-        if (path := mxu.push_path(kind)) is not None:
-            paths[path] += count
-    return max(cycles, mxu.PORT_CYCLES * max(paths.values(), default=0))
+        path = mxu.push_path(kind)
+        if path is not None:
+            pushes[path] += count
+    for count in pushes.values():
+        cycles = max(cycles, count * mxu.PORT_CYCLES)
+    return cycles
 
 
 def vpu_cycles(launches: Counter[str]) -> int:
     """Issue-slot time for the VPU's instructions."""
-    both = sum(vpu.issue_cycles(name) * count for name, count in launches.items() if vpu.takes_both_slots(name))
-    single = {name: vpu.issue_cycles(name) * count for name, count in launches.items()
-              if not vpu.takes_both_slots(name)}
-    shared = 0
-    for name in single:
-        group = [other for other in single if vpu.shares_logic(name, other)]
-        # Instructions that pairwise share lane logic run one at a time.
-        if all(vpu.shares_logic(left, right) for left, right in itertools.combinations(group, 2)):
-            shared = max(shared, sum(single[other] for other in group))
+    both_slots = 0
+    one_slot: dict[str, int] = {}
+    for name, count in launches.items():
+        cycles = vpu.issue_cycles(name) * count
+        if vpu.takes_both_slots(name):
+            both_slots += cycles
         else:
-            shared = max(shared, single[name])
-    return both + max(-(-sum(single.values()) // vpu.ISSUE_SLOTS), shared)
+            one_slot[name] = cycles
+
+    # One-slot instructions pair up across the slots, except that those sharing
+    # lane logic run one at a time. The logic groups do not overlap, so whatever
+    # shares logic with one instruction also shares it with the rest.
+    paired = math.ceil(sum(one_slot.values()) / vpu.ISSUE_SLOTS)
+    serial = 0
+    for name in one_slot:
+        sharing = [other for other in one_slot if vpu.shares_logic(name, other)]
+        serial = max(serial, sum(one_slot[other] for other in sharing))
+    return both_slots + max(paired, serial)
 
 
 def speed_of_light(program: Program, config: HardwareConfig, max_cycles: int = 1_000_000) -> SpeedOfLight:
@@ -166,12 +193,16 @@ def speed_of_light(program: Program, config: HardwareConfig, max_cycles: int = 1
     for (unit, mnemonic), count in run.launches.items():
         by_unit.setdefault(unit, Counter())[mnemonic] += count
 
-    loaded, stored = run.load_beats * config.dma_beat_bytes, run.store_beats * config.dma_beat_bytes
+    loaded = run.load_beats * config.dma_beat_bytes
+    stored = run.store_beats * config.dma_beat_bytes
     dram = math.ceil(run.dram_cycles)
     resources = [Resource("DRAM", f"{loaded:,} B loaded, {stored:,} B stored", dram)]
 
+    # A matmul multiplies a rows x inner FP8 tile by an inner x columns weight tile.
     arch = config.arch_state_config
-    flops_per_matmul = 2 * arch.mrf_depth * arch.mrf_width * (arch.wb_width // arch.mrf_width)
+    rows, inner = arch.mrf_depth, arch.mrf_width
+    columns = arch.wb_width // inner
+    flops_per_matmul = 2 * rows * inner * columns
     matmuls = 0
     units = 0
     for exu, unit in _MXUS.items():
@@ -179,9 +210,7 @@ def speed_of_light(program: Program, config: HardwareConfig, max_cycles: int = 1
             continue
         units += 1
         launches = by_unit.get(exu, Counter())
-        kinds: Counter[str] = Counter()
-        for mnemonic, count in launches.items():
-            kinds[mxu.command_kind(mnemonic)] += count
+        kinds = command_kinds(launches)
         pushes = sum(count for kind, count in kinds.items() if mxu.push_path(kind) is not None)
         pops = sum(count for kind, count in kinds.items() if kind.startswith("pop"))
         matmuls += kinds["compute"]
@@ -199,8 +228,14 @@ def speed_of_light(program: Program, config: HardwareConfig, max_cycles: int = 1
     launched = run.launches.total()
     resources.append(Resource("S1", f"{launched:,} instructions", launched))
 
-    return SpeedOfLight(run.cycles, resources, matmuls * flops_per_matmul,
-                        units * flops_per_matmul / mxu.PORT_CYCLES, loaded + stored, dram)
+    return SpeedOfLight(
+        measured=run.cycles,
+        resources=resources,
+        flops=matmuls * flops_per_matmul,
+        peak_flops_per_cycle=units * flops_per_matmul / mxu.PORT_CYCLES,
+        dram_bytes=loaded + stored,
+        dram_cycles=dram,
+    )
 
 
 def configure_memory(config: HardwareConfig, memory: str, *, curve: str | None = None,
@@ -225,10 +260,11 @@ def describe_memory(config: HardwareConfig) -> str:
     backend = make_memory_backend(config)
     beat = config.dma_beat_bytes
     if isinstance(backend, CurveMemoryBackend):
-        load, store = (1 / backend.curve_peak(read_pct)[0] for read_pct in (100.0, 0.0))
+        load_rate, _ = backend.curve_peak(100.0)
+        store_rate, _ = backend.curve_peak(0.0)
         name = Path(backend.path).name if backend.path else "curve"
-        return (f"curve {name}: {backend.lead_off_latency:.0f}-cycle lead-off, {load:.1f} cycles per "
-                f"{beat} B beat loading, {store:.1f} storing")
+        return (f"curve {name}: {backend.lead_off_latency:.0f}-cycle lead-off, {1 / load_rate:.1f} cycles per "
+                f"{beat} B beat loading, {1 / store_rate:.1f} storing")
     if isinstance(backend, FixedLatencyBackend):
         every = "cycle" if backend.cycles_per_beat == 1 else f"{backend.cycles_per_beat} cycles"
         return f"fixed: {backend.latency}-cycle latency, one {beat} B beat every {every}"
@@ -247,14 +283,18 @@ def load_program(name: str) -> Program:
 
 
 def format_report(label: str, memory: str, report: SpeedOfLight) -> str:
-    rows = [[resource.name, resource.work, f"{resource.cycles:,}", f"{resource.cycles / report.measured:.1%}"]
-            for resource in report.resources]
+    rows = []
+    for resource in report.resources:
+        share = resource.cycles / report.measured
+        rows.append([resource.name, resource.work, f"{resource.cycles:,}", f"{share:.1%}"])
+    table = tabulate(rows, headers=["Resource", "Work", "Cycles", "Of measured"],
+                     colalign=("left", "left", "right", "right"))
     bound = report.bound
     lines = [
         f"Program : {label}",
         f"Memory  : {memory}",
         "",
-        tabulate(rows, headers=["Resource", "Work", "Cycles", "Of measured"], colalign=("left", "left", "right", "right")),
+        table,
         "",
         f"Speed of light: {bound.cycles:,} cycles, bound by {bound.name}",
         f"Measured      : {report.measured:,} cycles, running at {bound.cycles / report.measured:.1%} of it",
@@ -304,8 +344,9 @@ def main(argv: list[str] | None = None) -> int:
     report = speed_of_light(program, config, args.max_cycles)
 
     if args.json:
-        print(json.dumps({"program": args.program, "memory": memory, **asdict(report),
-                          "speed_of_light": report.bound.cycles, "bound": report.bound.name}, indent=2))
+        summary = {"program": args.program, "memory": memory, **asdict(report),
+                   "speed_of_light": report.bound.cycles, "bound": report.bound.name}
+        print(json.dumps(summary, indent=2))
     else:
         print(format_report(args.program, memory, report))
     return 0

@@ -19,8 +19,11 @@ from npu_model.util.converter import stream_to_instrs
 from npu_speed_of_light.roofline import configure_memory, main, mxu_cycles, speed_of_light, vpu_cycles
 
 
-# The measured curve, and a fast fixed link that leaves programs compute-bound.
-MEMORIES = {"curve": {}, "fast-fixed": {"latency": 43, "cycles_per_beat": 1}}
+MEMORIES = {
+    "curve": ("curve", {}),
+    # A fast fixed link, which leaves programs compute-bound.
+    "fast-fixed": ("fixed", {"latency": 43, "cycles_per_beat": 1}),
+}
 
 
 def assemble(source: str):
@@ -28,8 +31,9 @@ def assemble(source: str):
 
 
 def config(memory: str) -> DefaultHardwareConfig:
+    backend, options = MEMORIES[memory]
     hardware = DefaultHardwareConfig()
-    configure_memory(hardware, "curve" if memory == "curve" else "fixed", **MEMORIES[memory])
+    configure_memory(hardware, backend, **options)
     return hardware
 
 
@@ -46,12 +50,11 @@ def legal_after(unit: EXU, first: str, second: str, gap: int) -> bool:
     core = Core(DefaultHardwareConfig(), Mock(spec=Logger))
     try:
         engine = core.exu_map[unit]
-        (first_insn,), (second_insn,) = assemble(first), assemble(second)
-        engine.tick(Uop(first_insn))
+        engine.tick(Uop(assemble(first)[0]))
         for _ in range(gap - 1):
             engine.tick(None)
         try:
-            engine.tick(Uop(second_insn))
+            engine.tick(Uop(assemble(second)[0]))
         except (RuntimeError, BankConflictError):
             return False
         return True

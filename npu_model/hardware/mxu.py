@@ -131,7 +131,12 @@ class _MatrixExecutionUnit(ExecutionUnit):
         free = lambda port: not any(port in op.ports for op in active)
         if kind != "weight" and any(op.acc == acc and self.cycle - op.issued <= self.compute_first for op in compute):
             raise RuntimeError(f"{self.mxu}: command issued before previous compute row-0 writeback")
-        ports = next((choice for choice in PORT_CHOICES[kind] if all(free(port) for port in choice)), None)
+        # Take the first choice whose ports are all free.
+        ports = None
+        for choice in PORT_CHOICES[kind]:
+            if all(free(port) for port in choice):
+                ports = choice
+                break
         if ports is None or (kind == "compute" and len(compute) >= self.inflight_depth):
             raise RuntimeError(f"{self.mxu}: {_PORTS_BUSY[kind]}")
         if self.mxu == "mxu0" and kind == "weight":
