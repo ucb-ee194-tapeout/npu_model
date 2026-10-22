@@ -5,9 +5,8 @@ measures its cycles and records what S1 launched. Each resource that limits
 throughput is then charged for that work by the simulator's own definitions,
 so the bound follows the model as it changes:
 
-- DRAM: the spacing the memory backend enforced between the beats the DMA
-  engine issued, summed as the program ran (``MemoryBackend.port_cycles``), so
-  the backend in use sets the time;
+- DRAM: the fixed backend's beat spacing or the curve backend's fastest peak
+  across all read/write mixes, when pacing is enabled;
 - each MXU: every command holds sequencer ports for ``mxu.PORT_CYCLES``
   (``mxu.PORT_CHOICES``), and pushes on one path write one at a time;
 - the VPU: ``vpu.ISSUE_SLOTS`` issue slots, each instruction holding one, or
@@ -72,7 +71,7 @@ class Execution:
     load_beats: int
     store_beats: int
     dram_cycles: float
-    """The memory backend's ``port_cycles`` for the run."""
+    """Schedule-independent DRAM spacing time."""
 
 
 @dataclass
@@ -123,7 +122,14 @@ def execute(program: Program, config: HardwareConfig, max_cycles: int) -> Execut
         sim.run(max_cycles=max_cycles)
         if not core.is_finished():
             raise RuntimeError(f"program did not finish within {max_cycles} cycles")
-        return Execution(sim.cycle_count, launches, beats["load"], beats["store"], engine.backend.port_cycles)
+        busy = [unit.name for unit in core.exus if unit.has_in_flight]
+        if busy:
+            raise RuntimeError("program halted with outstanding work in: " + ", ".join(busy))
+        backend = engine.backend
+        dram_cycles = backend.port_cycles
+        if isinstance(backend, CurveMemoryBackend) and backend.enforce_peak:
+            dram_cycles = max(0, beats.total() - 1) / backend.peak_bandwidth
+        return Execution(sim.cycle_count, launches, beats["load"], beats["store"], dram_cycles)
     finally:
         sim.close()
 
@@ -290,9 +296,10 @@ def load_program(name: str) -> Program:
 
 
 def format_report(label: str, memory: str, report: SpeedOfLight) -> str:
+    measured = report.measured or 1
     rows = []
     for resource in report.resources:
-        share = resource.cycles / report.measured
+        share = resource.cycles / measured
         rows.append([resource.name, resource.work, f"{resource.cycles:,}", f"{share:.1%}"])
     table = tabulate(rows, headers=["Resource", "Work", "Cycles", "Of measured"],
                      colalign=("left", "left", "right", "right"))
@@ -304,7 +311,7 @@ def format_report(label: str, memory: str, report: SpeedOfLight) -> str:
         table,
         "",
         f"Speed of light: {bound.cycles:,} cycles, bound by {bound.name}",
-        f"Measured      : {report.measured:,} cycles, running at {bound.cycles / report.measured:.1%} of it",
+        f"Measured      : {report.measured:,} cycles, running at {bound.cycles / measured:.1%} of it",
     ]
     if report.flops and report.dram_cycles:
         intensity = report.flops / report.dram_bytes
@@ -348,7 +355,10 @@ def main(argv: list[str] | None = None) -> int:
     configure_memory(config, args.memory, curve=args.curve, latency=args.latency,
                      cycles_per_beat=args.cycles_per_beat)
     memory = describe_memory(config)
-    report = speed_of_light(program, config, args.max_cycles)
+    try:
+        report = speed_of_light(program, config, args.max_cycles)
+    except RuntimeError as error:
+        parser.error(str(error))
 
     if args.json:
         summary = {"program": args.program, "memory": memory, **asdict(report),

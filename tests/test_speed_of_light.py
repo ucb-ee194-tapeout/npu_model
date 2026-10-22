@@ -2,6 +2,7 @@
 import io
 import json
 from collections import Counter
+from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
@@ -125,3 +126,53 @@ def test_command_line_selects_the_memory_backend(capsys: pytest.CaptureFixture[s
     assert json.loads(capsys.readouterr().out)["memory"].startswith("curve ee290sim_vcs_probe.json")
     with pytest.raises(SystemExit):
         main(["MatmulProgram", "--memory", "fixed", "--curve", "ee290sim_vcs_probe.json"])
+
+
+@pytest.mark.parametrize("enforce_peak", [True, False])
+def test_curve_bound_is_independent_of_dma_transfer_order(enforce_peak: bool) -> None:
+    hardware = DefaultHardwareConfig()
+    hardware.dma_memory_params = {
+        "curves": {
+            "measuredChannels": 1, "accessBytes": 32, "frequencyGHz": 0.5,
+            "curves": {"0": [[2000, 10]], "50": [[8000, 10]], "100": [[4000, 10]]},
+        },
+        "enforce_peak": enforce_peak,
+    }
+    work = [(False, 0), (True, 1), (False, 2), (False, 3), (False, 4)]
+    reports = []
+    for order in (work, sorted(work)):
+        lines = ["addi x30, x0, 1", "dma.config x30, ch0", "addi x2, x0, 256",
+                 "addi x3, x0, 1024", "li x4, 0x10000"]
+        # Loads and stores use disjoint VMEM and off-chip addresses.
+        for store, channel in order:
+            lines.append(f"dma.store x3, x4, x2, ch{channel}" if store
+                         else f"dma.load x0, x0, x2, ch{channel}")
+        lines += [f"dma.wait ch{channel}" for channel in range(5)]
+        reports.append(speed_of_light(InstantiableProgram(assemble("\n".join(lines))), hardware))
+    for report in reports:
+        assert report.dram_bytes == 1280
+        # 40 beats, 39 intervals at the fastest (50% read) peak of 0.5 beats/cycle.
+        assert report.dram_cycles == (78 if enforce_peak else 0)
+        assert report.bound.cycles <= min(run.measured for run in reports)
+
+
+def test_command_line_rejects_outstanding_work(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    path = tmp_path / "unfinished.S"
+    path.write_text("vtrpose.xlu m1, m0\necall\n")
+    with pytest.raises(SystemExit) as failure:
+        main([str(path)])
+    assert failure.value.code == 2
+    output = capsys.readouterr()
+    assert "program halted with outstanding work in: XLU" in output.err
+    assert output.out == ""
+
+
+def test_command_line_accepts_an_empty_program(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    path = tmp_path / "empty.S"
+    path.write_text("")
+    assert main([str(path)]) == 0
+    output = capsys.readouterr()
+    assert "0.0%" in output.out
+    assert "Speed of light: 0 cycles" in output.out
+    assert "Measured      : 0 cycles" in output.out
+    assert output.err == ""
