@@ -52,13 +52,15 @@ from npu_model.hardware import DmaExecutionUnit, mxu, vpu, xlu
 from npu_model.hardware.config import HardwareConfig
 from npu_model.hardware.lsu import LSU_OP_LATENCIES
 from npu_model.hardware.memory_backend import CurveMemoryBackend, FixedLatencyBackend, make_memory_backend
+from npu_model.hardware.mxu import MatrixExecutionUnitInner, MatrixExecutionUnitSystolic
+from npu_model.hardware.vpu import VectorExecutionUnit
 from npu_model.isa_types import EXU
 from npu_model.logging import LoggerConfig
 from npu_model.simulation import Simulation
 from npu_model.software.program import InstantiableProgram, Program
 from npu_model.util.converter import load_asm
 
-_MXUS = {EXU.MATRIX_SYSTOLIC: mxu.MatrixExecutionUnitSystolic, EXU.MATRIX_INNER: mxu.MatrixExecutionUnitInner}
+_MXUS = {EXU.MATRIX_SYSTOLIC: MatrixExecutionUnitSystolic, EXU.MATRIX_INNER: MatrixExecutionUnitInner}
 
 
 @dataclass
@@ -127,10 +129,10 @@ def execute(program: Program, config: HardwareConfig, max_cycles: int) -> Execut
 
 
 def command_kinds(launches: Counter[str]) -> Counter[str]:
-    """MXU launches counted by ``mxu.PORT_CHOICES`` kind."""
+    """MXU launches counted by ``mxu.PORT_CHOICES`` kind; both MXUs classify alike."""
     kinds: Counter[str] = Counter()
     for mnemonic, count in launches.items():
-        kinds[mxu.command_kind(mnemonic)] += count
+        kinds[MatrixExecutionUnitSystolic._kind(mnemonic)] += count
     return kinds
 
 
@@ -156,7 +158,7 @@ def mxu_cycles(launches: Counter[str]) -> int:
     # Pushes on one path write one at a time.
     pushes: Counter[str] = Counter()
     for kind, count in kinds.items():
-        path = mxu.push_path(kind)
+        path = MatrixExecutionUnitSystolic._push_path(kind)
         if path is not None:
             pushes[path] += count
     for count in pushes.values():
@@ -170,7 +172,7 @@ def vpu_cycles(launches: Counter[str]) -> int:
     one_slot: dict[str, int] = {}
     for name, count in launches.items():
         cycles = vpu.issue_cycles(name) * count
-        if vpu.takes_both_slots(name):
+        if VectorExecutionUnit._double(name):
             both_slots += cycles
         else:
             one_slot[name] = cycles
@@ -181,7 +183,7 @@ def vpu_cycles(launches: Counter[str]) -> int:
     paired = math.ceil(sum(one_slot.values()) / vpu.ISSUE_SLOTS)
     serial = 0
     for name in one_slot:
-        sharing = [other for other in one_slot if vpu.shares_logic(name, other)]
+        sharing = [other for other in one_slot if VectorExecutionUnit._share_logic(name, other)]
         serial = max(serial, sum(one_slot[other] for other in sharing))
     return both_slots + max(paired, serial)
 
@@ -211,8 +213,13 @@ def speed_of_light(program: Program, config: HardwareConfig, max_cycles: int = 1
         units += 1
         launches = by_unit.get(exu, Counter())
         kinds = command_kinds(launches)
-        pushes = sum(count for kind, count in kinds.items() if mxu.push_path(kind) is not None)
-        pops = sum(count for kind, count in kinds.items() if kind.startswith("pop"))
+        pushes = 0
+        pops = 0
+        for kind, count in kinds.items():
+            if MatrixExecutionUnitSystolic._push_path(kind) is not None:
+                pushes += count
+            elif kind.startswith("pop"):
+                pops += count
         matmuls += kinds["compute"]
         work = f"{kinds['compute']:,} matmuls, {pushes:,} pushes, {pops:,} pops"
         resources.append(Resource(unit.mxu.upper(), work, mxu_cycles(launches)))

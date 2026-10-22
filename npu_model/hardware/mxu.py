@@ -45,23 +45,6 @@ _PORTS_BUSY = {
 _GRID = torch.arange(32)
 
 
-def command_kind(mnemonic: str) -> str:
-    """The PORT_CHOICES key of an MXU mnemonic."""
-    if mnemonic.startswith("vmatmul"):
-        return "compute"
-    if mnemonic.startswith("vmatpush.weight"):
-        return "weight"
-    if mnemonic.startswith("vmatpush"):
-        return "push_bf16" if "bf16" in mnemonic else "push_fp8"
-    return "pop_bf16" if "bf16" in mnemonic else "pop_fp8"
-
-
-def push_path(kind: str) -> str | None:
-    """Weight and accumulator pushes each write through one output mux,
-    which writes a single push per cycle and drops the others' rows."""
-    return "weight" if kind == "weight" else "accumulator" if kind.startswith("push") else None
-
-
 @dataclass
 class _Operation:
     uop: Uop
@@ -116,8 +99,21 @@ class _MatrixExecutionUnit(ExecutionUnit):
     def _execution_latency(self, uop: Uop) -> int:
         return MXU_OP_LATENCIES[uop.insn.mnemonic]
 
-    _kind = staticmethod(command_kind)
-    _push_path = staticmethod(push_path)
+    @staticmethod
+    def _kind(mnemonic: str) -> str:
+        if mnemonic.startswith("vmatmul"):
+            return "compute"
+        if mnemonic.startswith("vmatpush.weight"):
+            return "weight"
+        if mnemonic.startswith("vmatpush"):
+            return "push_bf16" if "bf16" in mnemonic else "push_fp8"
+        return "pop_bf16" if "bf16" in mnemonic else "pop_fp8"
+
+    @staticmethod
+    def _push_path(kind: str) -> str | None:
+        """Weight and accumulator pushes each write through one output mux,
+        which writes a single push per cycle and drops the others' rows."""
+        return "weight" if kind == "weight" else "accumulator" if kind.startswith("push") else None
 
     def _accept(self, uop: Uop) -> None:
         assert uop.insn.exu == self.exu_type, "Instruction sent to wrong MXU"
