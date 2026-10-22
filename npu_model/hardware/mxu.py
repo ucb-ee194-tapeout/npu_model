@@ -22,6 +22,26 @@ MXU_OP_LATENCIES = {
     for op in ("vmatpush.weight", "vmatpush.acc.fp8", "vmatpush.acc.bf16",
                "vmatmul.acc", "vmatmul", "vmatpop.fp8.acc", "vmatpop.bf16.acc")
 }
+PORT_CYCLES = 32
+"""Cycles a command holds each sequencer port it takes, one row per cycle."""
+PORT_CHOICES = {
+    "compute": ((0,),),
+    "push_bf16": ((0, 1),),
+    "weight": ((1,), (0,)),
+    "push_fp8": ((1,), (0,)),
+    "pop_fp8": ((2,),),
+    "pop_bf16": ((2, 3),),
+}
+"""Sequencer ports each command kind can take, in order of preference: read
+ports 0 and 1, write ports 2 and 3."""
+_PORTS_BUSY = {
+    "compute": "compute issued while read port or in-flight tracker is busy",
+    "push_bf16": "BF16 push issued while read ports are busy",
+    "weight": "push issued while read ports are busy",
+    "push_fp8": "push issued while read ports are busy",
+    "pop_fp8": "pop issued while write ports are busy",
+    "pop_bf16": "pop issued while write ports are busy",
+}
 _GRID = torch.arange(32)
 
 
@@ -102,27 +122,19 @@ class _MatrixExecutionUnit(ExecutionUnit):
         acc = int(insn.vs2 if pop else insn.vd) & 1
         weight = int(insn.vs2 if kind == "compute" else insn.vd) & 1
         mreg = int(insn.vd if pop else insn.vs1)
-        active = [op for op in self._ops if self.cycle - op.issued < 32]
+        active = [op for op in self._ops if self.cycle - op.issued < PORT_CYCLES]
         compute = [op for op in self._ops if op.kind == "compute"]
         free = lambda port: not any(port in op.ports for op in active)
         if kind != "weight" and any(op.acc == acc and self.cycle - op.issued <= self.compute_first for op in compute):
             raise RuntimeError(f"{self.mxu}: command issued before previous compute row-0 writeback")
-        if kind == "compute":
-            if not free(0) or len(compute) >= self.inflight_depth:
-                raise RuntimeError(f"{self.mxu}: compute issued while read port or in-flight tracker is busy")
-            ports = (0,)
-        elif kind == "push_bf16":
-            if not (free(0) and free(1)):
-                raise RuntimeError(f"{self.mxu}: BF16 push issued while read ports are busy")
-            ports = (0, 1)
-        elif pop:
-            ports = (2, 3) if kind == "pop_bf16" else (2,)
-            if not all(free(port) for port in ports):
-                raise RuntimeError(f"{self.mxu}: pop issued while write ports are busy")
-        else:
-            if not (free(0) or free(1)):
-                raise RuntimeError(f"{self.mxu}: push issued while read ports are busy")
-            ports = (1,) if free(1) else (0,)
+        # Take the first choice whose ports are all free.
+        ports = None
+        for choice in PORT_CHOICES[kind]:
+            if all(free(port) for port in choice):
+                ports = choice
+                break
+        if ports is None or (kind == "compute" and len(compute) >= self.inflight_depth):
+            raise RuntimeError(f"{self.mxu}: {_PORTS_BUSY[kind]}")
         if self.mxu == "mxu0" and kind == "weight":
             if weight in self._last_compute and self.cycle - self._last_compute[weight] <= 62:
                 raise RuntimeError("mxu0: weight push issued before previous matmul on same slot drained")
