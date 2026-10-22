@@ -5,9 +5,9 @@ measures its cycles and records what S1 launched. Each resource that limits
 throughput is then charged for that work by the simulator's own definitions,
 so the bound follows the model as it changes:
 
-- DRAM: the program's DMA transfers, replayed on a fresh DMA engine and memory
-  backend (``dma.py``, ``memory_backend.py``), each launched as soon as its
-  channel is free, so the backend in use sets the time;
+- DRAM: the spacing the memory backend enforced between the beats the DMA
+  engine issued, summed as the program ran (``MemoryBackend.port_cycles``), so
+  the backend in use sets the time;
 - each MXU: every command holds sequencer ports for ``mxu.PORT_CYCLES``
   (``mxu.PORT_CHOICES``), and pushes on one path write one at a time;
 - the VPU: ``vpu.ISSUE_SLOTS`` issue slots, each instruction holding one, or
@@ -18,9 +18,9 @@ so the bound follows the model as it changes:
 - S1, which launches one instruction per cycle.
 
 No schedule of the same work finishes before its busiest resource does, so the
-largest charge is the speed of light. Dependences are ignored, and of the
-latencies only the DMA engine's count, so a short program, or one made of a
-single dependence chain, stays well above it.
+largest charge is the speed of light. Dependences and latencies are ignored,
+so a short program, or one made of a single dependence chain, stays well above
+it.
 
 Usage:
     uv run python -m npu_speed_of_light.roofline PROGRAM [options]
@@ -35,6 +35,7 @@ from __future__ import annotations
 import argparse
 import itertools
 import json
+import math
 import os
 import sys
 from collections import Counter
@@ -47,36 +48,17 @@ from tabulate import tabulate
 import npu_model.hardware  # noqa: F401
 import npu_model.configs.hardware as hardware_configs
 import npu_model.configs.programs as program_configs
-from npu_model.hardware import Core, DmaExecutionUnit, mxu, vpu, xlu
+from npu_model.hardware import DmaExecutionUnit, mxu, vpu, xlu
 from npu_model.hardware.config import HardwareConfig
 from npu_model.hardware.lsu import LSU_OP_LATENCIES
 from npu_model.hardware.memory_backend import CurveMemoryBackend, FixedLatencyBackend, make_memory_backend
-from npu_model.isa import Instruction
 from npu_model.isa_types import EXU
-from npu_model.logging import Logger, LoggerConfig
+from npu_model.logging import LoggerConfig
 from npu_model.simulation import Simulation
-from npu_model.software.instruction import Uop
 from npu_model.software.program import InstantiableProgram, Program
 from npu_model.util.converter import load_asm
 
 _MXUS = {EXU.MATRIX_SYSTOLIC: mxu.MatrixExecutionUnitSystolic, EXU.MATRIX_INNER: mxu.MatrixExecutionUnitInner}
-
-
-@dataclass
-class Transfer:
-    """A DMA transfer as S1 launched it, with the scalar operands it read."""
-
-    insn: Instruction
-    xrf: dict[int, int]
-    base: int
-
-    @property
-    def nbytes(self) -> int:
-        return self.xrf[int(self.insn.rs2)]
-
-    @property
-    def is_store(self) -> bool:
-        return self.insn.mnemonic == "dma.store"
 
 
 @dataclass
@@ -85,7 +67,10 @@ class Execution:
 
     cycles: int
     launches: Counter[tuple[EXU, str]]
-    transfers: list[Transfer]
+    load_beats: int
+    store_beats: int
+    dram_cycles: float
+    """The memory backend's ``port_cycles`` for the run."""
 
 
 @dataclass
@@ -112,63 +97,29 @@ class SpeedOfLight:
 
 
 def execute(program: Program, config: HardwareConfig, max_cycles: int) -> Execution:
-    """Run ``program`` on the cycle model, recording every launch."""
+    """Run ``program`` on the cycle model, recording every launch and DMA beat."""
     sim = Simulation(config, LoggerConfig(filename=os.devnull), program, verbose=False)
     core = sim.core
+    engine = next(unit for unit in core.exus if isinstance(unit, DmaExecutionUnit))
     launches: Counter[tuple[EXU, str]] = Counter()
-    transfers: list[Transfer] = []
+    beats: Counter[bool] = Counter()
     tick = core.tick
 
     def observed_tick() -> None:
-        state = core.arch_state
-        # S1 reads scalar registers before this edge's writebacks land.
-        xrf, base = list(state.xrf), state.base
         tick()
-        if (uop := core.issued_uop) is None:
-            return
-        insn = uop.insn
-        launches[insn.exu, insn.mnemonic] += 1
-        if insn.mnemonic in ("dma.load", "dma.store"):
-            registers = (int(insn.rd), int(insn.rs1), int(insn.rs2))
-            transfers.append(Transfer(insn, {reg: xrf[reg] for reg in registers}, base))
+        if (uop := core.issued_uop) is not None:
+            launches[uop.insn.exu, uop.insn.mnemonic] += 1
+        if (beat := engine.last_cycle.a) is not None:
+            beats[beat[2]] += 1
 
     core.tick = observed_tick  # type: ignore[method-assign]
     try:
         sim.run(max_cycles=max_cycles)
         if not core.is_finished():
             raise RuntimeError(f"program did not finish within {max_cycles} cycles")
-        return Execution(sim.cycle_count, launches, transfers)
+        return Execution(sim.cycle_count, launches, beats[False], beats[True], engine.backend.port_cycles)
     finally:
         sim.close()
-
-
-def dram_cycles(config: HardwareConfig, transfers: list[Transfer]) -> int:
-    """Cycles a fresh DMA engine needs to finish ``transfers`` by itself, each
-    launched as soon as its channel is free."""
-    if not transfers:
-        return 0
-    logger = Logger(LoggerConfig(filename=os.devnull))
-    core = Core(config, logger)
-    try:
-        engine = next(unit for unit in core.exus if isinstance(unit, DmaExecutionUnit))
-        state = core.arch_state
-        for transfer in transfers:
-            channel = int(transfer.insn.funct3)
-            while state.check_flag(channel):
-                engine.tick(None)
-            for reg, value in transfer.xrf.items():
-                if reg:
-                    state.xrf[reg] = value
-            state.base = transfer.base
-            # S1 marks the channel busy as it launches the transfer.
-            state.set_flag(channel)
-            engine.tick(Uop(transfer.insn))
-        while engine.has_in_flight:
-            engine.tick(None)
-        return engine.cycle
-    finally:
-        core.close()
-        logger.close()
 
 
 def mxu_cycles(launches: Counter[str]) -> int:
@@ -215,9 +166,8 @@ def speed_of_light(program: Program, config: HardwareConfig, max_cycles: int = 1
     for (unit, mnemonic), count in run.launches.items():
         by_unit.setdefault(unit, Counter())[mnemonic] += count
 
-    loaded = sum(transfer.nbytes for transfer in run.transfers if not transfer.is_store)
-    stored = sum(transfer.nbytes for transfer in run.transfers if transfer.is_store)
-    dram = dram_cycles(config, run.transfers)
+    loaded, stored = run.load_beats * config.dma_beat_bytes, run.store_beats * config.dma_beat_bytes
+    dram = math.ceil(run.dram_cycles)
     resources = [Resource("DRAM", f"{loaded:,} B loaded, {stored:,} B stored", dram)]
 
     arch = config.arch_state_config
@@ -309,7 +259,7 @@ def format_report(label: str, memory: str, report: SpeedOfLight) -> str:
         f"Speed of light: {bound.cycles:,} cycles, bound by {bound.name}",
         f"Measured      : {report.measured:,} cycles, running at {bound.cycles / report.measured:.1%} of it",
     ]
-    if report.flops and report.dram_bytes:
+    if report.flops and report.dram_cycles:
         intensity = report.flops / report.dram_bytes
         bandwidth = report.dram_bytes / report.dram_cycles
         ridge = report.peak_flops_per_cycle / bandwidth

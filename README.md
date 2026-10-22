@@ -143,8 +143,8 @@ uv run scripts/run.py --hardware_config DefaultHardwareConfig -p AddiProgram -o 
 could take. It runs the program, charges each throughput-limited resource
 (DRAM, each MXU, the VPU, the XLU, the VLOAD and VSTORE paths, and S1) for the
 work it did, and compares the largest charge with the measured cycles. The
-charges come from the units' own definitions, and DRAM time from replaying the
-program's transfers on a fresh DMA engine and memory backend, so the bound
+charges come from the units' own definitions, and DRAM time from the memory
+backend's own count of the spacing it enforced between beats, so the bound
 follows the model as it changes.
 
 ```bash

@@ -88,7 +88,7 @@ def test_charges_combine_across_ports_and_slots() -> None:
     assert vpu_cycles(Counter({"vexp.bf16": 2, "vexp2.bf16": 2})) == 4 * exp
 
 
-def test_dram_bound_replays_transfers_on_the_dma_engine() -> None:
+def test_dram_bound_is_the_memory_ports_beat_spacing() -> None:
     program = InstantiableProgram(assemble("""
         addi x30, x0, 1
         dma.config x30, ch0
@@ -105,11 +105,12 @@ def test_dram_bound_replays_transfers_on_the_dma_engine() -> None:
         dma.wait ch2
         dma.wait ch3
     """))
-    for memory in MEMORIES:
-        report = speed_of_light(program, config(memory))
+    reports = {memory: speed_of_light(program, config(memory)) for memory in MEMORIES}
+    for report in reports.values():
         assert (report.bound.name, report.dram_bytes) == ("DRAM", 4096)
-        # Only the scalar setup before the first launch separates the two.
-        assert 0 <= report.measured - report.bound.cycles <= len(program.instructions)
+        assert report.bound.cycles <= report.measured
+    # 128 beats, one a cycle: 127 cycles from the first to the last.
+    assert reports["fast-fixed"].bound.cycles == 127
 
 
 def test_command_line_selects_the_memory_backend(capsys: pytest.CaptureFixture[str]) -> None:

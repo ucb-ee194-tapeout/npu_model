@@ -48,6 +48,11 @@ class BeatRequest:
 class MemoryBackend(ABC):
     """Everything past the DMA engine's channel A/D handshake."""
 
+    port_cycles: float = 0.0
+    """Fewest cycles the memory needs between the first and last beat issued
+    since reset: the spacing it enforces between consecutive beats, summed.
+    Like an execution unit's busy count, it leaves out idle gaps."""
+
     @abstractmethod
     def reset(self) -> None:
         ...
@@ -114,6 +119,7 @@ class FixedLatencyBackend(MemoryBackend):
         self._pending: list[tuple[int, int, BeatRequest]] = []
         self._issued = 0
         self._presented: BeatRequest | None = None
+        self.port_cycles = 0.0
 
     def _latency_for(self, request: BeatRequest) -> int:
         if self.latency_fn is not None:
@@ -131,6 +137,8 @@ class FixedLatencyBackend(MemoryBackend):
         if not self.can_accept(request.cycle):
             raise RuntimeError(f"memory backend refused beat {request} on cycle {request.cycle}")
         self._last_accept = request.cycle
+        if self._issued:
+            self.port_cycles += self.cycles_per_beat
         entry = (request.cycle + self._latency_for(request), self._issued, request)
         self._issued += 1
         index = len(self._pending)
@@ -300,6 +308,7 @@ class CurveMemoryBackend(MemoryBackend):
         self._pending: list[tuple[int, int, BeatRequest]] = []
         self._issued = 0
         self._presented: BeatRequest | None = None
+        self.port_cycles = 0.0
         self.windows: list[tuple[int, float, float, float]] = []
         """(end cycle, delivered bandwidth, read percentage, latency) per closed window."""
 
@@ -365,6 +374,8 @@ class CurveMemoryBackend(MemoryBackend):
             peak_bw, _ = self.curve_peak(read_pct)
             ready = max(ready, self._last_ready + 1.0 / peak_bw)
             self._last_ready = ready
+            if self._issued:
+                self.port_cycles += 1.0 / peak_bw
         entry = (math.ceil(ready - 1e-9), self._issued, request)
         self._issued += 1
         index = len(self._pending)
