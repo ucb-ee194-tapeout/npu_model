@@ -51,6 +51,21 @@ class ArchState:
             torch.zeros((self.cfg.mrf_depth, acc_cols), dtype=torch.bfloat16)
             for _ in range(self.cfg.num_wb_registers)
         ]
+        # NVFP4 MXU configs: per-register UE4M3 scale sidecar (32 rows x 4 bytes), two weight
+        # slots of 32 x 64 E2M1 + scales, two 32 x 32 FP32 accumulators (bits as ints).
+        rows = self.cfg.mrf_depth
+        self.mrf_scale: list[torch.Tensor] = [
+            torch.zeros(rows * 4, dtype=torch.uint8) for _ in range(self.cfg.num_m_registers)
+        ]
+        self.wb_nv: list[torch.Tensor] = [
+            torch.zeros(rows * self.cfg.mrf_width, dtype=torch.uint8) for _ in range(self.cfg.num_wb_registers)
+        ]
+        self.wb_nv_scale: list[torch.Tensor] = [
+            torch.zeros(rows * 4, dtype=torch.uint8) for _ in range(self.cfg.num_wb_registers)
+        ]
+        self.acc_nv: list[list[list[int]]] = [
+            [[0] * rows for _ in range(rows)] for _ in range(self.cfg.num_wb_registers)
+        ]
         if self.cfg.randomize_init:
             generator = self._make_generator()
             self.dram.randomize(self.cfg.init_seed)
@@ -69,6 +84,10 @@ class ArchState:
         self.mrf = []
         self.wb = {}
         self.acc = {}
+        self.mrf_scale = []
+        self.wb_nv = []
+        self.wb_nv_scale = []
+        self.acc_nv = []
         self.base = 0
         self.flags = []
 

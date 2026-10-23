@@ -992,6 +992,152 @@ class VMATMUL_ACC_MXU1(
         _vmatmul(state, "mxu1", self.vd, self.vs1, self.vs2, accumulate=True)
 
 
+
+# ── NVFP4 MXU (configs with the NVFP4 MXU; see npu_model/configs/nvfp4.py) ─────────────────────
+
+def _nv_rows(t: torch.Tensor, width: int) -> list[list[int]]:
+    return [[int(x) for x in t[i * width:(i + 1) * width]] for i in range(t.numel() // width)]
+
+
+def _nv_mreg_words(state: ArchState, reg: int) -> list[list[int]]:
+    """32 rows x 8 little-endian 32-bit words of m[reg]."""
+    raw = _nv_rows(state.mrf[reg].view(torch.uint8), 32)
+    return [[int.from_bytes(bytes(row[4 * k:4 * k + 4]), "little") for k in range(8)] for row in raw]
+
+
+def _nv_write_mreg_words(state: ArchState, reg: int, rows: list[list[int]]) -> None:
+    data = bytearray()
+    for row in rows:
+        for word in row:
+            data += (word & 0xFFFF_FFFF).to_bytes(4, "little")
+    state.write_mrf_u8(reg, torch.tensor(list(data), dtype=torch.uint8))
+
+
+def _nv_matmul(state: ArchState, vd: int, vs1: int, ws: int, accumulate: bool) -> None:
+    from npu_model.configs import nvfp4
+    a = _nv_rows(state.mrf[vs1].view(torch.uint8), 32)
+    sa = _nv_rows(state.mrf_scale[vs1], 4)
+    w = _nv_rows(state.wb_nv[ws], 32)
+    sw = _nv_rows(state.wb_nv_scale[ws], 4)
+    rows = len(a)
+    c = state.acc_nv[vd] if accumulate else [[0] * len(w) for _ in range(rows)]
+    state.acc_nv[vd] = nvfp4.matmul(a, sa, w, sw, c)
+
+
+class VMATPUSH_WEIGHT_NV(
+    MXUWeightPush,
+    VRType[WeightBuffer, MatrixReg],
+    exu=EXU.MATRIX_NVFP4,
+    opcode=0b1110111,
+    funct7=0b0001110,
+):
+    """``vmatpush.weight.nv w(vd), m(vs1)``: weight slot = m[vs1] and its scales (row j = output column j)."""
+    def exec(self, state: ArchState) -> None:
+        state.wb_nv[self.vd & 1][:] = state.mrf[self.vs1].view(torch.uint8)
+        state.wb_nv_scale[self.vd & 1][:] = state.mrf_scale[self.vs1]
+
+
+class VMATPUSH_ACC_BF16_NV(
+    MXUAccumulatorPush,
+    VRType[Accumulator, MatrixReg],
+    exu=EXU.MATRIX_NVFP4,
+    opcode=0b1110111,
+    funct7=0b0001111,
+):
+    """``vmatpush.acc.bf16.nv acc(vd), m(vs1)``: acc = {m[vs1], m[vs1+1]} (BF16, exact in FP32)."""
+    def exec(self, state: ArchState) -> None:
+        halves = (_nv_mreg_words(state, self.vs1), _nv_mreg_words(state, self.vs1 + 1))
+
+        def bf16(r: int, j: int) -> int:  # column j: register j // 16, word (j % 16) // 2, half j % 2
+            word = halves[j // 16][r][(j % 16) // 2]
+            return (word >> 16 * (j % 2)) & 0xFFFF
+
+        state.acc_nv[self.vd & 1] = [[bf16(r, j) << 16 for j in range(32)] for r in range(len(halves[0]))]
+
+
+class VMATPUSH_ACC_FP32_NV(
+    MXUAccumulatorPush,
+    VRType[Accumulator, MatrixReg],
+    exu=EXU.MATRIX_NVFP4,
+    opcode=0b1110111,
+    funct7=0b0010000,
+):
+    """``vmatpush.acc.fp32.nv acc(vd), m(vs1)``: acc = m[vs1..vs1+3], register q holding columns 8q..8q+7."""
+    def exec(self, state: ArchState) -> None:
+        regs = [_nv_mreg_words(state, self.vs1 + q) for q in range(4)]
+        state.acc_nv[self.vd & 1] = [[regs[j // 8][r][j % 8] for j in range(32)] for r in range(len(regs[0]))]
+
+
+class VMATPOP_BF16_ACC_NV(
+    MXUAccumulatorPop,
+    VRType[MatrixReg, Accumulator],
+    exu=EXU.MATRIX_NVFP4,
+    opcode=0b1110111,
+    funct7=0b0010001,
+):
+    """``vmatpop.bf16.acc.nv m(vd), acc(vs2)``: {m[vd], m[vd+1]} = BF16(acc), round to nearest even."""
+    def exec(self, state: ArchState) -> None:
+        from npu_model.configs import nvfp4
+        acc = state.acc_nv[self.vs2 & 1]
+        for half in range(2):
+            rows = [[nvfp4.f32_to_bf16(acc[r][16 * half + 2 * k]) |
+                     nvfp4.f32_to_bf16(acc[r][16 * half + 2 * k + 1]) << 16 for k in range(8)]
+                    for r in range(len(acc))]
+            _nv_write_mreg_words(state, self.vd + half, rows)
+
+
+class VMATPOP_FP32_ACC_NV(
+    MXUAccumulatorPop,
+    VRType[MatrixReg, Accumulator],
+    exu=EXU.MATRIX_NVFP4,
+    opcode=0b1110111,
+    funct7=0b0010010,
+):
+    """``vmatpop.fp32.acc.nv m(vd), acc(vs2)``: m[vd..vd+3] = acc, register q holding columns 8q..8q+7."""
+    def exec(self, state: ArchState) -> None:
+        acc = state.acc_nv[self.vs2 & 1]
+        for q in range(4):
+            _nv_write_mreg_words(state, self.vd + q, [row[8 * q:8 * q + 8] for row in acc])
+
+
+class VMATMUL_NV(
+    MXUMatMul,
+    VRType[Accumulator, WeightBuffer],
+    exu=EXU.MATRIX_NVFP4,
+    opcode=0b1110111,
+    funct7=0b0010011,
+):
+    """``vmatmul.nv acc(vd), m(vs1), w(vs2)``: acc = A @ W^T over 64 NVFP4 elements (FP32)."""
+    def exec(self, state: ArchState) -> None:
+        _nv_matmul(state, self.vd & 1, self.vs1, self.vs2 & 1, accumulate=False)
+
+
+class VMATMUL_ACC_NV(
+    MXUMatMul,
+    VRType[Accumulator, WeightBuffer],
+    exu=EXU.MATRIX_NVFP4,
+    opcode=0b1110111,
+    funct7=0b0010100,
+):
+    """``vmatmul.acc.nv acc(vd), m(vs1), w(vs2)``: acc += A @ W^T (one NVIDIA m16n8k64 step per element)."""
+    def exec(self, state: ArchState) -> None:
+        _nv_matmul(state, self.vd & 1, self.vs1, self.vs2 & 1, accumulate=True)
+
+
+class VLOAD_SCALE(TensorBaseOffset, VLSType, exu=EXU.LSU, opcode=0b0000111, funct2=0b10):
+    """``vload.scale m(vd), imm(x(rs1))``: m[vd]'s scale sidecar = 128 B of VMEM (128 B aligned)."""
+    def exec(self, state: ArchState) -> None:
+        address = _vmem_line_address(state, self.rs1, self.imm)
+        state.mrf_scale[self.vd][:] = state.read_vmem(address, 0, state.mrf_scale[self.vd].numel())
+
+
+class VSTORE_SCALE(TensorBaseOffset, VLSType, exu=EXU.LSU, opcode=0b0000111, funct2=0b11):
+    """``vstore.scale m(vd), imm(x(rs1))``: 128 B of VMEM = m[vd]'s scale sidecar."""
+    def exec(self, state: ArchState) -> None:
+        address = _vmem_line_address(state, self.rs1, self.imm)
+        state.write_vmem(address, 0, state.mrf_scale[self.vd].clone())
+
+
 class DMA_LOAD(DMATransfer, RType, exu=EXU.DMA, opcode=0b1111011, funct3=None, funct7=0b0000000):
     """``dma.load x(rd), x(rs1), x(rs2), ch<N>``: DRAM ``{base, x[rs1]}`` -> VMEM word ``x[rd]``, ``x[rs2]`` bytes."""
 
