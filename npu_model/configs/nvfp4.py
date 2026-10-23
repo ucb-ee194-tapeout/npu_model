@@ -1,8 +1,11 @@
-"""NVFP4 arithmetic of the Atlas NVFP4 MXU (fp4_fedp, from the NVFP4 repo's host/nvfp4_model.py).
+"""NVFP4 arithmetic of the Atlas NVFP4 MXU (fp4_fedp; from ucb-bar/nvfp4@0c611e1:host/nvfp4_model.py,
+mode 0 only).
 
 One output element is the 64-element NVFP4 dot product of NVIDIA tensor cores (RTX 5090 rule
 "rtx5090"): exact 16-element block sums, block terms scaled by both operands' UE4M3 scales, every
 term (C included) cut toward zero at 2^(emax - 35), then one cut toward zero to FP32.
+Rule "rtx5090" is ucb-bar/nvfp4@0c611e1:tcgen05/nvfp4_tcgen05_check.py. The one known difference
+from silicon (an all-zero 16-element block) is in Atlas docs/nvfp4-mxu.md.
 
 Storage layouts (Atlas):
   m-register row r: 64 E2M1 codes, element k in byte k // 2, low nibble for even k
