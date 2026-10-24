@@ -57,9 +57,30 @@ ISSUE_SLOTS = 2
 """Software-scheduled issue slots; two-input instructions and row reductions take both."""
 
 
+@dataclass(frozen=True)
+class VectorTiming:
+    """Ages after command acceptance of the last source read, last result write and issue-slot release.
+
+    The destination MREG frees one edge after the last result write.
+    """
+
+    source_read_last_age: int  # -1 means no MREG source reads.
+    result_write_last_age: int
+    issue_slot_release_age: int
+
+
+def operation_timing(mnemonic: str) -> VectorTiming:
+    """Timing for the supported default 32-row geometry."""
+    read_last = (-1 if mnemonic.startswith("vli.") else
+                 31 if mnemonic in _ROW_REDUCE | {"vunpack.fp8.bf16"} else
+                 127 if mnemonic in _COL_REDUCE else 63)
+    result_last = VPU_OP_LATENCIES[mnemonic] - 1
+    return VectorTiming(read_last, result_last, result_last)
+
+
 def issue_cycles(mnemonic: str) -> int:
-    """Cycles an instruction holds its issue slot, through its last write."""
-    return VPU_OP_LATENCIES[mnemonic] - 1
+    """Issue-slot release age, kept for compatibility; not a def-use latency."""
+    return operation_timing(mnemonic).issue_slot_release_age
 
 
 @dataclass
@@ -70,8 +91,7 @@ class _VectorOperation:
     owner: str
     reads: frozenset[int]
     writes: frozenset[int]
-    read_last: int
-    write_last: int
+    timing: VectorTiming
     staged: StagedExecution
 
 
@@ -113,7 +133,7 @@ class VectorExecutionUnit(ExecutionUnit):
         return left == right or any(left in group and right in group for group in _GROUPS)
 
     def _issue_blocked(self, name: str, cycle: int) -> bool:
-        live = [op for op in self.operations if cycle - op.issued < op.write_last]
+        live = [op for op in self.operations if cycle - op.issued < op.timing.issue_slot_release_age]
         return bool(live and (len(live) == ISSUE_SLOTS or self._double(name)
                     or any(self._double(op.uop.insn.mnemonic)
                            or self._share_logic(name, op.uop.insn.mnemonic) for op in live)))
@@ -134,7 +154,7 @@ class VectorExecutionUnit(ExecutionUnit):
         insn = uop.insn
         name = insn.mnemonic
         # VectorFSM's done includes the final write in this cycle.
-        live = [op for op in self.operations if self.cycle - op.issued < op.write_last]
+        live = [op for op in self.operations if self.cycle - op.issued < op.timing.issue_slot_release_age]
         if self._issue_blocked(name, self.cycle):
             raise RuntimeError(f"VPU command {name} issued while its issue-busy bit is set")
         slot = next(index for index in range(ISSUE_SLOTS) if all(op.slot != index for op in live))
@@ -156,15 +176,13 @@ class VectorExecutionUnit(ExecutionUnit):
                 if source2 & 1:
                     raise RuntimeError("VPU pair-read secondary bank must be even")
                 reads.update({source2, source2 + 1})
-        read_last = -1 if vli else (31 if name in _ROW_REDUCE | {"vunpack.fp8.bf16"}
-                                    else 127 if name in _COL_REDUCE else 63)
         owner = f"{self.name}:{uop.id}:{name}"
         self.arch_state.conflict_checker.reserve_mreg(owner, frozenset(reads), writes)
         latency = self._execution_latency(uop)
         staged = StagedExecution(uop, self.arch_state, [("mrf", bank) for bank in reads],
                                  [("mrf", bank) for bank in writes], "VectorFSM")
         op = _VectorOperation(uop, self.cycle, slot, owner, frozenset(reads), writes,
-                              read_last, issue_cycles(name), staged)
+                              operation_timing(name), staged)
         self.operations.append(op)
         uop.execute_delay = latency
         self._total_instructions += 1
@@ -181,7 +199,7 @@ class VectorExecutionUnit(ExecutionUnit):
     @staticmethod
     def _reads(op: _VectorOperation, age: int) -> list[tuple[int, int]]:
         """(bank, row) requests VectorFSM issues at this age."""
-        if not 0 <= age <= op.read_last:
+        if not 0 <= age <= op.timing.source_read_last_age:
             return []
         insn, name = op.uop.insn, op.uop.insn.mnemonic
         if name in _ROW_REDUCE:
@@ -218,13 +236,13 @@ class VectorExecutionUnit(ExecutionUnit):
         for bank, row in self._reads(op, age):
             # Only the first pass over the pair feeds the result.
             self._read(op, bank, row, sample=age < 64)
-        if age == op.read_last:
+        if age == op.timing.source_read_last_age:
             self.arch_state.conflict_checker.release_mreg(op.owner, reads=True, writes=False)
         for bank, row in self._writes(op, age):
             self.arch_state.conflict_checker.access_mreg(self.cycle, bank, row, True, op.owner)
             self.arch_state.read_mrf_u8(bank)[row] = op.staged.result(("mrf", bank))[row]
-        op.uop.execute_delay = max(0, op.write_last - age)
-        if age == op.write_last:
+        op.uop.execute_delay = max(0, op.timing.result_write_last_age - age)
+        if age == op.timing.result_write_last_age:
             self.arch_state.conflict_checker.release_mreg(op.owner)
             self._pending_completions.append(op.uop)
             self._complete_count += 1
@@ -241,7 +259,7 @@ class VectorExecutionUnit(ExecutionUnit):
             self._busy_cycles += 1
         for op in self.operations:
             self._advance(op)
-        self.operations = [op for op in self.operations if self.cycle - op.issued < op.write_last]
+        self.operations = [op for op in self.operations if self.cycle - op.issued < op.timing.result_write_last_age]
 
     def flush_completions(self) -> None:
         for uop in self._pending_completions:

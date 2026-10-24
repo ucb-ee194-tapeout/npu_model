@@ -83,6 +83,14 @@ results become visible row by row. Software scheduling violations raise errors.
 VPU has two independent single-input slots; binary and row-reduction operations
 occupy both. `issue_busy_mask` exposes the opcode-specific issue restrictions.
 
+`vpu.operation_timing(mnemonic)` gives three ages after command acceptance:
+`source_read_last_age` (−1 for VLI), `result_write_last_age` and
+`issue_slot_release_age`. An ordinary operation reads source rows through age
+63, releases its issue slot and writes its last row at age 65, and frees its
+destination MREG at age 66. None of these is a general def-use latency; operand,
+port, shared-logic and double-input checks still apply. `issue_cycles` returns
+the slot-release age for compatibility.
+
 Scalar LSU addresses are **bytes**. VLOAD/VSTORE bases are **words**, and their
 immediate contributes 32 words per unit. For example, byte address 0x2000 needs
 base 0x800; an additional 1024 bytes uses immediate 8. VMEM contains six contiguous
