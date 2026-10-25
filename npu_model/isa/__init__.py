@@ -13,7 +13,7 @@ ISA_VERSION = TABLE.version
 the RTL), the highest `ver` of the table. A change of instruction encoding or semantics increments it."""
 
 EXU_OF_UNIT = {"scalar": EXU.SCALAR, "lsu": EXU.LSU, "vpu": EXU.VECTOR, "xlu": EXU.XLU,
-               "mxu0": EXU.MATRIX_SYSTOLIC, "mxu1": EXU.MATRIX_INNER, "nv": EXU.MATRIX_NVFP4, "dma": EXU.DMA}
+               "mxu1": EXU.MATRIX_INNER, "nv": EXU.MATRIX_NVFP4, "dma": EXU.DMA}
 
 # Utility functions for assembly
 def _mask(val: int, bits: int):

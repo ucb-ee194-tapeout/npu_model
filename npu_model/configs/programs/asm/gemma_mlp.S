@@ -50,26 +50,26 @@ addi x31, x3, 0  # DMA and VLS bases both count words
 vload m2, 0(x31)     # act (fp8)
 delay 34
 
-# --- Push weights to MXU0 WB slots 0 and 1 ---
+# --- Push weights to MXU1 WB slots 0 and 1 ---
 vtrpose.xlu m0, m0   # MXU weights are streamed as columns
 delay 66
-vmatpush.weight.mxu0 w0, m0
+vmatpush.weight.mxu1 w0, m0
 delay 32
 vtrpose.xlu m1, m1   # MXU weights are streamed as columns
 delay 66
-vmatpush.weight.mxu0 w1, m1
+vmatpush.weight.mxu1 w1, m1
 delay 32
 
 # --- Matrix Multiplications ---
 # Gate projection: activation @ gate_weight -> acc0
-vmatmul.mxu0 acc0, m2, w0
+vmatmul.mxu1 acc0, m2, w0
 delay 96
-vmatpop.bf16.acc.mxu0 m4, acc0     # gate -> m4/m5
+vmatpop.bf16.acc.mxu1 m4, acc0     # gate -> m4/m5
 delay 32
 # Up projection: activation @ up_weight -> acc0
-vmatmul.mxu0 acc0, m2, w1
+vmatmul.mxu1 acc0, m2, w1
 delay 96
-vmatpop.bf16.acc.mxu0 m6, acc0     # up -> m6/m7
+vmatpop.bf16.acc.mxu1 m6, acc0     # up -> m6/m7
 delay 32
 
 # --- Element-wise Multiplication (GeGLU simplified: gate * up) ---

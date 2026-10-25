@@ -13,9 +13,9 @@ are bf16.
 
 MLIR → ISA mapping:
     op_a (fp8 matmul):
-        vmatpush.weight.mxu0   — push B_fp8 into WB slot 0
-        vmatmul.mxu0           — acc[0] = A_fp8 @ WB[0], bf16 accumulator
-        vmatpop.bf16.acc.mxu0  — acc[0] → (m_vd, m_vd+1) bf16 pair
+        vmatpush.weight.mxu1   — push B_fp8 into WB slot 0
+        vmatmul.mxu1           — acc[0] = A_fp8 @ WB[0], bf16 accumulator
+        vmatpop.bf16.acc.mxu1  — acc[0] → (m_vd, m_vd+1) bf16 pair
     op_b (bias add):
         vadd.bf16              — pair-op add of matmul result + bias
 
@@ -154,7 +154,7 @@ BF16_BYTES = 2048
 #   m0         = A fp8 (full 32x32 tile in one mreg)
 #   m2         = B fp8
 #   (m4, m5)   = bias bf16 pair
-#   (m6, m7)   = matmul result bf16 (from vmatpop.bf16.acc.mxu0 vd=6)
+#   (m6, m7)   = matmul result bf16 (from vmatpop.bf16.acc.mxu1 vd=6)
 #   (m8, m9)   = out = matmul + bias bf16 pair
 #
 # Scalar reg map:

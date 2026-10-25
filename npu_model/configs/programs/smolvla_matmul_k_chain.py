@@ -4,8 +4,8 @@ Composed matmul that accumulates across the reduction dimension (K).
 The per-tile ``smolvla_matmul`` kernel computes a single
 ``[32x32] @ [32x32]`` MXU product.  Real layers have K >> 32, so the
 compiler tiles K into 32-wide slices and chains the per-tile kernel
-with ``vmatmul.mxu0`` (first tile, resets accumulator) followed by
-``vmatmul.acc.mxu0`` (subsequent tiles, accumulate).
+with ``vmatmul.mxu1`` (first tile, resets accumulator) followed by
+``vmatmul.acc.mxu1`` (subsequent tiles, accumulate).
 
 This Program tiles K=64 into **two** 32-wide slices to exercise the
 accumulator state machine end-to-end:
@@ -143,7 +143,7 @@ class SmolVLAMatmulKChainProgram(Program):
     """Two-tile K-chain matmul composed from the per-tile matmul kernel.
 
     Uses dual DMA channels to parallelize A-tile and B-tile loads.
-    Chains ``vmatmul.mxu0`` (first K-tile) with ``vmatmul.acc.mxu0``
+    Chains ``vmatmul.mxu1`` (first K-tile) with ``vmatmul.acc.mxu1``
     (second K-tile); both target the same accumulator slot so the
     final ``vmatpop`` yields A_k0@B_k0 + A_k1@B_k1.
     """

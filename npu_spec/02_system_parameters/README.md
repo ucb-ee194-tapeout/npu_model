@@ -14,14 +14,12 @@
 | `MREG_ROWS` | `32` | Rows per tensor register |
 | `MREG_ROW_BYTES` | `32` bytes | Bytes per tensor-register row |
 | `MREG_BYTES` | `1024` bytes | Bytes per tensor register |
-| `MXU_COUNT` | `2` | Architected MXU count |
+| `MXU_COUNT` | `1` | Architected FP8 MXU count |
 | `WEIGHT_SLOTS_PER_MXU` | `2` | Weight slots per MXU |
 | `WEIGHT_SLOT_BYTES` | `1024` bytes | Bytes per MXU weight slot |
 | `ACCUM_BUFFER_ROWS` | `32` | Rows per MXU accumulation buffer |
 | `ACCUM_BUFFER_COLS_BF16` | `32` | BF16 columns per MXU accumulation buffer |
 | `ACCUM_BUFFER_BYTES` | `2048` bytes | Bytes per MXU accumulation buffer |
-| `MXU0_ARRAY_ROWS` | `32` | Rows in the `mxu0` systolic fabric |
-| `MXU0_ARRAY_COLS` | `32` | Columns in the `mxu0` systolic fabric |
 | `MXU1_ARRAY_ROWS` | `32` | Rows in the `mxu1` reduction-tree fabric |
 | `MXU1_ARRAY_COLS` | `32` | Columns in the `mxu1` reduction-tree fabric |
 | `VPU_LANES_BF16` | `16` | BF16 lanes in the baseline VPU |
@@ -38,7 +36,6 @@
 
 | Parameter | Value | Meaning |
 |---|---:|---|
-| `MXU0_MATMUL_LATENCY_CYCLES` | `96` | One `mxu0` matmul launch latency class |
 | `MXU1_MATMUL_LATENCY_CYCLES` | `35` | One `mxu1` matmul launch latency class |
 | `VPU_SIMPLE_OP_LATENCY_CYCLES` | `66` | Pipelineable BF16 VPU latency class (binary, unary, transcendental, `vmov`, `vpack` / `vunpack`) |
 | `VPU_NON_PIPELINEABLE_OP_LATENCY_CYCLES` | `130` | Non-pipelineable BF16 VPU latency class (column reductions: `vredsum`, `vredmin`, `vredmax`) |
@@ -89,6 +86,4 @@ At the normalized performance-model level:
 
 - DRAM roof: `2 B/cycle`
 - VMEM roof: `32 B/cycle`
-- `mxu0` peak: `32 * 32 * 32 * 2 / 96 ≈ 683 FLOPs/cycle`
 - `mxu1` peak: `32 * 32 * 32 * 2 / 35 ≈ 1872 FLOPs/cycle`
-- total MXU peak: `≈ 2555 FLOPs/cycle`

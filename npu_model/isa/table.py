@@ -14,7 +14,7 @@ PATH = Path(__file__).with_name("atlas_isa.toml")
 # Operand kinds: the register prefix of a register kind, or None.
 KINDS = {"x": "x", "e": "e", "m": "m", "mp": "m", "mq": "m", "acc": "acc", "w": "w", "ch": None,
          "imm": None, "uimm": None, "hex": None, "label": None}
-UNITS = ("scalar", "lsu", "vpu", "xlu", "mxu0", "mxu1", "nv", "dma")
+UNITS = ("scalar", "lsu", "vpu", "xlu", "mxu1", "nv", "dma")
 ROWS = ("rows", "all")
 KEYS = {"mnemonic", "format", "opcode", "select", "fixed", "operands", "syntax", "unit", "configs", "m",
         "operation", "ver"}

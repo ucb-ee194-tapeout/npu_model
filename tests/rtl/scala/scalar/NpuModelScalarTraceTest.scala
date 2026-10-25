@@ -36,7 +36,6 @@ class NpuModelScalarTraceHarness extends Module {
   core.io.lsu_vstore_busy := false.B
   core.io.mregReadBusy := 0.U
   core.io.mregWriteBusy := 0.U
-  core.io.mxu0Ready := true.B
   core.io.mxu1Ready := true.B
   core.io.nvReady := true.B
   core.io.xlu_busy := false.B

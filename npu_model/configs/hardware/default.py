@@ -22,7 +22,6 @@ class DefaultHardwareConfig(HardwareConfig):
         dram_size=0x10_0000_0000,  # 64 GiB at 0x8000_0000, as EE290SimConfig maps it
         vmem_size=1536 * 1024,
     )
-    mxu0_matmul_latency_cycles: int = 32
     mxu1_matmul_latency_cycles: int = 32
     vpu_simple_op_latency_cycles: int = 4
     vpu_non_pipelineable_op_latency_cycles: int = 16
@@ -35,7 +34,6 @@ class DefaultHardwareConfig(HardwareConfig):
     vmem_bytes_per_cycle: int = 64
     execution_units: dict[str, str] = {
         "Scalar0": "ScalarExecutionUnit",
-        "Matrix0": "MatrixExecutionUnitSystolic",
         "Matrix1": "MatrixExecutionUnitInner",
         "Vector0": "VectorExecutionUnit",
         "XLU": "CrossLaneExecutionUnit",

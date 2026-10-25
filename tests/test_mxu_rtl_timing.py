@@ -8,19 +8,18 @@ import torch
 from npu_model.configs.hardware.default import DefaultHardwareConfig
 from npu_model.configs import isa_definition as isa
 from npu_model.hardware.arch_state import ArchState
-from npu_model.hardware.mxu import MatrixExecutionUnitSystolic, MatrixExecutionUnitInner
+from npu_model.hardware.mxu import MatrixExecutionUnitInner
 from npu_model.logging.logger import Logger
 from npu_model.software import acc, m, w
 from npu_model.software.instruction import Uop
 
 
-@pytest.fixture(params=[0, 1], ids=["SA", "IPT"])
-def mxu(request):
+@pytest.fixture
+def mxu():
     cfg = DefaultHardwareConfig()
     cfg.arch_state_config = replace(cfg.arch_state_config, dram_size=4096, vmem_size=4096, numerics="rtl")
     state = ArchState(cfg.arch_state_config)
-    cls = (MatrixExecutionUnitSystolic, MatrixExecutionUnitInner)[request.param]
-    unit = cls(f"Matrix{request.param}", Mock(spec=Logger), state, config=cfg)
+    unit = MatrixExecutionUnitInner("Matrix1", Mock(spec=Logger), state, config=cfg)
     yield unit
     state.close()
 
@@ -168,27 +167,14 @@ def test_same_accumulator_reuse_before_row_zero_is_rejected(mxu):
 
 
 def test_weight_push_then_compute_same_slot_obeys_engine_schedule(mxu):
-    state = mxu.arch_state
-    put_fp8(state, m(0), torch.ones(32, 32))
-    put_fp8(state, m(1), torch.ones(32, 32))
     tick(mxu, instruction(mxu, "VMATPUSH_WEIGHT", vd=w(0), vs1=m(1)))
-    command = instruction(mxu, "VMATMUL", vd=acc(0), vs1=m(0), vs2=w(0))
-    if mxu.mxu == "mxu1":
-        with pytest.raises(RuntimeError, match="active push"):
-            tick(mxu, command)
-        return
-    # SA's column-by-column weight push precedes the compute wavefront;
-    # starting compute before the push finishes is legal and uses new weights.
-    tick(mxu, command)
-    for _ in range(mxu.compute_first + 31):
-        tick(mxu)
-    assert state.acc[mxu.mxu][0].float().tolist() == [[32] * 32] * 32
+    with pytest.raises(RuntimeError, match="active push"):
+        tick(mxu, instruction(mxu, "VMATMUL", vd=acc(0), vs1=m(0), vs2=w(0)))
 
 
 def test_weight_push_after_compute_uses_engine_specific_drain(mxu):
     tick(mxu, instruction(mxu, "VMATMUL", vd=acc(0), vs1=m(0), vs2=w(0)))
-    allowed_age = 63 if mxu.mxu == "mxu0" else 32
-    for _ in range(allowed_age - 1):
+    for _ in range(31):
         tick(mxu)
     tick(mxu, instruction(mxu, "VMATPUSH_WEIGHT", vd=w(0), vs1=m(1)))
     for _ in range(32):

@@ -8,7 +8,7 @@ noted; ``scale`` is a raw ERF value, the power of two 2**(scale - 127).
 import torch
 
 from .rtl_math import (unary, minmax, extremum, pack_row, unpack_row, _truncated_bf16,
-                       canonical_nan, sa_fma, ipt_row)
+                       canonical_nan, ipt_row)
 
 
 def _exponent(scale: int) -> int:
@@ -81,18 +81,6 @@ class RtlNumerics:
     def acc_to_fp8(x: torch.Tensor, scale: int) -> torch.Tensor:
         """BF16ScaleToE4M3: like FP8Pack, but a value rounding to 480 encodes 0x7f."""
         return pack_row(x.flatten(), scale, mxu=True).view(torch.float8_e4m3fn).reshape(x.shape)
-
-    @staticmethod
-    def systolic_matmul(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
-        """Custom-FMA array: c + a @ b, rounding every MAC to BF16 in inner order."""
-        rows, columns = a.shape[0], b.shape[1]
-        a8, b8 = a.view(torch.uint8).contiguous(), b.view(torch.uint8).contiguous()
-        out = c.flatten()
-        for k in range(a.shape[1]):
-            av = a8[:, k:k + 1].expand(rows, columns).reshape(-1).view(torch.float8_e4m3fn)
-            bv = b8[k:k + 1, :].expand(rows, columns).reshape(-1).view(torch.float8_e4m3fn)
-            out = sa_fma(av, bv, out)
-        return out.reshape(rows, columns)
 
     @staticmethod
     def inner_product_matmul(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
@@ -168,11 +156,8 @@ class TorchNumerics:
         return scaled.clamp(-448, 448).to(torch.float8_e4m3fn)
 
     @staticmethod
-    def systolic_matmul(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
+    def inner_product_matmul(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
         return (a.float() @ b.float() + c.float()).to(torch.bfloat16)
-
-    # Both arrays compute the same product; only RTL rounding tells them apart.
-    inner_product_matmul = systolic_matmul
 
 
 Numerics = RtlNumerics | TorchNumerics

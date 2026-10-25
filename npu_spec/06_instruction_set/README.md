@@ -11,10 +11,10 @@ Conventions used in the opcode tables:
   immediate, in hex, when the instruction has these selector fields.
 - A word `w` is the instruction if `(w & mask) == match`. The bits that are not
   in the mask are not decoded.
-- `Configs` gives the configurations that have the unit (`all`: `default`,
-  `ipt` and `ipt-nvfp4`). In the other configurations the instruction is illegal.
+- `Configs` gives the configurations that have the unit (`all`: `default` and
+  `ipt-nvfp4`). In the other configurations the instruction is illegal.
 - Verilog-style descriptions use architectural state names such as `x[...]`,
-  `m[...]`, `e[...]`, `pc`, `VMEM[...]`, and `mxuN.acc`.
+  `m[...]`, `e[...]`, `pc`, `VMEM[...]`, and `mxu1.acc`.
 - whenever an instruction semantic uses `{m[r], m[r+1]}`, the encoded register
   field names the low register of the pair, and encoding `r = 63` is illegal.
 
@@ -62,12 +62,8 @@ for `m`, `e`, or MXU-local state; this card uses the conservative convention
 | `x31` | `t6` | Temporary register 6 | Caller |
 | `m0-m63` | `-` | Flat tensor register file, `1024` bytes per register | Caller |
 | `e0-e31` | `-` | Whole-tensor scale register file, one `FP8_E8M0` exponent per register | Caller |
-| `mxu0.w0` | `-` | MXU0 FP8 weight slot 0 | Caller |
-| `mxu0.w1` | `-` | MXU0 FP8 weight slot 1 | Caller |
 | `mxu1.w0` | `-` | MXU1 FP8 weight slot 0 | Caller |
 | `mxu1.w1` | `-` | MXU1 FP8 weight slot 1 | Caller |
-| `mxu0.acc0` | `-` | MXU0 local `32 x 32 BF16` accumulation buffer 0 | Caller |
-| `mxu0.acc1` | `-` | MXU0 local `32 x 32 BF16` accumulation buffer 1 | Caller |
 | `mxu1.acc0` | `-` | MXU1 local `32 x 32 BF16` accumulation buffer 0 | Caller |
 | `mxu1.acc1` | `-` | MXU1 local `32 x 32 BF16` accumulation buffer 1 | Caller |
 | `dma.base` | `-` | DMA base address | Caller |
@@ -370,19 +366,12 @@ Rows are ordered by hex value.
 | `csrrwi x(rd), csr, uimm` | I | `73/5` | `00005073` / `0000707f` | scalar | all | `x[rd] = CSR[csr]; CSR[csr] = uimm` |
 | `csrrsi x(rd), csr, uimm` | I | `73/6` | `00006073` / `0000707f` | scalar | all | `x[rd] = CSR[csr]; if (uimm != 0) CSR[csr] = CSR[csr] \| uimm` |
 | `csrrci x(rd), csr, uimm` | I | `73/7` | `00007073` / `0000707f` | scalar | all | `x[rd] = CSR[csr]; if (uimm != 0) CSR[csr] = CSR[csr] & ~uimm` |
-| `vmatpush.weight.mxu0 w(vd), m(vs1)` | VR | `77/00` | `00000077` / `fe00007f` | mxu0 | default | `mxu0.w[vd] = m[vs1] (E4M3; row j = output column j)` |
 | `vmatpush.weight.mxu1 w(vd), m(vs1)` | VR | `77/01` | `02000077` / `fe00007f` | mxu1 | all | `mxu1.w[vd] = m[vs1] (E4M3; row j = output column j)` |
-| `vmatpush.acc.fp8.mxu0 acc(vd), m(vs1)` | VR | `77/02` | `04000077` / `fe00007f` | mxu0 | default | `mxu0.acc[vd] = BF16(m[vs1]) (E4M3)` |
 | `vmatpush.acc.fp8.mxu1 acc(vd), m(vs1)` | VR | `77/03` | `06000077` / `fe00007f` | mxu1 | all | `mxu1.acc[vd] = BF16(m[vs1]) (E4M3)` |
-| `vmatpush.acc.bf16.mxu0 acc(vd), m(vs1)` | VR | `77/04` | `08000077` / `fe00007f` | mxu0 | default | `mxu0.acc[vd] = {m[vs1], m[vs1+1]}` |
 | `vmatpush.acc.bf16.mxu1 acc(vd), m(vs1)` | VR | `77/05` | `0a000077` / `fe00007f` | mxu1 | all | `mxu1.acc[vd] = {m[vs1], m[vs1+1]}` |
-| `vmatpop.fp8.acc.mxu0 m(vd), acc(vs2), e(vs1)` | VR | `77/06` | `0c000077` / `fe00007f` | mxu0 | default | `m[vd] = E4M3(mxu0.acc[vs2] * 2^(e[vs1] - 127))` |
 | `vmatpop.fp8.acc.mxu1 m(vd), acc(vs2), e(vs1)` | VR | `77/07` | `0e000077` / `fe00007f` | mxu1 | all | `m[vd] = E4M3(mxu1.acc[vs2] * 2^(e[vs1] - 127))` |
-| `vmatpop.bf16.acc.mxu0 m(vd), acc(vs2)` | VR | `77/08` | `10000077` / `fe00007f` | mxu0 | default | `{m[vd], m[vd+1]} = mxu0.acc[vs2]` |
 | `vmatpop.bf16.acc.mxu1 m(vd), acc(vs2)` | VR | `77/09` | `12000077` / `fe00007f` | mxu1 | all | `{m[vd], m[vd+1]} = mxu1.acc[vs2]` |
-| `vmatmul.mxu0 acc(vd), m(vs1), w(vs2)` | VR | `77/0A` | `14000077` / `fe00007f` | mxu0 | default | `mxu0.acc[vd] = m[vs1] @ mxu0.w[vs2]^T` |
 | `vmatmul.mxu1 acc(vd), m(vs1), w(vs2)` | VR | `77/0B` | `16000077` / `fe00007f` | mxu1 | all | `mxu1.acc[vd] = m[vs1] @ mxu1.w[vs2]^T` |
-| `vmatmul.acc.mxu0 acc(vd), m(vs1), w(vs2)` | VR | `77/0C` | `18000077` / `fe00007f` | mxu0 | default | `mxu0.acc[vd] = mxu0.acc[vd] + m[vs1] @ mxu0.w[vs2]^T` |
 | `vmatmul.acc.mxu1 acc(vd), m(vs1), w(vs2)` | VR | `77/0D` | `1a000077` / `fe00007f` | mxu1 | all | `mxu1.acc[vd] = mxu1.acc[vd] + m[vs1] @ mxu1.w[vs2]^T` |
 | `vmatpush.weight.nv w(vd), m(vs1)` | VR | `77/0E` | `1c000077` / `fe00007f` | nv | ipt-nvfp4 | `nv.w[vd] = m[vs1] and its scales (row j = output column j)` |
 | `vmatpush.acc.bf16.nv acc(vd), m(vs1)` | VR | `77/0F` | `1e000077` / `fe00007f` | nv | ipt-nvfp4 | `nv.acc[vd] = {m[vs1], m[vs1+1]} (BF16, exact in FP32)` |
@@ -416,7 +405,7 @@ take a 5-bit immediate in place of `rs1`.
 | Tensor registers | `64` |
 | Scale registers | `32` |
 | Tensor register storage | `32 rows x 32 bytes = 1024 bytes` |
-| MXU count | `2` |
+| FP8 MXU count | `1` |
 | MXU weight slots per MXU | `2` |
 | MXU accumulator storage | `32 x 32 BF16` |
 | DMA channels | `8` |

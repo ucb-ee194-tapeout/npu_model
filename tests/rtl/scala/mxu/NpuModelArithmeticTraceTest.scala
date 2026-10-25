@@ -4,7 +4,6 @@ import chisel3._
 import chisel3.simulator.EphemeralSimulator._
 import atlas.common.InnerProductTreeParams
 import atlas.ipt.AnchorAccumulationTree
-import sp26FPUnits.E4M3FMA
 import org.scalatest.flatspec.AnyFlatSpec
 import java.nio.file.{Files,Paths}
 
@@ -14,16 +13,10 @@ class NpuModelArithmeticHarness extends Module {
     val w = Input(Vec(32,UInt(8.W)))
     val partial = Input(UInt(16.W))
     val scale = Input(UInt(8.W))
-    val fma = Output(UInt(16.W))
     val ipt = Output(UInt(16.W))
     val quant = Output(UInt(8.W))
     val dequant = Output(UInt(16.W))
   })
-  val fma = Module(new E4M3FMA)
-  fma.io.a := io.a(0)
-  fma.io.b := io.w(0)
-  fma.io.addend16 := io.partial
-  io.fma := fma.io.out16
   val ipt = Module(new AnchorAccumulationTree(InnerProductTreeParams()))
   ipt.io.act := io.a
   ipt.io.weightBuf0 := io.w
@@ -60,7 +53,7 @@ class NpuModelArithmeticTraceTest extends AnyFlatSpec {
         dut.io.scale.poke(scale.U)
         dut.clock.step(2)
         cases.value += ujson.Obj("a"->ujson.Arr.from(a),"w"->ujson.Arr.from(w),"partial"->partial,"scale"->scale,
-          "fma"->dut.io.fma.peek().litValue.toInt,"ipt"->dut.io.ipt.peek().litValue.toInt,
+          "ipt"->dut.io.ipt.peek().litValue.toInt,
           "quant"->dut.io.quant.peek().litValue.toInt,"dequant"->dut.io.dequant.peek().litValue.toInt)
       }
     }

@@ -14,7 +14,7 @@ from tests.helpers import run_simulation
 class _MrfConflictProgram(Program):
     instructions: list[Instruction] = [
         VADD_BF16(vd=m(4), vs1=m(0), vs2=m(0)),
-        VMATMUL_MXU0(vd=acc(0), vs1=m(4), vs2=w(0)),
+        VMATMUL_MXU1(vd=acc(0), vs1=m(4), vs2=w(0)),
     ]
     memory_regions: List[Tuple[int, torch.Tensor]] = []
 
@@ -40,8 +40,8 @@ class _WeightBufConflictProgram(Program):
 
 class _AccBufConflictProgram(Program):
     instructions: list[Instruction] = [
-        VMATMUL_MXU0(vd=acc(0), vs1=m(0), vs2=w(0)),
-        VMATPOP_BF16_ACC_MXU0(vd=m(4), vs2=acc(0)),
+        VMATMUL_MXU1(vd=acc(0), vs1=m(0), vs2=w(0)),
+        VMATPOP_BF16_ACC_MXU1(vd=m(4), vs2=acc(0)),
     ]
     memory_regions: List[Tuple[int, torch.Tensor]] = []
 
@@ -49,7 +49,7 @@ class _AccBufConflictProgram(Program):
 class _NoMrfConflictProgram(Program):
     instructions: list[Instruction] = [
         VADD_BF16(vd=m(6), vs1=m(0), vs2=m(2)),
-        VMATMUL_MXU0(vd=acc(0), vs1=m(4), vs2=w(0)),
+        VMATMUL_MXU1(vd=acc(0), vs1=m(4), vs2=w(0)),
     ]
     memory_regions: List[Tuple[int, torch.Tensor]] = []
 
@@ -57,9 +57,9 @@ class _NoMrfConflictProgram(Program):
 class _NoVpuMrfConflictProgram(Program):
     instructions: list[Instruction] = [
         VADD_BF16(vd=m(6), vs1=m(0), vs2=m(2)),
-        # Let the VPU finish reading m0 before MXU0 reads the same bank.
+        # Let the VPU finish reading m0 before MXU1 reads the same bank.
         DELAY(imm=30),
-        VMATMUL_MXU0(vd=acc(0), vs1=m(0), vs2=w(0)),
+        VMATMUL_MXU1(vd=acc(0), vs1=m(0), vs2=w(0)),
     ]
     memory_regions: List[Tuple[int, torch.Tensor]] = []
 
@@ -69,7 +69,7 @@ class _NoXluMrfConflictProgram(Program):
         VTRPOSE_XLU(vd=m(6), vs1=m(0)),
         # XLU starts its MRF read phase one cycle after issue.
         DELAY(imm=31),
-        VMATMUL_MXU0(vd=acc(0), vs1=m(0), vs2=w(0)),
+        VMATMUL_MXU1(vd=acc(0), vs1=m(0), vs2=w(0)),
     ]
     memory_regions: List[Tuple[int, torch.Tensor]] = []
 
@@ -91,23 +91,14 @@ class _NoVmemConflictProgram(Program):
     ]
 
 
-class _NoWeightBufConflictProgram(Program):
-    instructions: list[Instruction] = [
-        VMATPUSH_WEIGHT_MXU0(vd=w(0), vs1=m(0)),
-        # MXU0 can read the same weight slot while it is still being filled.
-        # Use a different MRF bank so this only tests weight-buffer forwarding.
-        VMATMUL_MXU0(vd=acc(0), vs1=m(2), vs2=w(0)),
-    ]
-    memory_regions: List[Tuple[int, torch.Tensor]] = []
-
-
 class _NoWeightPushMrfConflictProgram(Program):
     instructions: list[Instruction] = [
-        VMATPUSH_WEIGHT_MXU0(vd=w(0), vs1=m(0)),
+        VMATPUSH_WEIGHT_MXU1(vd=w(0), vs1=m(0)),
         # Both commands read m0. The push reads it at ages 0..31; DELAY 30
         # puts the matmul 32 issue cycles after the push. DELAY 29 overlaps.
+        # The matmul reads weight slot 1, so only the MRF read conflicts.
         DELAY(imm=30),
-        VMATMUL_MXU0(vd=acc(0), vs1=m(0), vs2=w(0)),
+        VMATMUL_MXU1(vd=acc(0), vs1=m(0), vs2=w(1)),
     ]
     memory_regions: List[Tuple[int, torch.Tensor]] = []
 
@@ -123,19 +114,20 @@ class _NoMxu1WeightBufConflictProgram(Program):
 
 class _NoAccBufConflictProgram(Program):
     instructions: list[Instruction] = [
-        VMATMUL_MXU0(vd=acc(0), vs1=m(0), vs2=w(0)),
+        VMATMUL_MXU1(vd=acc(0), vs1=m(0), vs2=w(0)),
         # Wait until the first accumulator row is available to the pop.
-        DELAY(imm=62),
-        VMATPOP_BF16_ACC_MXU0(vd=m(4), vs2=acc(0)),
+        DELAY(imm=2),
+        VMATPOP_BF16_ACC_MXU1(vd=m(4), vs2=acc(0)),
     ]
     memory_regions: List[Tuple[int, torch.Tensor]] = []
 
 
 class _NoAccReadAfterWriteConflictProgram(Program):
     instructions: list[Instruction] = [
-        VMATMUL_MXU0(vd=acc(0), vs1=m(0), vs2=w(0)),
-        DELAY(imm=62),
-        VMATMUL_ACC_MXU0(vd=acc(0), vs1=m(2), vs2=w(0)),
+        VMATMUL_MXU1(vd=acc(0), vs1=m(0), vs2=w(0)),
+        # The second matmul waits for the first one's activation read port.
+        DELAY(imm=30),
+        VMATMUL_ACC_MXU1(vd=acc(0), vs1=m(2), vs2=w(0)),
     ]
     memory_regions: List[Tuple[int, torch.Tensor]] = []
 
@@ -144,7 +136,7 @@ class _NoVpuWriteReadConflictProgram(Program):
     instructions: list[Instruction] = [
         VADD_BF16(vd=m(4), vs1=m(0), vs2=m(2)),
         DELAY(imm=64),
-        VMATMUL_MXU0(vd=acc(0), vs1=m(4), vs2=w(0)),
+        VMATMUL_MXU1(vd=acc(0), vs1=m(4), vs2=w(0)),
     ]
     memory_regions: List[Tuple[int, torch.Tensor]] = []
 
@@ -153,17 +145,17 @@ class _NoXluWriteReadConflictProgram(Program):
     instructions: list[Instruction] = [
         VTRPOSE_XLU(vd=m(4), vs1=m(0)),
         DELAY(imm=64),
-        VMATMUL_MXU0(vd=acc(0), vs1=m(4), vs2=w(0)),
+        VMATMUL_MXU1(vd=acc(0), vs1=m(4), vs2=w(0)),
     ]
     memory_regions: List[Tuple[int, torch.Tensor]] = []
 
 
 class _NoWeightPushOverlapProgram(Program):
     instructions: list[Instruction] = [
-        VMATPUSH_WEIGHT_MXU0(vd=w(0), vs1=m(0)),
+        VMATPUSH_WEIGHT_MXU1(vd=w(0), vs1=m(0)),
         # Weight pushes share one write path; the next waits for the last row.
         DELAY(imm=30),
-        VMATPUSH_WEIGHT_MXU0(vd=w(1), vs1=m(2)),
+        VMATPUSH_WEIGHT_MXU1(vd=w(1), vs1=m(2)),
     ]
     memory_regions: List[Tuple[int, torch.Tensor]] = []
 
@@ -174,16 +166,6 @@ class _NoAccPushOverlapProgram(Program):
         # Accumulator pushes share one write path, even to different accumulators.
         DELAY(imm=30),
         VMATPUSH_ACC_FP8_MXU1(vd=acc(1), vs1=m(2)),
-    ]
-    memory_regions: List[Tuple[int, torch.Tensor]] = []
-
-
-class _NoAccReadAfterPushProgram(Program):
-    instructions: list[Instruction] = [
-        VMATPUSH_ACC_FP8_MXU0(vd=acc(0), vs1=m(0)),
-        # Trailing the push by one more cycle reads each row after it lands.
-        DELAY(imm=0),
-        VMATMUL_ACC_MXU0(vd=acc(0), vs1=m(2), vs2=w(0)),
     ]
     memory_regions: List[Tuple[int, torch.Tensor]] = []
 
@@ -224,7 +206,6 @@ def test_conflicting_programs_fail(program: Program, expected_exception) -> None
         _NoVpuMrfConflictProgram(),
         _NoXluMrfConflictProgram(),
         _NoVmemConflictProgram(),
-        _NoWeightBufConflictProgram(),
         _NoWeightPushMrfConflictProgram(),
         _NoMxu1WeightBufConflictProgram(),
         _NoAccBufConflictProgram(),
@@ -233,7 +214,6 @@ def test_conflicting_programs_fail(program: Program, expected_exception) -> None
         _NoXluWriteReadConflictProgram(),
         _NoWeightPushOverlapProgram(),
         _NoAccPushOverlapProgram(),
-        _NoAccReadAfterPushProgram(),
         _NoPopAfterPushProgram(),
     ],
     ids=[
@@ -241,7 +221,6 @@ def test_conflicting_programs_fail(program: Program, expected_exception) -> None
         "NoVpuMrfConflict",
         "NoXluMrfConflict",
         "NoVmemConflict",
-        "NoWeightBufConflict",
         "NoWeightPushMrfConflict",
         "NoMxu1WeightBufConflict",
         "NoAccBufConflict",
@@ -250,7 +229,6 @@ def test_conflicting_programs_fail(program: Program, expected_exception) -> None
         "NoXluWriteReadConflict",
         "NoWeightPushOverlap",
         "NoAccPushOverlap",
-        "NoAccReadAfterPush",
         "NoPopAfterPush",
     ],
 )
@@ -269,8 +247,8 @@ def test_non_conflicting_programs_execute(program: Program) -> None:
             BankConflictError,
             "MRF bank conflict",
         ),
-        (_NoAccBufConflictProgram(), 1, 61, RuntimeError, "row-0 writeback"),
-        (_NoAccReadAfterWriteConflictProgram(), 1, 61, RuntimeError, "row-0 writeback"),
+        (_NoAccBufConflictProgram(), 1, 1, RuntimeError, "row-0 writeback"),
+        (_NoAccReadAfterWriteConflictProgram(), 1, 29, RuntimeError, "read port"),
         (_NoVpuMrfConflictProgram(), 1, 29, BankConflictError, "MRF bank conflict"),
         (_NoXluMrfConflictProgram(), 1, 30, BankConflictError, "MRF bank conflict"),
         (
@@ -305,8 +283,8 @@ def test_non_conflicting_programs_execute(program: Program) -> None:
     ids=[
         "Mxu1WeightBufferNeeds30Cycles",
         "WeightPushMrfReadNeeds30Cycles",
-        "AccumulatorPopNeeds62Cycles",
-        "AccumulatorReuseNeeds62Cycles",
+        "AccumulatorPopNeeds2Cycles",
+        "AccumulatorReuseNeeds30Cycles",
         "VpuMrfReadNeeds30Cycles",
         "XluMrfReadNeeds31Cycles",
         "VpuWriteThenMrfReadNeeds64Cycles",
@@ -328,12 +306,8 @@ def test_minimum_conflict_avoidance_delay(
         run_simulation(program, DefaultHardwareConfig(), max_cycles=500)
 
 
-@pytest.mark.parametrize(
-    "program",
-    [_NoAccReadAfterPushProgram(), _NoPopAfterPushProgram()],
-    ids=["MatmulAccDirectlyAfterPush", "PopDirectlyAfterPush"],
-)
-def test_accumulator_read_cannot_directly_follow_push(program: Program) -> None:
+def test_accumulator_read_cannot_directly_follow_push() -> None:
+    program = _NoPopAfterPushProgram()
     program.instructions = [
         insn for insn in program.instructions if not isinstance(insn, DELAY)
     ]

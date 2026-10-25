@@ -31,11 +31,11 @@ vload m4, 0(x31)
 delay 34
 vtrpose.xlu m2, m2   # MXU weights are streamed as columns
 delay 66
-vmatpush.weight.mxu0 w0, m2
+vmatpush.weight.mxu1 w0, m2
 delay 32
-vmatmul.mxu0 acc0, m0, w0
+vmatmul.mxu1 acc0, m0, w0
 delay 96
-vmatpop.bf16.acc.mxu0 m10, acc0
+vmatpop.bf16.acc.mxu1 m10, acc0
 delay 32
 vmul.bf16 m12, m10, m6
 delay 34
@@ -57,9 +57,9 @@ vmul.bf16 m24, m18, m22
 delay 66
 seli e0, 127
 # Quantize a column-blocked BF16 pair into row-major FP8 via acc1.
-vmatpush.acc.bf16.mxu0 acc1, m24
+vmatpush.acc.bf16.mxu1 acc1, m24
 delay 32
-vmatpop.fp8.acc.mxu0 m26, acc1, e0
+vmatpop.fp8.acc.mxu1 m26, acc1, e0
 delay 32
 vmatmul.mxu1 acc0, m26, w0
 delay 35

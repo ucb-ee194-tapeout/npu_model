@@ -69,8 +69,8 @@ def test_representative_instruction_encodings_match_spec_bit_packing() -> None:
             encode_vr_type(0b1010111, 0b0000000, vd=2, vs1=4, vs2=6),
         ),
         (
-            VMATMUL_MXU0(vd=acc(0), vs1=m(1), vs2=w(0)),
-            encode_vr_type(0b1110111, 0b0001010, vd=0, vs1=1, vs2=0),
+            VMATMUL_MXU1(vd=acc(0), vs1=m(1), vs2=w(0)),
+            encode_vr_type(0b1110111, 0b0001011, vd=0, vs1=1, vs2=0),
         ),
     ]
 

@@ -10,7 +10,7 @@ The baseline machine contains:
 - one scalar integer register file of `32` registers, `x0` through `x31`
 - one tensor register file of `64` registers, `m0` through `m63`
 - one scale register file of `32` registers, `e0` through `e31`
-- two architecturally visible matrix execution units, `mxu0` and `mxu1`
+- one FP8 matrix execution unit, `mxu1`
 - one vector processing unit, `vpu`
 - one load/store unit, `lsu`
 - one tensor transform / reduction unit, `xlu`

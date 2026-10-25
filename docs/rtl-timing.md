@@ -48,7 +48,6 @@ For a command issued at T (default 32 rows):
 | Scalar load register writeback | T+3 | T+3 |
 | VLOAD / VSTORE | T+3 | T+34 |
 | MXU weight/accumulator push, accumulator pop | T+1 | T+32 |
-| MXU0 systolic compute, accumulator rows | T+63 | T+94 |
 | MXU1 inner-product compute, accumulator rows | T+3 | T+34 |
 | VPU ordinary BF16 operations | T+2 | T+65 |
 | VPU row min/max | T+2 | T+33 |
@@ -62,13 +61,13 @@ For a command issued at T (default 32 rows):
 
 The MXU table lists row-write edges; command issue checks can impose additional
 spacing when operations reuse a port, register or accumulator. The bank-conflict
-tests distinguish these cases: MXU0 can read a weight slot while the push is
-still streaming when the MRF sources differ, while MXU1 requires `delay 30`
-before reading the slot. A weight push and matmul that both read `m0` need
-`delay 30` because their physical MRF reads overlap; `vadd.bf16` reading `m0`
+tests distinguish these cases: MXU1 requires `delay 30` before a matmul reads a
+slot that a push is still streaming. A weight push and matmul that both read
+`m0` need `delay 30` because their physical MRF reads overlap; `vadd.bf16` reading `m0`
 followed by that matmul also needs `delay 30`, and XLU transpose reading `m0`
-needs `delay 31`. After a matmul writes `acc0`, a pop or another accumulate
-matmul that reads `acc0` needs `delay 62`. Each accumulator has one read port,
+needs `delay 31`. After a matmul writes `acc0`, a pop that reads `acc0` needs
+`delay 2`, and an accumulate matmul needs `delay 30` for the activation read
+port. Each accumulator has one read port,
 so a pop and an accumulate matmul cannot stream from the same accumulator at
 once; an overwrite matmul does not read it and may issue the cycle after a pop
 of the same accumulator (the `perf_mm_*` baremetal schedule). A VPU or XLU write to `m4` followed
@@ -96,9 +95,9 @@ physical port checks account for mN/m(N+32) sharing a 1R1W bank.
   possible BF16 input encoding is represented, including special values.
 - Add/subtract and column sums truncate the FP32 result to BF16, with HardFloat's
   canonical NaN. Min/max use the RTL's ordered-bit comparisons.
-- MXU0 uses the default custom FP8×FP8+BF16 FMA, rounding each MAC. MXU1 uses the
-  default 32-bit anchor accumulator with seven bits of exponent headroom. These
-  paths use integer arithmetic and are compared to actual RTL outputs.
+- MXU1 uses the default 32-bit anchor accumulator with seven bits of exponent
+  headroom. This path uses integer arithmetic and is compared to actual RTL
+  outputs.
 - Weight-buffer rows are output **columns**, so row-major B tiles must be
   transposed before weight push for A×B.
 - VPU pack concatenates successive 16-lane rows from its bank stream. MXU BF16
@@ -115,13 +114,12 @@ and approximation rules; ideal PyTorch mathematical results can differ.
 
 ## Validation boundaries
 
-Scalar, VPU, both MXUs, LSU and XLU have real-RTL comparison fixtures. Engine
+Scalar, VPU, MXU1, LSU and XLU have real-RTL comparison fixtures. Engine
 harnesses supply synchronous memory responses and check cycle/address/data
 traces; VPU traces also check busy and opcode-specific issue-busy signals.
 IMEM host arbitration and CSR counters have directed Python tests. The harnesses
-do not instantiate a complete AtlasTile/TileLink system. The default geometry,
-custom-FMA systolic architecture and two-stage IPT are the supported timing
-configuration.
+do not instantiate a complete AtlasTile/TileLink system. The default geometry
+and two-stage IPT are the supported timing configuration.
 
 ## DMA: beat-level engine, parameterized memory
 

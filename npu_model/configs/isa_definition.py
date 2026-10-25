@@ -120,7 +120,6 @@ def _tensor_register_bytes(state: ArchState) -> int:
 
 def _vmatmul(
     state: ArchState,
-    unit: str,
     vd: Accumulator,
     vs1: MatrixReg,
     vs2: WeightBuffer,
@@ -128,14 +127,12 @@ def _vmatmul(
 ) -> None:
     # Weight-buffer row j holds output column j's weights: acc = A @ W^T (+ acc).
     a = state.read_mrf_fp8(vs1)
-    b = state.read_wb_fp8(unit, vs2).T
+    b = state.read_wb_fp8("mxu1", vs2).T
     if accumulate:
-        c = state.read_acc_bf16(unit, vd)
+        c = state.read_acc_bf16("mxu1", vd)
     else:
         c = torch.zeros(a.shape[0], b.shape[1], dtype=torch.bfloat16)
-    # mxu0 is the systolic array, mxu1 the inner-product trees.
-    matmul = state.math.systolic_matmul if unit == "mxu0" else state.math.inner_product_matmul
-    state.write_acc_bf16(unit, vd, matmul(a, b, c))
+    state.write_acc_bf16("mxu1", vd, state.math.inner_product_matmul(a, b, c))
 
 
 def _assert_bf16_pair(state: ArchState, reg: int) -> None:
@@ -688,21 +685,9 @@ class EBREAK(Nullary, IType):
         state.halt_reason = "ebreak"
 
 
-class VMATPUSH_WEIGHT_MXU0(MXUWeightPush, VRType[WeightBuffer, MatrixReg]):
-    def exec(self, state: ArchState) -> None:
-        state.write_wb_u8("mxu0", self.vd, state.mrf[self.vs1].view(torch.uint8))
-
-
 class VMATPUSH_WEIGHT_MXU1(MXUWeightPush, VRType[WeightBuffer, MatrixReg]):
     def exec(self, state: ArchState) -> None:
         state.write_wb_u8("mxu1", self.vd, state.mrf[self.vs1].view(torch.uint8))
-
-
-class VMATPUSH_ACC_FP8_MXU0(MXUAccumulatorPush, VRType[Accumulator, MatrixReg]):
-    def exec(self, state: ArchState) -> None:
-        # FP8Unpack at unit scale (2**0).
-        x = state.read_mrf_fp8(self.vs1)
-        state.write_acc_bf16("mxu0", self.vd, state.math.from_fp8(x, 127))
 
 
 class VMATPUSH_ACC_FP8_MXU1(MXUAccumulatorPush, VRType[Accumulator, MatrixReg]):
@@ -712,22 +697,9 @@ class VMATPUSH_ACC_FP8_MXU1(MXUAccumulatorPush, VRType[Accumulator, MatrixReg]):
         state.write_acc_bf16("mxu1", self.vd, state.math.from_fp8(x, 127))
 
 
-class VMATPUSH_ACC_BF16_MXU0(MXUAccumulatorPush, VRType[Accumulator, MatrixReg]):
-    def exec(self, state: ArchState) -> None:
-        state.write_acc_bf16("mxu0", self.vd, state.read_mrf_bf16_tile(self.vs1))
-
-
 class VMATPUSH_ACC_BF16_MXU1(MXUAccumulatorPush, VRType[Accumulator, MatrixReg]):
     def exec(self, state: ArchState) -> None:
         state.write_acc_bf16("mxu1", self.vd, state.read_mrf_bf16_tile(self.vs1))
-
-
-class VMATPOP_FP8_ACC_MXU0(MXUAccumulatorPopE1, VRType[MatrixReg, Accumulator]):
-    def exec(self, state: ArchState) -> None:
-        # Multiplies by the ERF scale, unlike vpack.
-        acc = state.read_acc_bf16("mxu0", self.vs2)
-        fp8 = state.math.acc_to_fp8(acc, state.read_erf(self.es1))
-        state.write_mrf_u8(self.vd, fp8.view(torch.uint8))
 
 
 class VMATPOP_FP8_ACC_MXU1(MXUAccumulatorPopE1, VRType[MatrixReg, Accumulator]):
@@ -738,34 +710,19 @@ class VMATPOP_FP8_ACC_MXU1(MXUAccumulatorPopE1, VRType[MatrixReg, Accumulator]):
         state.write_mrf_u8(self.vd, fp8.view(torch.uint8))
 
 
-class VMATPOP_BF16_ACC_MXU0(MXUAccumulatorPop, VRType[MatrixReg, Accumulator]):
-    def exec(self, state: ArchState) -> None:
-        state.write_mrf_bf16_tile(self.vd, state.read_acc_bf16("mxu0", self.vs2))
-
-
 class VMATPOP_BF16_ACC_MXU1(MXUAccumulatorPop, VRType[MatrixReg, Accumulator]):
     def exec(self, state: ArchState) -> None:
         state.write_mrf_bf16_tile(self.vd, state.read_acc_bf16("mxu1", self.vs2))
 
 
-class VMATMUL_MXU0(MXUMatMul, VRType[Accumulator, WeightBuffer]):
-    def exec(self, state: ArchState) -> None:
-        _vmatmul(state, "mxu0", self.vd, self.vs1, self.vs2, accumulate=False)
-
-
 class VMATMUL_MXU1(MXUMatMul, VRType[Accumulator, WeightBuffer]):
     def exec(self, state: ArchState) -> None:
-        _vmatmul(state, "mxu1", self.vd, self.vs1, self.vs2, accumulate=False)
-
-
-class VMATMUL_ACC_MXU0(MXUMatMul, VRType[Accumulator, WeightBuffer]):
-    def exec(self, state: ArchState) -> None:
-        _vmatmul(state, "mxu0", self.vd, self.vs1, self.vs2, accumulate=True)
+        _vmatmul(state, self.vd, self.vs1, self.vs2, accumulate=False)
 
 
 class VMATMUL_ACC_MXU1(MXUMatMul, VRType[Accumulator, WeightBuffer]):
     def exec(self, state: ArchState) -> None:
-        _vmatmul(state, "mxu1", self.vd, self.vs1, self.vs2, accumulate=True)
+        _vmatmul(state, self.vd, self.vs1, self.vs2, accumulate=True)
 
 
 

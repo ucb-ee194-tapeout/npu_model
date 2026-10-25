@@ -53,11 +53,11 @@ vload m5, 8(x31)
 delay 34
 vtrpose.xlu m2, m2   # MXU weights are streamed as columns
 delay 66
-vmatpush.weight.mxu0 w0, m2
+vmatpush.weight.mxu1 w0, m2
 delay 32
-vmatmul.mxu0 acc0, m0, w0
+vmatmul.mxu1 acc0, m0, w0
 delay 96
-vmatpop.bf16.acc.mxu0 m6, acc0
+vmatpop.bf16.acc.mxu1 m6, acc0
 delay 32
 vadd.bf16 m8, m6, m4
 delay 66

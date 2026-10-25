@@ -27,7 +27,7 @@ class GemmaAttentionProgram(Program):
 
     This program demonstrates a scaled dot-product attention block using
     the NPU ISA:
-      - `matmul.mxu0` for Q @ K and softmax(QK^T) @ V
+      - `matmul.mxu1` for Q @ K and softmax(QK^T) @ V
       - `vexp`, `vreduce.sum`, `vrcp`, and `vmul` to implement softmax.
     """
 

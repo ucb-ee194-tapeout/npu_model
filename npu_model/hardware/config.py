@@ -45,7 +45,6 @@ class HardwareConfig:
     isa: type[IsaSpec] = IsaSpec
     arch_state_config: ArchStateConfig
     execution_units: dict[str, str]
-    mxu0_matmul_latency_cycles: int = 32
     mxu1_matmul_latency_cycles: int = 32
     vpu_simple_op_latency_cycles: int = 4
     vpu_non_pipelineable_op_latency_cycles: int = 16

@@ -20,9 +20,8 @@ The tensor and scale architectural state includes:
 
 - `64` tensor registers, `m0` through `m63`
 - `32` scale registers, `e0` through `e31`
-- two weight slots per MXU: `mxu0.w0`, `mxu0.w1`, `mxu1.w0`, `mxu1.w1`
-- two accumulation buffers per MXU:
-  `mxu0.acc0`, `mxu0.acc1`, `mxu1.acc0`, and `mxu1.acc1`
+- two weight slots, `mxu1.w0` and `mxu1.w1`
+- two accumulation buffers, `mxu1.acc0` and `mxu1.acc1`
 
 Tensor-register rules:
 

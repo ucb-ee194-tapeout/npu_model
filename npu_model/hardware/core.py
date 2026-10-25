@@ -14,10 +14,7 @@ from .ifu import InstructionFetch
 from .exu import ExecutionUnit
 
 from .exu import ScalarExecutionUnit  # type: ignore # noqa: F401, F403
-from .mxu import (
-    MatrixExecutionUnitInner, # type: ignore 
-    MatrixExecutionUnitSystolic, # type: ignore 
-)  # noqa: F401, F403
+from .mxu import MatrixExecutionUnitInner  # type: ignore # noqa: F401, F403
 from .dma import DmaExecutionUnit  # type: ignore # noqa: F401, F403
 from .vpu import VectorExecutionUnit  # type: ignore # noqa: F401, F403
 from .xlu import CrossLaneExecutionUnit  # noqa: F401

@@ -1,6 +1,6 @@
 # Gemma attention kernel (simplified, single-head)
 # Scaled dot-product attention: softmax(Q @ K^T * scale) @ V
-#   - vmatmul.mxu0 for Q @ K
+#   - vmatmul.mxu1 for Q @ K
 #   - vexp, vredsum.row, vrecip, vmul to implement softmax
 #
 # Register map:
@@ -58,11 +58,11 @@ delay 34
 # --- Push K to WB slot 0, compute scores = Q @ K, pop bf16 ---
 vtrpose.xlu m1, m1   # MXU weights are streamed as columns
 delay 66
-vmatpush.weight.mxu0 w0, m1
+vmatpush.weight.mxu1 w0, m1
 delay 32
-vmatmul.mxu0 acc0, m0, w0
+vmatmul.mxu1 acc0, m0, w0
 delay 96
-vmatpop.bf16.acc.mxu0 m4, acc0     # scores -> m4/m5
+vmatpop.bf16.acc.mxu1 m4, acc0     # scores -> m4/m5
 delay 32
 
 # scores_scaled = scores * scale

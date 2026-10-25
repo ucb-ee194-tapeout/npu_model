@@ -1,7 +1,7 @@
 # 64x32x96 matmul: M=64, K=32, N=96 (2 M-tiles, 1 K-tile, 3 N-tiles)
 # A-tile caching: load A once per M-tile, reuse across all N-tiles
 # Software pipelining: B[n+1] prefetch overlaps with C[m,n] compute
-# MXU1 (35c matmul vs 96c on MXU0)
+# MXU1 (35c matmul)
 #
 # x1  = VMEM_A  (0x2000)        x11 = N_tiles (3)
 # x2  = VMEM_B  (0x2400)        x13 = DRAM_B  (0x0800)

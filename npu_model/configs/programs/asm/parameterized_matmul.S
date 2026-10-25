@@ -2,7 +2,7 @@
 # A-tile caching: load both K-tiles of A once per M-tile, reuse across N-tiles
 # B K-tiles dispatched back-to-back into separate VMEM buffers to eliminate
 # the inter-K-tile dispatch gap (~35c per N-tile)
-# MXU1 (35c matmul vs 96c on MXU0)
+# MXU1 (35c matmul)
 #
 # x1  = VMEM_A0 (0x2000)   x11 = N_tiles (2)
 # x2  = VMEM_A1 (0x2400)   x13 = DRAM_B  (0x1000)

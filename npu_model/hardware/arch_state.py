@@ -15,9 +15,9 @@ CSR_ISA, CSR_PERF_NUM, CSR_PERF_BASE = 0xCC0, 0xCC1, 0xCC2
 NUM_PERF_COUNTERS = 27
 """PerfCounters.num: counter i is at CSR_PERF_BASE + 2i (bits 31:0) and + 2i + 1 (bits 63:32). The
 model has no performance counters: these CSRs and CSR_PERF_NUM read 0."""
-ISA_UNITS = 0b1111
-"""CSR_ISA bits 3:0 (AtlasCore features): interlock, systolic array, inner-product trees, NVFP4
-MXU. The model runs the instructions of every unit."""
+ISA_UNITS = 0b1101
+"""CSR_ISA bits 3:0 (AtlasCore features): interlock, 0 (reserved), inner-product trees, NVFP4 MXU.
+The model runs the instructions of every unit."""
 
 class ArchState:
     def __init__(
@@ -46,20 +46,12 @@ class ArchState:
         # don't want to think about how to intialize this.
         self.erf: list[torch.uint8] = [0] * self.cfg.num_e_registers
         self.wb: dict[str, list[torch.Tensor]] = {}
-        self.wb["mxu0"] = [
-            torch.zeros(self.cfg.wb_width, dtype=torch.uint8)
-            for _ in range(self.cfg.num_wb_registers)
-        ]
         self.wb["mxu1"] = [
             torch.zeros(self.cfg.wb_width, dtype=torch.uint8)
             for _ in range(self.cfg.num_wb_registers)
         ]
         acc_cols = self.cfg.mrf_width // torch.bfloat16.itemsize * 2
         self.acc: dict[str, list[torch.Tensor]] = {}
-        self.acc["mxu0"] = [
-            torch.zeros((self.cfg.mrf_depth, acc_cols), dtype=torch.bfloat16)
-            for _ in range(self.cfg.num_wb_registers)
-        ]
         self.acc["mxu1"] = [
             torch.zeros((self.cfg.mrf_depth, acc_cols), dtype=torch.bfloat16)
             for _ in range(self.cfg.num_wb_registers)
@@ -115,12 +107,8 @@ class ArchState:
             self.erf[:] = self._random_byte_list(len(self.erf), generator)
             for tensor in self.mrf:
                 self._fill_u8_random(tensor, generator)
-            for tensor in self.wb["mxu0"]:
-                self._fill_u8_random(tensor, generator)
             for tensor in self.wb["mxu1"]:
                 self._fill_u8_random(tensor, generator)
-            for tensor in self.acc["mxu0"]:
-                self._fill_bf16_random(tensor, generator)
             for tensor in self.acc["mxu1"]:
                 self._fill_bf16_random(tensor, generator)
         else:
@@ -132,12 +120,8 @@ class ArchState:
                 self.erf[i] = 0
             for i in range(len(self.mrf)):
                 self.mrf[i].fill_(0)
-            for i in range(len(self.wb["mxu0"])):
-                self.wb["mxu0"][i].fill_(0)
             for i in range(len(self.wb["mxu1"])):
                 self.wb["mxu1"][i].fill_(0)
-            for i in range(len(self.acc["mxu0"])):
-                self.acc["mxu0"][i].fill_(0)
             for i in range(len(self.acc["mxu1"])):
                 self.acc["mxu1"][i].fill_(0)
         self.pc = 0

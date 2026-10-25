@@ -58,9 +58,9 @@ vload m1, 0(x31)
 delay 34
 vtrpose.xlu m1, m1   # MXU weights are streamed as columns
 delay 66
-vmatpush.weight.mxu0 w0, m1
+vmatpush.weight.mxu1 w0, m1
 delay 32
-vmatmul.mxu0 acc0, m0, w0
+vmatmul.mxu1 acc0, m0, w0
 delay 96
 addi x18, x18, 1024
 add x19, x19, x7
@@ -78,9 +78,9 @@ vload m1, 0(x31)
 delay 34
 vtrpose.xlu m1, m1   # MXU weights are streamed as columns
 delay 66
-vmatpush.weight.mxu0 w0, m1
+vmatpush.weight.mxu1 w0, m1
 delay 32
-vmatmul.acc.mxu0 acc0, m0, w0
+vmatmul.acc.mxu1 acc0, m0, w0
 delay 96
 addi x18, x18, 1024
 add x19, x19, x7
@@ -88,7 +88,7 @@ addi x22, x22, 1
 blt x22, x12, loop_1
 addi x0, x0, 0
 addi x0, x0, 0
-vmatpop.bf16.acc.mxu0 m2, acc0
+vmatpop.bf16.acc.mxu1 m2, acc0
 delay 32
 addi x31, x3, 0  # DMA and VLS bases both count words
 vstore m2, 0(x31)

@@ -1,7 +1,7 @@
 # 32x64x32 matmul: M=32, K=64, N=32 (1 M-tile, 2 K-tiles, 1 N-tile)
 # All 4 tiles (A[k=0], B[k=0], A[k=1], B[k=1]) dispatched back-to-back into
 # separate VMEM buffers so K=0 compute overlaps K=1 data loading
-# MXU1 (35c matmul vs 96c on MXU0)
+# MXU1 (35c matmul)
 #
 # x1  = VMEM_A0 (0x2000)   x11 = N_tiles (1)
 # x24 = VMEM_A1 (0x2400)   x12 = K_tiles (2)

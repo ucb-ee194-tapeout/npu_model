@@ -32,7 +32,6 @@ class EXU(StrEnum):
     SCALAR = "ScalarExecutionUnit"
     VECTOR = "VectorExecutionUnit"
     XLU = "CrossLaneExecutionUnit"
-    MATRIX_SYSTOLIC = "MatrixExecutionUnitSystolic"
     MATRIX_INNER = "MatrixExecutionUnitInner"
     MATRIX_NVFP4 = "MatrixExecutionUnitNvfp4"
     DMA = "DmaExecutionUnit"

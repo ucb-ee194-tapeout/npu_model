@@ -38,12 +38,12 @@ delay 34
 # --- Matmul ---
 vtrpose.xlu m1, m1   # MXU weights are streamed as columns
 delay 66
-vmatpush.weight.mxu0 w0, m1
+vmatpush.weight.mxu1 w0, m1
 # VPU local transfer (1KB) is ~16 cycles at 64B/cycle
 delay 32
-vmatmul.mxu0 acc0, m0, w0
+vmatmul.mxu1 acc0, m0, w0
 delay 96
-vmatpop.bf16.acc.mxu0 m2, acc0
+vmatpop.bf16.acc.mxu1 m2, acc0
 delay 32
 
 # --- MRF -> VMEM ---

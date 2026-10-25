@@ -1,10 +1,10 @@
 """Parameterized matmul kernel: C = A @ B for arbitrary M×K×N.
 
 Tiles A (M×K fp8) and B (K×N fp8) into 32×32 chunks and accumulates
-across the K dimension using the MXU0 accumulator chaining pattern:
+across the K dimension using the MXU1 accumulator chaining pattern:
 
-    vmatmul.mxu0       — first K-tile  (resets accumulator)
-    vmatmul.acc.mxu0   — subsequent K-tiles (adds to accumulator)
+    vmatmul.mxu1       — first K-tile  (resets accumulator)
+    vmatmul.acc.mxu1   — subsequent K-tiles (adds to accumulator)
 
 Constraints:
     - M, K, N must be multiples of 32

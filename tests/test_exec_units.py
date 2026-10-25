@@ -9,13 +9,14 @@ import torch
 from npu_model.configs.hardware.default import DefaultHardwareConfig
 from npu_model.configs.isa_definition import (
     DMA_CONFIG, DMA_LOAD, DMA_STORE, LB, LBU, LH, LHU, LW, SB, SELD, SH, SW,
-    VADD_BF16, VLI_ALL, VLI_COL, VLOAD, VMATMUL_MXU0, VMATPUSH_WEIGHT_MXU0, VSTORE,
+    VADD_BF16, VLI_ALL, VLI_COL, VLOAD, VMATMUL_MXU1, VMATPOP_BF16_ACC_MXU1,
+    VMATPUSH_ACC_FP8_MXU1, VSTORE,
 )
 from npu_model.configs.numerics import NUMERICS
 from npu_model.hardware.arch_state import ArchState
 from npu_model.hardware.dma import DmaExecutionUnit
 from npu_model.hardware.lsu import LoadStoreUnit
-from npu_model.hardware.mxu import MXU_OP_LATENCIES, MatrixExecutionUnitInner, MatrixExecutionUnitSystolic
+from npu_model.hardware.mxu import MXU_OP_LATENCIES, MatrixExecutionUnitInner
 from npu_model.hardware.vpu import VPU_OP_LATENCIES, VectorExecutionUnit
 from npu_model.hardware.xlu import CrossLaneExecutionUnit
 from npu_model.logging.logger import Logger
@@ -23,8 +24,7 @@ from npu_model.software import acc, e, m, w, x
 from npu_model.software.instruction import Uop
 from npu_model.util.converter import stream_to_instrs
 
-UNITS = {"VPU": VectorExecutionUnit, "MXU0": MatrixExecutionUnitSystolic,
-         "MXU1": MatrixExecutionUnitInner, "XLU": CrossLaneExecutionUnit,
+UNITS = {"VPU": VectorExecutionUnit, "MXU1": MatrixExecutionUnitInner, "XLU": CrossLaneExecutionUnit,
          "LSU": LoadStoreUnit, "DMA": DmaExecutionUnit}
 TWO_INPUT = {"vadd.bf16", "vsub.bf16", "vmul.bf16", "vminimum.bf16", "vmaximum.bf16"}
 MXU_OPERANDS = {
@@ -171,25 +171,10 @@ def test_source_overwritten_mid_read_uses_rows_as_sampled():
     assert torch.equal(unit.arch_state.mrf[5], reference.mrf[5])
 
 
-def test_weight_push_leading_a_matmul_matches_sequential_exec():
-    unit, reference = make("MXU0"), make("MXU0").arch_state
-    push = VMATPUSH_WEIGHT_MXU0(vd=w(0), vs1=m(9))
-    matmul = VMATMUL_MXU0(vd=acc(0), vs1=m(8), vs2=w(0))
-    unit.tick(Uop(push))
-    unit.tick(Uop(matmul))  # Rows of w0 land while the wavefront advances.
-    while unit.has_in_flight:
-        unit.tick(None)
-    push.exec(reference)
-    matmul.exec(reference)
-    assert_same_state(unit.arch_state, reference)
-
-
-@pytest.mark.parametrize("unit", ["MXU0", "MXU1"])
-def test_accumulator_read_trailing_a_push_by_two_cycles_sees_it(unit):
-    import npu_model.configs.isa_definition as isa
-    exu, reference = make(unit), make(unit).arch_state
-    push = getattr(isa, f"VMATPUSH_ACC_FP8_{unit}")(vd=acc(0), vs1=m(8))
-    pop = getattr(isa, f"VMATPOP_BF16_ACC_{unit}")(vd=m(20), vs2=acc(0))
+def test_accumulator_read_trailing_a_push_by_two_cycles_sees_it():
+    exu, reference = make("MXU1"), make("MXU1").arch_state
+    push = VMATPUSH_ACC_FP8_MXU1(vd=acc(0), vs1=m(8))
+    pop = VMATPOP_BF16_ACC_MXU1(vd=m(20), vs2=acc(0))
     exu.tick(Uop(push))
     exu.tick(None)
     exu.tick(Uop(pop))  # Gap 2, the minimum: row r is read one cycle after it lands.
@@ -201,11 +186,11 @@ def test_accumulator_read_trailing_a_push_by_two_cycles_sees_it(unit):
 
 
 def test_weights_changed_under_the_wavefront_are_rejected():
-    unit = make("MXU0")
-    unit.tick(Uop(VMATMUL_MXU0(vd=acc(0), vs1=m(8), vs2=w(0))))
+    unit = make("MXU1")
+    unit.tick(Uop(VMATMUL_MXU1(vd=acc(0), vs1=m(8), vs2=w(0))))
     for _ in range(9):
         unit.tick(None)
-    unit.arch_state.read_wb_u8("mxu0", 0)[0, 0] ^= 0x01  # Row 0 already used it.
+    unit.arch_state.read_wb_u8("mxu1", 0)[0, 0] ^= 0x01  # Row 0 already used it.
     with pytest.raises(RuntimeError, match="weights changed while a matmul was using them"):
         unit.tick(None)
 

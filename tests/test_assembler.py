@@ -116,23 +116,23 @@ def test_matrix_transfer_and_matmul_parse_correctly() -> None:
     program = input_to_program(
         io.StringIO(
             """
-            vmatpush.weight.mxu0 w0, m1
-            vmatpop.bf16.acc.mxu0 m4, acc1
-            vmatmul.mxu0 acc0, m5, w0
+            vmatpush.weight.mxu1 w0, m1
+            vmatpop.bf16.acc.mxu1 m4, acc1
+            vmatmul.mxu1 acc0, m5, w0
             """
         )
     )
 
     push = program.instructions[0]
-    assert isinstance(push, VMATPUSH_WEIGHT_MXU0)
+    assert isinstance(push, VMATPUSH_WEIGHT_MXU1)
     assert push.vd == 0
     assert push.vs1 == 1
     pop = program.instructions[1]
-    assert isinstance(pop, VMATPOP_BF16_ACC_MXU0)
+    assert isinstance(pop, VMATPOP_BF16_ACC_MXU1)
     assert pop.vd == 4
     assert pop.vs2 == 1
     mul = program.instructions[2]
-    assert isinstance(mul, VMATMUL_MXU0)
+    assert isinstance(mul, VMATMUL_MXU1)
     assert mul.vd == 0
     assert mul.vs1 == 5
     assert mul.vs2 == 0

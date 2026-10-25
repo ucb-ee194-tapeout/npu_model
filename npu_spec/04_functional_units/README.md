@@ -8,7 +8,7 @@ The baseline microarchitecture is organized around:
 - a scalar execution path
 - a scale register file
 - a tensor register file and tensor interconnect
-- two MXUs
+- one FP8 MXU
 - one VPU
 - one XLU
 - an instruction-memory path
@@ -35,7 +35,7 @@ The baseline implementation supports concurrent long-running unit activity.
 
 Requirements:
 
-- `mxu0`, `mxu1`, `vpu`, `xlu`, and DMA transfers may be active concurrently
+- `mxu1`, `vpu`, `xlu`, and DMA transfers may be active concurrently
 - only one new instruction may issue in a cycle
 - resource conflicts assert; only DELAY and DMA.WAIT stall the frontend
 - issue does not perform dynamic reordering to bypass stalled older instructions
@@ -57,8 +57,6 @@ instruction; see Spacing instructions with `DELAY`.
 | LSU | Scalar loads (`lb`, `lh`, `lw`, `lbu`, `lhu`, `seld`) | 4 cycles |
 | LSU | Scalar stores (`sb`, `sh`, `sw`) | 2 cycles |
 | LSU | `vload`, `vstore` | 35 cycles |
-| MXU0 | Matmul and matmul-accumulate | 95 cycles |
-| MXU0 | Weight push, accumulator push, accumulator pop | 33 cycles |
 | MXU1 | Matmul and matmul-accumulate | 35 cycles |
 | MXU1 | Weight push, accumulator push, accumulator pop | 33 cycles |
 | VPU | Binary/unary BF16 arithmetic, moves, and transcendentals | 66 cycles |
@@ -139,7 +137,6 @@ the register.
 | `vtrpose.xlu` | `vs1`: T+1..T+32 | `vd`: T+34..T+65 | reads T+34, writes T+66 |
 | MXU weight or accumulator push | `vs1` (and `vs1+1` for BF16): T..T+31 | weight or accumulator rows T+1..T+32 | T+33 |
 | MXU accumulator pop | accumulator rows T..T+31 | `vd` (and `vd+1` for BF16): T+1..T+32 | T+33 |
-| MXU0 matmul | `vs1`: T..T+31; accumulator rows T..T+31 for `.acc`; weight row c first at T+1+c | accumulator rows T+63..T+94 | T+33 |
 | MXU1 matmul | `vs1`: T..T+31; accumulator rows T..T+31 for `.acc`; whole weight slot T+1..T+32 | accumulator rows T+3..T+34 | T+33 |
 | `vload` | VMEM rows T+1..T+32 | `vd`: T+3..T+34 | T+35 |
 | `vstore` | `vd`: T+1..T+32 | VMEM rows T+3..T+34 | T+35 |
@@ -156,52 +153,49 @@ the register.
 | XLU, then XLU | 66 | 64 |
 | `vload`, then `vload`; `vstore`, then `vstore` | 35 | 33 |
 | Scalar load, then scalar load | 3 | 1 |
-| Matmul, then matmul (same MXU) | 32 | 30 |
-| BF16 accumulator push, then matmul (same MXU) | 32 | 30 |
-| Pop, then pop (same MXU) | 32 | 30 |
-| Weight push, then weight push (same MXU) | 32 | 30 |
-| Accumulator push, then accumulator push (same MXU, any accumulator) | 32 | 30 |
+| Matmul, then matmul | 32 | 30 |
+| BF16 accumulator push, then matmul | 32 | 30 |
+| Pop, then pop | 32 | 30 |
+| Weight push, then weight push | 32 | 30 |
+| Accumulator push, then accumulator push (any accumulator) | 32 | 30 |
 
 \* Logic groups: {`vadd`, `vsub`, `vredsum.row`}, {`vexp`, `vexp2`},
 {`vsin`, `vcos`}, {`vsquare`, `vcube`}, {`vmaximum`, `vredmax`},
 {`vminimum`, `vredmin`}, and all `vli` forms. A binary or row-reduction op
 occupies both VPU slots; at most two VPU ops are in flight. `vload` and
-`vstore` use independent paths. On each MXU, weight pushes share one write
+`vstore` use independent paths. On the MXU, weight pushes share one write
 path and accumulator pushes another, which carries one push at a time.
 
 ### MXU buffer rules
 
-| A, then B (same MXU) | MXU0 gap | MXU1 gap |
-| --- | --- | --- |
-| Weight push to `wN`, then matmul reading `wN` | 1: rows arrive before the array reaches them | 32: the whole slot is read from B's T+1 |
-| Matmul reading `wN`, then weight push to `wN` | 63 | 32 |
-| Matmul writing `accN`, then pop or `matmul.acc` of `accN` | 64: B reads row r at its T+r, after row r lands | 32: a pop may not read `accN` while the matmul does, and a second matmul waits for the read port |
-| FP8 accumulator push to `accN`, then matmul on `accN`‡ | 2: B reads row r one cycle after it lands | 33 |
-| Accumulator push to `accN`, then pop of `accN` | 2 | 2 |
+| A, then B | Gap |
+| --- | --- |
+| Weight push to `wN`, then matmul reading `wN` | 32: the whole slot is read from B's T+1 |
+| Matmul reading `wN`, then weight push to `wN` | 32 |
+| Matmul writing `accN`, then pop or `matmul.acc` of `accN` | 32: a pop may not read `accN` while the matmul does, and a second matmul waits for the read port |
+| FP8 accumulator push to `accN`, then matmul on `accN`‡ | 33 |
+| Accumulator push to `accN`, then pop of `accN` | 2 |
 
 ‡ A BF16 accumulator push holds both MXU read ports, so any matmul after it
-waits 32 cycles on either MXU.
+waits 32 cycles.
 
 ### Tested examples
 
-`tests/test_bank_conflict.py` checks that each minimum below passes and, except
-for the first row, that one cycle less raises (for `DELAY 0`, one cycle less
-means no `DELAY`). Cycles count from A's issue T; B issues at T+G.
+`tests/test_bank_conflict.py` checks that each minimum below passes and that
+one cycle less raises (for `DELAY 0`, one cycle less means no `DELAY`). Cycles count from A's issue T; B issues at T+G.
 
 | A, then B | Shared resource and binding cycles | G | Minimum `DELAY` |
 | --- | --- | ---: | ---: |
-| MXU0 weight push `m0` to `w0`, then MXU0 matmul from `m2` reading `w0` | Weight row c lands at T+1+c; B first uses it at T+G+1+c | 1 | none |
 | MXU1 weight push `m0` to `w0`, then MXU1 matmul from `m2` reading `w0` | Last weight row lands at T+32; B reads the whole slot from T+G+1 | 32 | 30 |
-| MXU0 weight push from `m0`, then MXU0 matmul reading `m0` | Read port of `m0`: A's last read T+31; B's first read T+G | 32 | 30 |
-| `vadd.bf16` reading `m0`, then MXU0 matmul reading `m0` | Read port of `m0`: A's last read T+31 | 32 | 30 |
-| `vtrpose.xlu` reading `m0`, then MXU0 matmul reading `m0` | Read port of `m0`: A's last read T+32 | 33 | 31 |
-| MXU0 matmul writing `acc0`, then pop of `acc0` | Row 0 lands at T+63; B reads row 0 at T+G | 64 | 62 |
-| MXU0 matmul writing `acc0`, then `matmul.acc` of `acc0` | Row 0 lands at T+63; B reads row 0 at T+G | 64 | 62 |
-| `vadd.bf16` writing `m4`, then MXU0 matmul reading `m4` | Reservation on `m4`, free from T+66 | 66 | 64 |
-| `vtrpose.xlu` writing `m4`, then MXU0 matmul reading `m4` | Reservation on `m4`, free from T+66 | 66 | 64 |
-| MXU0 weight push to `w0`, then MXU0 weight push to `w1` | Weight write path: A's last row at T+32; B's first at T+G+1 | 32 | 30 |
+| MXU1 weight push from `m0` to `w0`, then MXU1 matmul reading `m0` and `w1` | Read port of `m0`: A's last read T+31; B's first read T+G | 32 | 30 |
+| `vadd.bf16` reading `m0`, then MXU1 matmul reading `m0` | Read port of `m0`: A's last read T+31 | 32 | 30 |
+| `vtrpose.xlu` reading `m0`, then MXU1 matmul reading `m0` | Read port of `m0`: A's last read T+32 | 33 | 31 |
+| MXU1 matmul writing `acc0`, then pop of `acc0` | Row 0 lands at T+3; B reads row 0 at T+G | 4 | 2 |
+| MXU1 matmul writing `acc0`, then `matmul.acc` of `acc0` | Activation read port: A's last read T+31; B's first read T+G | 32 | 30 |
+| `vadd.bf16` writing `m4`, then MXU1 matmul reading `m4` | Reservation on `m4`, free from T+66 | 66 | 64 |
+| `vtrpose.xlu` writing `m4`, then MXU1 matmul reading `m4` | Reservation on `m4`, free from T+66 | 66 | 64 |
+| MXU1 weight push to `w0`, then MXU1 weight push to `w1` | Weight write path: A's last row at T+32; B's first at T+G+1 | 32 | 30 |
 | MXU1 accumulator push to `acc0`, then to `acc1` | Accumulator write path: A's last row at T+32; B's first at T+G+1 | 32 | 30 |
-| MXU0 FP8 accumulator push to `acc0`, then `matmul.acc` of `acc0` | Row r lands at T+1+r; B reads it at T+G+r | 2 | 0 |
 | MXU1 FP8 accumulator push to `acc0`, then pop of `acc0` | Row r lands at T+1+r; B reads it at T+G+r | 2 | 0 |
 
 ## Decode Responsibilities
@@ -269,29 +263,17 @@ The intended scalar implementation slice is partitioned into:
 
 ## Matrix Execution Units
 
-The two MXUs share the same architectural interface but intentionally differ internally.
+The FP8 MXU, `mxu1`, accumulates with inner-product trees.
 
-Baseline intent:
-
-- `mxu0`: systolic-array accumulation
-- `mxu1`: inner-product-tree accumulation
-
-Shared requirements:
+Requirements:
 
 - whole-register activation source
-- two resident local weight slots per MXU
+- two resident local weight slots
 - `BF16` architectural accumulation
-- two local `32 x 32 BF16` accumulation buffers per MXU
+- two local `32 x 32 BF16` accumulation buffers
 - tensor-register-only accumulator preload and spill path
 - local quantization path for `vmatpop.fp8.acc.*`
 - ability to overlap with scalar and other long-chime units
-
-`mxu0` requirements:
-
-- internal `32 x 32` systolic fabric
-- architectural `32 x 32` matmul implemented directly by that fabric
-
-`mxu1` requirements:
 
 - internal `32 x 32` reduction-tree or equivalent throughput-matched fabric
 

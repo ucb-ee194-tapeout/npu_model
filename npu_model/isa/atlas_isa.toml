@@ -31,7 +31,7 @@
 #                label          branch or jump offset
 #   syntax     the assembly syntax: x(rd), m(vd), ... name a register operand and its field, and
 #              a bare field name (imm, csr, ch, ...) names any other operand
-#   unit       the unit that executes it: scalar, lsu, vpu, xlu, mxu0, mxu1, nv or dma
+#   unit       the unit that executes it: scalar, lsu, vpu, xlu, mxu1, nv or dma
 #   configs    the configurations that have the unit (optional; all if not given)
 #   m          the rows of a tensor register that it reads and writes (optional): "rows" for
 #              rows 0..M-1 (M is 32 in ISA 1.0), "all" for all 32 rows
@@ -41,7 +41,7 @@
 # Bits that are not in select, fixed or operands are not decoded: they can have any value.
 
 pc = "word"
-configurations = ["default", "ipt", "ipt-nvfp4"]
+configurations = ["default", "ipt-nvfp4"]
 
 [format.R]
 opcode = [6, 0]
@@ -755,20 +755,7 @@ unit = "dma"
 operation = "hold issue until channel ch is idle"
 ver = "1.0"
 
-# ---- MXU0 (systolic array) and MXU1 (inner-product trees): E4M3 weights, BF16 accumulators -------
-
-[[instruction]]
-mnemonic = "vmatpush.weight.mxu0"
-format = "VR"
-opcode = 0x77
-select = { funct7 = 0x00 }
-operands = { vd = "w", vs1 = "m" }
-syntax = "vmatpush.weight.mxu0 w(vd), m(vs1)"
-unit = "mxu0"
-configs = ["default"]
-m = "all"
-operation = "mxu0.w[vd] = m[vs1] (E4M3; row j = output column j)"
-ver = "1.0"
+# ---- MXU1 (inner-product trees): E4M3 weights, BF16 accumulators --------------------------------
 
 [[instruction]]
 mnemonic = "vmatpush.weight.mxu1"
@@ -780,19 +767,6 @@ syntax = "vmatpush.weight.mxu1 w(vd), m(vs1)"
 unit = "mxu1"
 m = "all"
 operation = "mxu1.w[vd] = m[vs1] (E4M3; row j = output column j)"
-ver = "1.0"
-
-[[instruction]]
-mnemonic = "vmatpush.acc.fp8.mxu0"
-format = "VR"
-opcode = 0x77
-select = { funct7 = 0x02 }
-operands = { vd = "acc", vs1 = "m" }
-syntax = "vmatpush.acc.fp8.mxu0 acc(vd), m(vs1)"
-unit = "mxu0"
-configs = ["default"]
-m = "rows"
-operation = "mxu0.acc[vd] = BF16(m[vs1]) (E4M3)"
 ver = "1.0"
 
 [[instruction]]
@@ -808,19 +782,6 @@ operation = "mxu1.acc[vd] = BF16(m[vs1]) (E4M3)"
 ver = "1.0"
 
 [[instruction]]
-mnemonic = "vmatpush.acc.bf16.mxu0"
-format = "VR"
-opcode = 0x77
-select = { funct7 = 0x04 }
-operands = { vd = "acc", vs1 = "mp" }
-syntax = "vmatpush.acc.bf16.mxu0 acc(vd), m(vs1)"
-unit = "mxu0"
-configs = ["default"]
-m = "rows"
-operation = "mxu0.acc[vd] = {m[vs1], m[vs1+1]}"
-ver = "1.0"
-
-[[instruction]]
 mnemonic = "vmatpush.acc.bf16.mxu1"
 format = "VR"
 opcode = 0x77
@@ -830,19 +791,6 @@ syntax = "vmatpush.acc.bf16.mxu1 acc(vd), m(vs1)"
 unit = "mxu1"
 m = "rows"
 operation = "mxu1.acc[vd] = {m[vs1], m[vs1+1]}"
-ver = "1.0"
-
-[[instruction]]
-mnemonic = "vmatpop.fp8.acc.mxu0"
-format = "VR"
-opcode = 0x77
-select = { funct7 = 0x06 }
-operands = { vd = "m", vs2 = "acc", vs1 = "e" }
-syntax = "vmatpop.fp8.acc.mxu0 m(vd), acc(vs2), e(vs1)"
-unit = "mxu0"
-configs = ["default"]
-m = "rows"
-operation = "m[vd] = E4M3(mxu0.acc[vs2] * 2^(e[vs1] - 127))"
 ver = "1.0"
 
 [[instruction]]
@@ -858,19 +806,6 @@ operation = "m[vd] = E4M3(mxu1.acc[vs2] * 2^(e[vs1] - 127))"
 ver = "1.0"
 
 [[instruction]]
-mnemonic = "vmatpop.bf16.acc.mxu0"
-format = "VR"
-opcode = 0x77
-select = { funct7 = 0x08 }
-operands = { vd = "mp", vs2 = "acc" }
-syntax = "vmatpop.bf16.acc.mxu0 m(vd), acc(vs2)"
-unit = "mxu0"
-configs = ["default"]
-m = "rows"
-operation = "{m[vd], m[vd+1]} = mxu0.acc[vs2]"
-ver = "1.0"
-
-[[instruction]]
 mnemonic = "vmatpop.bf16.acc.mxu1"
 format = "VR"
 opcode = 0x77
@@ -883,19 +818,6 @@ operation = "{m[vd], m[vd+1]} = mxu1.acc[vs2]"
 ver = "1.0"
 
 [[instruction]]
-mnemonic = "vmatmul.mxu0"
-format = "VR"
-opcode = 0x77
-select = { funct7 = 0x0A }
-operands = { vd = "acc", vs1 = "m", vs2 = "w" }
-syntax = "vmatmul.mxu0 acc(vd), m(vs1), w(vs2)"
-unit = "mxu0"
-configs = ["default"]
-m = "rows"
-operation = "mxu0.acc[vd] = m[vs1] @ mxu0.w[vs2]^T"
-ver = "1.0"
-
-[[instruction]]
 mnemonic = "vmatmul.mxu1"
 format = "VR"
 opcode = 0x77
@@ -905,19 +827,6 @@ syntax = "vmatmul.mxu1 acc(vd), m(vs1), w(vs2)"
 unit = "mxu1"
 m = "rows"
 operation = "mxu1.acc[vd] = m[vs1] @ mxu1.w[vs2]^T"
-ver = "1.0"
-
-[[instruction]]
-mnemonic = "vmatmul.acc.mxu0"
-format = "VR"
-opcode = 0x77
-select = { funct7 = 0x0C }
-operands = { vd = "acc", vs1 = "m", vs2 = "w" }
-syntax = "vmatmul.acc.mxu0 acc(vd), m(vs1), w(vs2)"
-unit = "mxu0"
-configs = ["default"]
-m = "rows"
-operation = "mxu0.acc[vd] = mxu0.acc[vd] + m[vs1] @ mxu0.w[vs2]^T"
 ver = "1.0"
 
 [[instruction]]

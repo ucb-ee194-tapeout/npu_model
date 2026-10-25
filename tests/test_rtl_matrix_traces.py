@@ -1,4 +1,4 @@
-"""Replay actual SA/IPT ports, arithmetic, accumulator chaining and overlap."""
+"""Replay actual IPT ports, arithmetic, accumulator chaining and overlap."""
 import json
 from pathlib import Path
 from io import StringIO
@@ -10,8 +10,7 @@ from tests.test_mxu_rtl_timing import mxu, tick
 
 
 def test_matrix_rtl_port_trace(mxu):
-    name = 'sa' if mxu.mxu == 'mxu0' else 'ipt'
-    trace = json.loads((Path(__file__).parent / f'rtl/{name}_traces.json').read_text())
+    trace = json.loads((Path(__file__).parent / 'rtl/ipt_traces.json').read_text())
     state = mxu.arch_state
     for bank in range(64):
         if bank in (2, 3):
@@ -41,5 +40,5 @@ def test_matrix_rtl_port_trace(mxu):
         tick(mxu, instructions.get(expected['cycle']))
         reads = [[b,r] for b,r,w in accesses if not w]
         writes = [[b,r, format(int.from_bytes(bytes(state.mrf[b][r*32:(r+1)*32].tolist()),'little'),'x')] for b,r,w in accesses if w]
-        assert sorted(reads) == sorted(expected['reads']), (name,expected['cycle'],'reads')
-        assert sorted(writes) == sorted(expected['writes']), (name,expected['cycle'],'writes')
+        assert sorted(reads) == sorted(expected['reads']), (expected['cycle'],'reads')
+        assert sorted(writes) == sorted(expected['writes']), (expected['cycle'],'writes')

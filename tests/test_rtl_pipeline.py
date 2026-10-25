@@ -184,7 +184,7 @@ def test_read_only_csrs_read_with_x0_or_zero_immediate(make_core):
         ECALL(),
     ])
     step(core, 8)
-    isa = ISA_VERSION[0] << 24 | ISA_VERSION[1] << 16 | 0xF
+    isa = ISA_VERSION[0] << 24 | ISA_VERSION[1] << 16 | 0xD
     assert core.arch_state.xrf[1:7] == [isa] * 4 + [0, 0]
     assert core.arch_state.halt_reason == "ecall"
 

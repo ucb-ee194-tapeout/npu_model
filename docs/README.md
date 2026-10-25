@@ -6,8 +6,8 @@ model represents it, and how the behavior is checked. It covers the scalar
 pipeline, assembler, IMEM, LSU, tensor engines, numerical behavior, workload
 migration, and the new RTL comparison workflow.
 
-The supported configuration is the default 32-row tensor geometry, MXU0's
-custom-FMA systolic array, and MXU1's two-stage inner-product tree. The DMA
+The supported configuration is the default 32-row tensor geometry and MXU1's
+two-stage inner-product tree. The DMA
 engine follows the RTL beat by beat; the off-chip memory behind it is a
 parameterized backend awaiting calibration. Production RTL was not changed to
 make the model pass. The model and supplied workloads were changed to follow
@@ -148,20 +148,16 @@ These checks enforce the software-scheduled hardware contract. They do not
 insert hidden scoreboarding stalls. VPU and XLU also have explicit abort cleanup
 for the simulator's optional runtime-error recovery mode.
 
-### MXU0 and MXU1
+### MXU1
 
-`atlas/mxu/sa/SystolicArrayTop.scala` and
-`atlas/mxu/ipt/InnerProductTreesTop.scala` contain separate port sequencers,
-weight slots, accumulation buffers, and compute pipelines.
+`atlas/mxu/ipt/InnerProductTreesTop.scala` contains the port sequencer, weight
+slots, accumulation buffers, and compute pipeline.
 [`mxu.py`](../npu_model/hardware/mxu.py) now tracks overlapping operations and
 per-row source sampling, buffer updates, and destination writes.
 
 Weight/accumulator push and accumulator pop write rows at T+1 through T+32.
-MXU0 compute writes accumulator rows at T+63 through T+94; MXU1 writes them at
-T+3 through T+34. Port availability, accumulator readiness, and weight-slot
-reuse are modeled separately. The SA model advances the PE wavefront so that
-weight use follows the relevant cycle rather than snapshotting an entire
-matrix only at completion.
+Compute writes accumulator rows at T+3 through T+34. Port availability,
+accumulator readiness, and weight-slot reuse are modeled separately.
 
 Weights are stored as **output columns**: if the source register contains W,
 the dot products compute A × Wᵀ. The supplied row-major B workloads therefore
@@ -170,8 +166,6 @@ transpose each B tile before pushing it into the weight buffer.
 Numerical implementations in [`rtl_math.py`](../npu_model/hardware/rtl_math.py)
 follow the default datapaths:
 
-- MXU0: the custom `E4M3Mul` / `E4M3ProdAddBF16` FMA, including exponent
-  alignment, sticky bits, normalization, and BF16 rounding after each MAC.
 - MXU1: `AnchorAccumulationTree` / `FPUtils` anchor alignment into 32-bit
   integers, seven bits of exponent headroom, reduction, and conversion to BF16.
 - Push/pop conversions: explicit FP8/BF16 conversion and special-value handling.
@@ -240,7 +234,6 @@ For a command issued at T (default 32 rows):
 | Scalar load register writeback | T+3 | T+3 |
 | VLOAD / VSTORE | T+3 | T+34 |
 | MXU weight/accumulator push, accumulator pop | T+1 | T+32 |
-| MXU0 systolic compute, accumulator rows | T+63 | T+94 |
 | MXU1 inner-product compute, accumulator rows | T+3 | T+34 |
 | VPU ordinary BF16 operations | T+2 | T+65 |
 | VPU row min/max | T+2 | T+33 |
@@ -321,9 +314,9 @@ separate trace tests check their integration with reads, issue, and writeback.
 | --- | --- | --- |
 | `NpuModelScalarTraceTest` / [`test_rtl_scalar_traces.py`](../tests/test_rtl_scalar_traces.py) | `ScalarCore` | Instruction words, fetch/S1 PCs, issue, redirect result, halt/illegal behavior, and selected scalar operand values exposed through CSR write data. |
 | `NpuModelVectorTraceTest` / [`test_rtl_vector_traces.py`](../tests/test_rtl_vector_traces.py) | `VectorEngineTop` | MREG read/write cycles and addresses, every write-data bit, busy, and opcode-specific issue-busy mask. |
-| `NpuModelMatrixTraceTest` / [`test_rtl_matrix_traces.py`](../tests/test_rtl_matrix_traces.py) | Full default `SystolicArrayTop` and `InnerProductTreesTop` | All seven command types, MREG accesses/data, accumulator chaining, and overlapping weight push/compute. |
+| `NpuModelMatrixTraceTest` / [`test_rtl_matrix_traces.py`](../tests/test_rtl_matrix_traces.py) | Full default `InnerProductTreesTop` | All seven command types, MREG accesses/data, accumulator chaining, and overlapping weight push/compute. |
 | `NpuModelMemoryTraceTest` / [`test_rtl_memory_traces.py`](../tests/test_rtl_memory_traces.py) | `LSU` and `XluEngine` | Concurrent scalar/VLOAD/VSTORE and transpose accesses, VMEM/MREG addresses and write data, and scalar writeback. |
-| `NpuModelArithmeticTraceTest` / [`test_rtl_arithmetic.py`](../tests/test_rtl_arithmetic.py) | Custom FMA, anchor tree, and FPUtils converters | Bitwise arithmetic results for 512 seeded random/boundary cases, covering all 256 scale encodings and FP8 input encodings. |
+| `NpuModelArithmeticTraceTest` / [`test_rtl_arithmetic.py`](../tests/test_rtl_arithmetic.py) | Anchor tree and FPUtils converters | Bitwise arithmetic results for 512 seeded random/boundary cases, covering all 256 scale encodings and FP8 input encodings. |
 | `NpuModelUnaryTableTest` | Actual VPU lane boxes through `VectorEngineTop` | All 65,536 BF16 encodings for each of 11 unary operations. |
 
 The scalar harness substitutes a synchronous instruction ROM, idle tensor
