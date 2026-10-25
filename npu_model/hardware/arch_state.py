@@ -112,6 +112,12 @@ class ArchState:
                 self._fill_u8_random(tensor, generator)
             for tensor in self.acc["mxu1"]:
                 self._fill_bytes_random(tensor, generator)
+            for tensor in self.mrf_scale + self.wb_nv + self.wb_nv_scale:
+                self._fill_u8_random(tensor, generator)
+            for acc in self.acc_nv:
+                bits = torch.randint(0, 1 << 32, (len(acc), len(acc[0])), generator=generator).tolist()
+                for row, row_bits in zip(acc, bits):
+                    row[:] = row_bits
         else:
             for i in range(len(self.xrf)):
                 self.xrf[i] = 0
@@ -125,6 +131,11 @@ class ArchState:
                 self.wb["mxu1"][i].fill_(0)
             for i in range(len(self.acc["mxu1"])):
                 self.acc["mxu1"][i].fill_(0)
+            for tensor in self.mrf_scale + self.wb_nv + self.wb_nv_scale:
+                tensor.fill_(0)
+            for acc in self.acc_nv:
+                for row in acc:
+                    row[:] = [0] * len(row)
         # IMEM word indices, as ScalarCore's PcControl keeps them. The architectural PC (link
         # values, auipc, branch and jump targets) is the byte address, four times the index.
         self.pc = 0

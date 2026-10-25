@@ -56,3 +56,20 @@ def test_random_init_is_deterministic_with_seed_42() -> None:
     assert a.csrf == b.csrf
     assert a.read_dram(0, 64).sum().item() != 0
     assert a.read_vmem(0, 0, 64).sum().item() != 0
+
+
+def test_reset_clears_or_randomizes_the_nvfp4_state() -> None:
+    state = build_state(randomize_init=False)
+    state.mrf_scale[3][:] = 7
+    state.wb_nv_scale[1][:] = 7
+    state.acc_nv[1][2][5] = 0x3F80_0000
+    state.reset()
+    assert state.mrf_scale[3].sum().item() == 0
+    assert state.wb_nv_scale[1].sum().item() == 0
+    assert state.acc_nv[1][2][5] == 0
+
+    a, b = build_state(), build_state()
+    assert torch.equal(a.mrf_scale[3], b.mrf_scale[3]) and a.acc_nv == b.acc_nv
+    assert a.mrf_scale[3].sum().item() != 0
+    assert a.wb_nv[0].sum().item() != 0
+    assert any(any(row) for row in a.acc_nv[0])
