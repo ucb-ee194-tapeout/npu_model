@@ -189,7 +189,7 @@ npu_model/
 │   │   └── program.py     # Program class
 │   ├── logging/           # Trace logging
 │   │   └── logger.py      # Perfetto trace logger
-│   ├── isa/               # ISA table (atlas_isa.toml), its loader and the instruction types
+│   ├── isa/               # ISA table (atlas_isa.toml), its loader, generators and the instruction types
 │   └── simulation.py      # Simulation orchestration
 ├── scripts/
 │   └── run.py             # Main simulation runner
@@ -259,7 +259,17 @@ class VADD_BF16(TensorComputeBinary, VRType):
         _write_mrf_bf16_pair(state, self.vd, state.math.add(a, b))
 ```
 
-3. Use in programs:
+3. Generate the files that hold the encodings again. In the Atlas tree:
+
+```bash
+python -m npu_model.isa.gen scala ../src/main/scala/atlas/scalar/Instructions.scala
+python -m npu_model.isa.gen card      # npu_spec/06_instruction_set/README.md
+```
+
+   The RTL also needs a row in `IDecode.scala`. `tests/test_rtl_bitpats.py` fails while
+   Instructions.scala differs from the table, and `tests/test_isa_gen.py` while the green card does.
+
+4. Use in programs:
 
 ```python
 Instruction(mnemonic="my_instr", args={"rd": 1, ...})
