@@ -194,8 +194,12 @@ in [`hardware/data`](../npu_model/hardware/data/).
 Other arithmetic follows the corresponding hardware rule. Add and subtract
 round their FP32 result to BF16, nearest even; FP32 has more than 2 x 8 + 1
 significand bits, so this equals one rounding of the exact result. Column sums
-truncate their FP32 result to BF16. Both give HardFloat's canonical NaN. Min/max
-use ordered-bit comparisons; row sums use the FP32 reduction tree.
+truncate their FP32 result to BF16. Both give HardFloat's canonical NaN. Square
+and cube round the exact x^2 and x^3 once, as multiply does: nearest even, with
+subnormals. Min/max use ordered-bit comparisons (IEEE 754 totalOrder): -0 < +0,
+a positive NaN is the larger and a negative NaN the smaller operand, and the
+result keeps its NaN payload; ReLU is max(x, +0). Row sums use the FP32
+reduction tree.
 
 `atlas/xlu/XLU.scala` is a separate engine. The new
 [`xlu.py`](../npu_model/hardware/xlu.py) models its read-buffer-transpose-write

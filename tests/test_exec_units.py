@@ -143,6 +143,14 @@ def test_rtl_add_and_sub_round_to_nearest_even():
     assert NUMERICS["rtl"].sub(one, b).tolist() == [0.9921875, 0.99609375, 0.98828125]
 
 
+def test_rtl_square_and_cube_round_the_exact_power_once():
+    x = torch.tensor([1.4140625, 2 ** -64, -2 ** -44, float("nan")], dtype=torch.bfloat16)
+    bits = lambda t: t.view(torch.int16).to(torch.int32).bitwise_and(0xFFFF).tolist()
+    # 1.4140625^2 rounds up to 2.0 (v1 truncated); 2^-128 and -2^-132 are subnormal results.
+    assert bits(NUMERICS["rtl"].unary("square", x)) == [0x4000, 0x0020, 0x1380, 0x7FC0]
+    assert bits(NUMERICS["rtl"].unary("cube", x)) == [0x4035, 0x0000, 0x8002, 0x7FC0]
+
+
 def test_rtl_nan_results_are_canonical_whatever_torch_emits(monkeypatch):
     """x86 torch writes NaN as 0xffff when it converts to BF16; the RTL emits 0x7fc0."""
     def x86(result):

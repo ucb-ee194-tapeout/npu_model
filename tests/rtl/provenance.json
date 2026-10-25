@@ -1,7 +1,7 @@
 {
   "artifacts": {
     "npu_model/configs/data/cos.bin.gz": "8ebc53284359245925591265340b14c028e49a5e545cd154e836943ecc007518",
-    "npu_model/configs/data/cube.bin.gz": "947d73b467edef9ebc4d8e3415a684ba1a27b2a582e600dac59f4c40d5dd32e6",
+    "npu_model/configs/data/cube.bin.gz": "a1ad3b1db7a591c93ff12aa7b6e128337d9cdd6f211648ecf717795ee931c087",
     "npu_model/configs/data/exp.bin.gz": "c868283c0118ac478b2acd44af4e10d5c02bcd236d73e188e1c7ce33f112e566",
     "npu_model/configs/data/exp2.bin.gz": "88882a702acaf062782d1d8070cff0e7f188fa14fd9bf0b4bb334eef75eeeba5",
     "npu_model/configs/data/log.bin.gz": "420f9f171223c8018e89bd0dff65f9fc60e869ac6155e072400f85f523021c1f",
@@ -9,7 +9,7 @@
     "npu_model/configs/data/relu.bin.gz": "4709f71fdca9dedc927865fdaf3fc283aa25562af78f4bdf0173dc712aa4b77b",
     "npu_model/configs/data/sin.bin.gz": "125022faa31c5c238368079b78d9222cabcade2bdbe72aa2527cb554b4775c6b",
     "npu_model/configs/data/sqrt.bin.gz": "15f66bae4cacf52486079364b6f7e796312eeb41c4118164a1b9e82353f29afc",
-    "npu_model/configs/data/square.bin.gz": "283a6969e42381b613e011beaa8036d4fec005e70b4de4538ce4b6685455ddbb",
+    "npu_model/configs/data/square.bin.gz": "ba64d6bd2d5bc38054134cf08aa50a6598d68f581bd3d6f4b94e4c8f92f86f3c",
     "npu_model/configs/data/tanh.bin.gz": "197b7875b3345b3061386d62e09a53ffecae1ae22c8fb5cc6a0b91085242744a",
     "tests/rtl/arithmetic.json": "8b2ebb3cb98b4c9e7c7c0f4cb71e86d8a6675c698abec0c3e0525bc693736840",
     "tests/rtl/dma_traces.json": "60883fc8d4f0de0ecfd3049a2d810532d0440474245d494e760ded3194c63bb4",
@@ -18,7 +18,7 @@
     "tests/rtl/sa_traces.json": "62252fd1312d7e31013b6c4a310be0e5f567eee8055218d376a06731aca60573",
     "tests/rtl/scalar_cases.json": "8f347984bfcdce82f9221da7ed4e9fe59400e7a1fb2abcb3a0f644c3887c2bf3",
     "tests/rtl/scalar_traces.json": "a254ff6eebf8d817fac8f6ee506ba7feefd2021b64b5584214620c4c1743b86b",
-    "tests/rtl/vector_traces.json": "8e234d8c19c0cc5bd3692c9445774af3fa20215ca0b352d96f4636d2b5735dcc"
+    "tests/rtl/vector_traces.json": "f505e276c9993ecd86893a2a1193f1e43fbe0b278999ca64c567fe58f95f3be4"
   },
   "description": "SHA256 of RTL/harness sources and their generated artifacts.",
   "sources": {
@@ -149,11 +149,11 @@
     "src/main/scala/atlas/vector/laneBoxes/RowMin.scala": "644cb1651a49b5057344b4472bd1d1f4e84d5f1ee96cd65d42d7532a20f2ab37",
     "src/main/scala/atlas/vector/laneBoxes/SinCosVec.scala": "f8a8e42587da8ec041c59e883ddc9d1fd2daff35c797e19c713841e825d9f0c6",
     "src/main/scala/atlas/vector/laneBoxes/Sqrt.scala": "195d8057452636733bfdbd2d02dab449e32f07db9315eefe21541925ae50e201",
-    "src/main/scala/atlas/vector/laneBoxes/SquareCubeVec.scala": "352c91514e6496475dae0b8432f05c4f1ea651218fd11fc1c1013b147bd289ae",
+    "src/main/scala/atlas/vector/laneBoxes/SquareCubeVec.scala": "a6cc357c7b12d065a6e6f318045218eaa1e617b8e50d870c5bacb04bc51714dc",
     "src/main/scala/atlas/vector/laneBoxes/SumRedu.scala": "edcfc7a7ca30d6d51dc697b739fa993172775f432db90b0e8b574b0aa8aab9a5",
     "src/main/scala/atlas/vector/laneBoxes/TanhRec.scala": "4a8d19483361e136ac720588fa7c0c9d1f4e264666b7c4f4bbc58b40cbb725c8",
     "src/main/scala/atlas/vector/laneBoxes/VectorLoadImm.scala": "d497f58dc86990f8cb532cfefa7607d9c43539b9fbda4f319b7ec071802cd0e1",
-    "src/main/scala/atlas/vector/laneBoxes/VectorParam.scala": "8fe146132fdf75ede72351a5f9791cf64c86a1ef2c44ddb93a659ba416e2c42c",
+    "src/main/scala/atlas/vector/laneBoxes/VectorParam.scala": "0f6507d492a9f888422a491ab248684fe459e1da5f10a6f28fb38fdc7d825399",
     "src/main/scala/atlas/xlu/XLU.scala": "9015a665d5bdd11fb94766e32353b4b394fc0f561e1c24415c13003b0277a03a",
     "src/main/scala/diplomatic/memory/CSRFile.scala": "e78a79649f356ed5b28d9825e9ea4db85e7e41d2eaa802e83013465a428e2c48",
     "src/main/scala/diplomatic/memory/DMA.scala": "bd5ed1ef23faff7bb38d4db5c8da9562f8f5027c6828368da458f75e0fdd9502",
