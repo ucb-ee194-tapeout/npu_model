@@ -34,7 +34,7 @@
 
     csrrs x21, 0xC00, x0        # x21 = cycle count at end
     sub   x22, x21, x20
-    csrrw x0,  0xC11, x22       # stash in CSR_DBG1
+    csrrw x0,  0x801, x22       # stash in CSR_DBG1
     addi  x30, x0, 1
-    csrrw x0, 0xC10, x30
+    csrrw x0, 0x800, x30
     ecall

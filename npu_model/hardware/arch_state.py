@@ -7,10 +7,10 @@ from .bank_conflict import BankConflictChecker
 from ..configs.numerics import NUMERICS
 from ..isa import ISA_VERSION
 
-# The scalar core's CSRs (CSRFile.scala). Programs may write only these four; any CSR this file
+# The scalar core's CSRs (CSRFile.scala). Programs may write only DBG0 and DBG1; any CSR this file
 # does not name is illegal, and so is a write to a read-only one.
-CSR_WRITABLE = (0xC00, 0xC01, 0xC10, 0xC11)   # cycle, instructions, DBG0, DBG1
-CSR_STATUS, CSR_ILLEGAL_PC = 0xC02, 0xC03
+CSR_CYCLE, CSR_INSTRET = 0xC00, 0xC02
+CSR_WRITABLE = (0x800, 0x801)   # DBG0, DBG1
 CSR_ISA, CSR_PERF_NUM, CSR_PERF_BASE = 0xCC0, 0xCC1, 0xCC2
 NUM_PERF_COUNTERS = 27
 """PerfCounters.num: counter i is at CSR_PERF_BASE + 2i (bits 31:0) and + 2i + 1 (bits 63:32). The
@@ -131,8 +131,7 @@ class ArchState:
         self.in_delay_slot = False
         self.current_uop = None
         self.halt_reason = None
-        self._csr_values = {addr: 0 for addr in CSR_WRITABLE + (CSR_ILLEGAL_PC,)}
-        self._csr_written: set[int] = set()
+        self._csr_values = {addr: 0 for addr in (CSR_CYCLE, CSR_INSTRET) + CSR_WRITABLE}
         self.base = 0
         self.flags = [False] * len(self.flags)
         self.halted = False
@@ -219,7 +218,7 @@ class ArchState:
         """An access to an unmapped CSR, or a write to a read-only one, is illegal (CSRFile.scala)."""
         if address in CSR_WRITABLE:
             return False
-        mapped = (address in (CSR_STATUS, CSR_ILLEGAL_PC, CSR_ISA, CSR_PERF_NUM)
+        mapped = (address in (CSR_CYCLE, CSR_INSTRET, CSR_ISA, CSR_PERF_NUM)
                   or 0 <= address - CSR_PERF_BASE < 2 * NUM_PERF_COUNTERS)
         return write or not mapped
 
@@ -227,7 +226,6 @@ class ArchState:
         assert not self.csr_illegal(rd, True), f"CSR {rd:#x} is not writable"
         value &= 0xFFFFFFFF
         self._csr_values[rd] = value
-        self._csr_written.add(rd)
         if rd < len(self.csrf):
             self.csrf[rd] = value
         if self.logger:
@@ -241,25 +239,16 @@ class ArchState:
 
     def read_csrf(self, rs: int) -> int:
         assert not self.csr_illegal(rs, False), f"CSR {rs:#x} is not mapped"
-        if rs == CSR_STATUS:
-            reason = {None: 0, "illegal": 1, "ecall": 2, "ebreak": 3}[self.halt_reason]
-            return (reason << 1) | int(self.halted)
         if rs == CSR_ISA:
             return ISA_VERSION[0] << 24 | ISA_VERSION[1] << 16 | ISA_UNITS
         return self._csr_values.get(rs, 0)
 
-    def begin_csr_cycle(self) -> None:
-        self._csr_written.clear()
-
     def finish_csr_cycle(self, retired: bool) -> None:
-        for address, increment in ((0xC00, 1), (0xC01, int(retired))):
-            if address not in self._csr_written:
-                value = (self._csr_values[address] + increment) & 0xFFFFFFFF
-                self._csr_values[address] = value
-                if address < len(self.csrf):
-                    self.csrf[address] = value
-        if self.halt_reason == "illegal":
-            self._csr_values[CSR_ILLEGAL_PC] = self.execute_pc
+        for address, increment in ((CSR_CYCLE, 1), (CSR_INSTRET, int(retired))):
+            value = (self._csr_values[address] + increment) & 0xFFFFFFFF
+            self._csr_values[address] = value
+            if address < len(self.csrf):
+                self.csrf[address] = value
 
     def write_mrf_u8(self, vd: int, value: torch.Tensor) -> None:
         assert value.dtype == torch.uint8

@@ -100,7 +100,6 @@ class Core(Module):
         self.cycle_count += 1
         state = self.arch_state
         state.conflict_checker.begin_cycle(self.cycle_count)
-        state.begin_csr_cycle()
         fetch_pc = state.pc
         s1 = self.s1_uop or self.ifu.output.peek()
         state.npc = (state.pc + 1) & 0xFFFFFFFF

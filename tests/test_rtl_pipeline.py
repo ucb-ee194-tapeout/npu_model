@@ -156,21 +156,20 @@ def test_scalar_rv32_wrap_signed_compare_and_shift_mask(make_core):
     assert core.arch_state.xrf[1:6] == [0xFFFFFFFF, 1, 32, 0xFFFFFFFF, 0x7FFFFFFF]
 
 
-def test_csr_reads_do_not_write_and_writes_override_increment(make_core):
+def test_counter_csrs_count_and_debug_csrs_hold_writes(make_core):
     core = make_core([
-        CSRRS(x(1), x(0), 0xC00),   # reads 1; a read does not write, so the counter counts on
+        CSRRS(x(1), x(0), 0xC00),   # cycle reads 1; a read does not write, so it counts on
         CSRRSI(x(2), 0, 0xC00),     # reads 2
-        CSRRW(x(0), x(1), 0xC00),   # the write of 1 overrides the increment
-        CSRRC(x(3), x(0), 0xC00),   # reads 1
-        CSRRS(x(4), x(0), 0xC01),   # four instructions retired
-        CSRRW(x(0), x(1), 0xC10),
-        CSRRS(x(5), x(0), 0xC10),
+        CSRRC(x(3), x(0), 0xC00),   # reads 3
+        CSRRS(x(4), x(0), 0xC02),   # instret: three instructions retired
+        CSRRW(x(0), x(1), 0x800),   # DBG0 = 1
+        CSRRS(x(5), x(0), 0x800),
         ECALL(),
     ])
-    step(core, 9)
-    assert core.arch_state.xrf[1:6] == [1, 2, 1, 4, 1]
-    assert core.arch_state.read_csrf(0xC01) == 7
-    assert core.arch_state.read_csrf(0xC02) == 5  # halted / ecall
+    step(core, 8)
+    assert core.arch_state.xrf[1:6] == [1, 2, 3, 3, 1]
+    assert core.arch_state.read_csrf(0xC02) == 6
+    assert core.arch_state.halt_reason == "ecall"
 
 
 def test_read_only_csrs_read_with_x0_or_zero_immediate(make_core):
@@ -192,7 +191,8 @@ def test_read_only_csrs_read_with_x0_or_zero_immediate(make_core):
 @pytest.mark.parametrize('insn', [
     CSRRS(x(1), x(0), 0xC20),     # unmapped, even for a read
     CSRRS(x(1), x(0), 0xCF8),     # past the last counter
-    CSRRW(x(0), x(0), 0xC02),     # status is read-only
+    CSRRW(x(0), x(0), 0xC00),     # cycle is read-only
+    CSRRS(x(1), x(0), 0xC10),     # unmapped (DBG0 in ISA 1.0)
     CSRRS(x(0), x(1), 0xCC0),     # rs1 is not x0: a write, although x1 is 0
     CSRRCI(x(0), 1, 0xCC2),       # uimm is not 0: a write
 ])

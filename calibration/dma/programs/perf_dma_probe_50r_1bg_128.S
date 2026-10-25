@@ -35,7 +35,7 @@
     sub   x23, x23, x20         # traffic phase cycles
     slli  x23, x23, 16
     or    x22, x22, x23
-    csrrw x0,  0xC11, x22       # stash in CSR_DBG1
+    csrrw x0,  0x801, x22       # stash in CSR_DBG1
     addi  x30, x0, 1
-    csrrw x0, 0xC10, x30
+    csrrw x0, 0x800, x30
     ecall

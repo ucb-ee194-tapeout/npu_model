@@ -89,7 +89,7 @@ def model_cycles(asm_path: Path, backend: str | None, params: dict) -> int:
             sim.run(max_cycles=directive(source, "TIMEOUT", 1_000_000))
         if not sim.core.arch_state.halted:
             raise RuntimeError(f"{asm_path.name} did not halt in the model")
-        return sim.core.arch_state.read_csrf(0xC11)
+        return sim.core.arch_state.read_csrf(0x801)
     finally:
         Path(trace).unlink(missing_ok=True)
 

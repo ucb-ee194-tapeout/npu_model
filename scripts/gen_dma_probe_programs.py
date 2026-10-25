@@ -94,9 +94,9 @@ def program(rd: int, bg: int, size: int, probe_store: bool, repeats: int) -> str
     emit("    sub   x23, x23, x20         # traffic phase cycles")
     emit("    slli  x23, x23, 16")
     emit("    or    x22, x22, x23")
-    emit("    csrrw x0,  0xC11, x22       # stash in CSR_DBG1")
+    emit("    csrrw x0,  0x801, x22       # stash in CSR_DBG1")
     emit("    addi  x30, x0, 1")
-    emit("    csrrw x0, 0xC10, x30")
+    emit("    csrrw x0, 0x800, x30")
     emit("    ecall")
     return name, "\n".join(lines) + "\n"
 
