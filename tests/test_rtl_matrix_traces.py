@@ -26,9 +26,13 @@ def test_matrix_rtl_port_trace(mxu):
                     f'vmatpop.fp8.acc.{mxu.mxu} m{bank}, acc{acc}, e0',
                     f'vmatpop.bf16.acc.{mxu.mxu} m{bank}, acc{acc}',
                     f'vmatmul.{mxu.mxu} acc{acc}, m{bank}, w{weight}',
-                    f'vmatmul.acc.{mxu.mxu} acc{acc}, m{bank}, w{weight}'][op]
+                    f'vmatmul.acc.{mxu.mxu} acc{acc}, m{bank}, w{weight}',
+                    f'vmatpush.acc.fp32.{mxu.mxu} acc{acc}, m{bank}',
+                    f'vmatpop.fp32.acc.{mxu.mxu} m{bank}, acc{acc}',
+                    f'vmatpop.bf16.scaled.acc.{mxu.mxu} m{bank}, acc{acc}, e1'][op]
         instructions[cycle] = stream_to_instrs(StringIO(assembly))[0]
     state.write_erf(0, 127)
+    state.write_erf(1, 100)
     accesses = []
     original = state.conflict_checker.access_mreg
     def record(cycle, bank, row, write, owner):

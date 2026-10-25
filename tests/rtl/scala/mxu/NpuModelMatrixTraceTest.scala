@@ -36,7 +36,8 @@ class NpuModelMatrixTraceTest extends AnyFlatSpec {
       (100,1,8,0,0), (133,4,10,0,0), (166,5,8,0,0),
       (262,4,12,0,0), (295,6,8,0,0), (391,4,14,0,0),
       (424,3,16,0,0), (457,0,18,0,1), (460,5,20,1,0),
-      (557,4,22,1,0))
+      (557,4,22,1,0), (600,7,4,1,0), (634,9,24,1,0),
+      (666,8,28,1,0), (699,2,2,1,0), (730,3,26,1,0))
     val mem = Array.tabulate(64,32) { (bank,row) =>
       if (bank == 2 || bank == 3)
         (0 until 16).foldLeft(BigInt(0))((v,l) => v | (BigInt(0x3d00 + bank*64 + row*4 + l) << (16*l)))
@@ -44,7 +45,7 @@ class NpuModelMatrixTraceTest extends AnyFlatSpec {
     }
     // A command's op indexes this list (test_rtl_matrix_traces.py names them the same way).
     val ops = Seq(MxuOp.PushWeight, MxuOp.PushAccFP8, MxuOp.PushAccBF16, MxuOp.PopAccFP8, MxuOp.PopAccBF16,
-      MxuOp.Matmul, MxuOp.MatmulAcc)
+      MxuOp.Matmul, MxuOp.MatmulAcc, MxuOp.PushAccFP32, MxuOp.PopAccFP32, MxuOp.PopAccBF16Scaled)
     val events = ujson.Arr()
     simulate(new NpuModelMatrixTraceHarness) { dut =>
       dut.io.cmd.valid.poke(false.B)
@@ -57,7 +58,7 @@ class NpuModelMatrixTraceTest extends AnyFlatSpec {
       dut.reset.poke(true.B)
       dut.clock.step(2)
       dut.reset.poke(false.B)
-      for (cycle <- 1 to 592) {
+      for (cycle <- 1 to 780) {
         val command = commands.find(_._1 == cycle)
         dut.io.cmd.valid.poke(command.nonEmpty.B)
         command.foreach { case (_,op,bank,acc,weight) =>
@@ -65,6 +66,7 @@ class NpuModelMatrixTraceTest extends AnyFlatSpec {
           dut.io.cmd.bits.mregId.poke(bank.U)
           dut.io.cmd.bits.accSel.poke((acc == 1).B)
           dut.io.cmd.bits.weightSlot.poke((weight == 1).B)
+          dut.io.cmd.bits.scaleE8M0.poke((if (ops(op) == MxuOp.PopAccBF16Scaled) 100 else 127).U)
         }
         val reads = ujson.Arr()
         val writes = ujson.Arr()
