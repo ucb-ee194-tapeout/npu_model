@@ -300,7 +300,7 @@ The VPU baseline implements:
   operand is the BF16 scalar x[rs2][31:16] or row 0 of T(vs2) in every row
 - unary BF16 operations: `vmov`, `vrecip.bf16`, `vsqrt.bf16`, `vsin.bf16`,
   `vcos.bf16`, `vtanh.bf16`, `vlog2.bf16`, `vexp.bf16`, `vexp2.bf16`,
-  `vrelu.bf16`, `vsquare.bf16`, `vcube.bf16`
+  `vrelu.bf16`, `vsquare.bf16`, `vcube.bf16`, `vgelu.bf16`
 - BF16 reductions: `vredsum.bf16`, `vredmin.bf16`, `vredmax.bf16`,
   `vredsum.row.bf16`, `vredmin.row.bf16`, `vredmax.row.bf16`
 - format conversion: `vpack.bf16.fp8`, `vunpack.fp8.bf16`
@@ -313,6 +313,22 @@ have no source, `vli.col` and `vli.one` write a single register, `vpack` reads a
 BF16 pair and writes one FP8 register, and `vunpack` reads one FP8 register and
 writes a BF16 pair. Pair fields name the low register, which the VPU requires
 to be even.
+
+`vgelu.bf16` is GELU in its tanh form, x/2 (1 + tanh(sqrt(2/pi) (x + 0.044715 x^3))), as these
+eight BF16 instructions give it, each rounded as that instruction is:
+
+```text
+t = vcube(x); t = vmul(t, c1); t = vadd(t, x); t = vmul(t, c2)
+t = vtanh(t); t = vadd(t, 1);  y = vmul(x, t); y = vmul(y, 0.5)
+```
+
+c1 = 0x3D37 and c2 = 0x3F4C are 0.044715 and sqrt(2/pi) rounded to BF16, nearest even. The result
+equals the result of the eight instructions bit for bit, also for NaN, infinite, subnormal and zero
+inputs and results. For example, -Inf gives the NaN 0x7FC0 (vtanh gives -1, then -Inf x +0), +Inf
+gives +Inf, and the final multiply by 0.5 rounds only a BF16 subnormal result. The VPU runs the
+eight steps in a chain of their lane boxes, one row per cycle, so `vgelu.bf16` takes the time of
+one unary operation plus 9 cycles. It has its own lane boxes: it overlaps any other single-input
+operation except another `vgelu.bf16`.
 
 Latency classes are listed in the Timing Reference.
 

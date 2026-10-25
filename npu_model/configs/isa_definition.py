@@ -61,6 +61,7 @@ from npu_model.isa_types import (
     SBImm12,
     Imm12,
 )
+from npu_model.configs.numerics import Numerics
 
 if TYPE_CHECKING:
     from npu_model.hardware.arch_state import ArchState
@@ -183,6 +184,25 @@ def _scalar_tile(state: ArchState, rs2: int) -> torch.Tensor:
     """The BF16 bits x[rs2][31:16] in every element of a tile (the .vx operand)."""
     bits = torch.full(_bf16_pair_shape(state), state.read_xrf(rs2) >> 16 & 0xFFFF, dtype=torch.uint16)
     return bits.view(torch.bfloat16)
+
+
+# BF16 bits of 0.044715 and sqrt(2/pi), nearest even (ditflow kernels.py GELU_K1 and GELU_K2).
+GELU_C1, GELU_C2 = 0x3D37, 0x3F4C
+
+
+def gelu(math: Numerics, x: torch.Tensor) -> torch.Tensor:
+    """vgelu.bf16: GELU_tanh(x) as the .bf16 instructions vcube; vmul c1; vadd x; vmul c2; vtanh;
+    vadd 1; vmul x; vmul 0.5, each rounded as that instruction is."""
+    def const(bits: int) -> torch.Tensor:
+        return torch.full(x.shape, bits, dtype=torch.uint16).view(torch.bfloat16)
+    t = math.unary("cube", x)
+    t = math.mul(t, const(GELU_C1))
+    t = math.add(t, x)
+    t = math.mul(t, const(GELU_C2))
+    t = math.unary("tanh", t)
+    t = math.add(t, const(0x3F80))
+    y = math.mul(x, t)
+    return math.mul(y, const(0x3F00))
 
 
 def _row0_tile(state: ArchState, reg: int) -> torch.Tensor:
@@ -605,6 +625,12 @@ class VCUBE_BF16(TensorComputeUnary, VRType):
     def exec(self, state: ArchState) -> None:
         x = _read_mrf_bf16_pair(state, self.vs1)
         _write_mrf_bf16_pair(state, self.vd, state.math.unary("cube", x))
+
+
+class VGELU_BF16(TensorComputeUnary, VRType):
+    def exec(self, state: ArchState) -> None:
+        x = _read_mrf_bf16_pair(state, self.vs1)
+        _write_mrf_bf16_pair(state, self.vd, gelu(state.math, x))
 
 
 class VLI_ALL(DirectImm, VIType):

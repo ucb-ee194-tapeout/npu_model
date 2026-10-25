@@ -1448,6 +1448,19 @@ m = "rows"
 operation = "{m[vd], m[vd+1]} = sqrt({m[vs1], m[vs1+1]})"
 ver = "2.0"
 
+[[instruction]]
+mnemonic = "vgelu.bf16"
+format = "VR"
+opcode = 0x0B
+select = { funct7 = 0x4F }
+fixed = { vs2 = 0 }
+operands = { vd = "mp", vs1 = "mp" }
+syntax = "vgelu.bf16 m(vd), m(vs1)"
+unit = "vpu"
+m = "rows"
+operation = "{m[vd], m[vd+1]} = GELU_tanh({m[vs1], m[vs1+1]}) as eight .bf16 instructions (npu_spec 04)"
+ver = "2.0"
+
 # ---- VPU: load immediate (imm holds BF16 bits) --------------------------------------------------
 
 [[instruction]]

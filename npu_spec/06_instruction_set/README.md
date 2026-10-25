@@ -332,6 +332,7 @@ Rows are ordered by hex value.
 | `vtanh.bf16 m(vd), m(vs1)` | VR | `0B/4B` | `9600000b` / `fff820ff` | vpu | all | `{m[vd], m[vd+1]} = tanh({m[vs1], m[vs1+1]})` |
 | `vlog2.bf16 m(vd), m(vs1)` | VR | `0B/4C` | `9800000b` / `fff820ff` | vpu | all | `{m[vd], m[vd+1]} = log2({m[vs1], m[vs1+1]})` |
 | `vsqrt.bf16 m(vd), m(vs1)` | VR | `0B/4D` | `9a00000b` / `fff820ff` | vpu | all | `{m[vd], m[vd+1]} = sqrt({m[vs1], m[vs1+1]})` |
+| `vgelu.bf16 m(vd), m(vs1)` | VR | `0B/4F` | `9e00000b` / `fff820ff` | vpu | all | `{m[vd], m[vd+1]} = GELU_tanh({m[vs1], m[vs1+1]}) as eight .bf16 instructions (npu_spec 04)` |
 | `vtrpose.xlu m(vd), m(vs1)` | VR | `0B/50` | `a000000b` / `fff8007f` | xlu | all | `m[vd] = m[vs1]^T (32 x 32 bytes)` |
 | `vmatpush.weight.nv w(vd), m(vs1)` | VR | `0B/60` | `c000000b` / `fff81f7f` | nv | ipt-nvfp4 | `nv.w[vd] = m[vs1] and its scales (row j = output column j)` |
 | `vmatpush.acc.bf16.nv acc(vd), m(vs1)` | VR | `0B/61` | `c200000b` / `fff83f7f` | nv | ipt-nvfp4 | `nv.acc[vd] = {m[vs1], m[vs1+1]} (BF16, exact in FP32)` |

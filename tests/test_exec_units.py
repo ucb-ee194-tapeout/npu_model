@@ -8,7 +8,7 @@ import torch
 
 from npu_model.configs.hardware.default import DefaultHardwareConfig
 from npu_model.configs.isa_definition import (
-    DMA_CONFIG, DMA_LOAD, DMA_STORE, LB, LBU, LH, LHU, LW, SB, SELD, SH, SW,
+    DMA_CONFIG, DMA_LOAD, DMA_STORE, GELU_C1, GELU_C2, LB, LBU, LH, LHU, LW, SB, SELD, SH, SW,
     VADD_BF16, VLI_ALL, VLI_COL, VLOAD, VMATMUL_MXU1, VMATPOP_BF16_ACC_MXU1,
     VMATPUSH_ACC_FP8_MXU1, VSTORE,
 )
@@ -153,6 +153,25 @@ def test_broadcast_forms_equal_the_bf16_op_on_a_broadcast_tile(name):
     for bank in (6, 7):
         state.mrf[bank].view(torch.uint16).view(32, 16)[:] = state.mrf[bank - 4].view(torch.uint16)[:16]
     execute(f"{name} m8, m0, m6")
+    assert torch.equal(state.mrf[4], state.mrf[8]) and torch.equal(state.mrf[5], state.mrf[9])
+
+
+@pytest.mark.parametrize("numerics", ["rtl", "pytorch"])
+def test_vgelu_equals_its_eight_bf16_instructions(numerics):
+    """vgelu.bf16 gives, bit for bit, what vcube; vmul c1; vadd x; vmul c2; vtanh; vadd 1; vmul x;
+    vmul 0.5 give, with special values among the inputs."""
+    state = make(numerics=numerics).arch_state
+    specials = [0x0000, 0x8000, 0x0001, 0x8001, 0x7F80, 0xFF80, 0x7FC0, 0xFFC1, 0x3F80, 0xC0A0,
+                0x7F7F, 0xFF7F, 0x5F00, 0xDF00, 0x0080, 0x8080]
+    state.mrf[1].view(torch.uint16)[:len(specials)] = torch.tensor(specials, dtype=torch.uint16)
+    execute = lambda text: stream_to_instrs(StringIO(text))[0].exec(state)
+    execute("vgelu.bf16 m4, m0")
+    for reg, bits in zip(range(9, 13), (GELU_C1, GELU_C2, 0x3F80, 0x3F00)):
+        state.write_xrf(reg, bits << 16)
+    for text in ("vcube.bf16 m8, m0", "vmul.bf16.vx m8, m8, x9", "vadd.bf16 m8, m8, m0",
+                 "vmul.bf16.vx m8, m8, x10", "vtanh.bf16 m8, m8", "vadd.bf16.vx m8, m8, x11",
+                 "vmul.bf16 m8, m0, m8", "vmul.bf16.vx m8, m8, x12"):
+        execute(text)
     assert torch.equal(state.mrf[4], state.mrf[8]) and torch.equal(state.mrf[5], state.mrf[9])
 
 
