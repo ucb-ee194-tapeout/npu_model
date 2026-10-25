@@ -1,4 +1,5 @@
 from typing import TYPE_CHECKING
+import numpy as np
 import torch
 from npu_model.isa import (
     CSRType,
@@ -803,15 +804,11 @@ class VMATPUSH_ACC_FP32_NV(MXUAccumulatorPush, VRType[Accumulator, MatrixReg]):
 
 
 class VMATPOP_BF16_ACC_NV(MXUAccumulatorPop, VRType[MatrixReg, Accumulator]):
-    """``vmatpop.bf16.acc.nv m(vd), acc(vs2)``: {m[vd], m[vd+1]} = BF16(acc), round to nearest even."""
+    """``vmatpop.bf16.acc.nv m(vd), acc(vs2)``: {m[vd], m[vd+1]} = BF16_RNE(acc)."""
     def exec(self, state: ArchState) -> None:
-        from npu_model.configs import nvfp4
-        acc = state.acc_nv[self.vs2 & 1]
-        for half in range(2):
-            rows = [[nvfp4.f32_to_bf16(acc[r][16 * half + 2 * k]) |
-                     nvfp4.f32_to_bf16(acc[r][16 * half + 2 * k + 1]) << 16 for k in range(8)]
-                    for r in range(len(acc))]
-            _nv_write_mreg_words(state, self.vd + half, rows)
+        from npu_model.configs import cvt
+        bits = cvt.bf16_rne(np.array(state.acc_nv[self.vs2 & 1], dtype=np.uint32))
+        state.write_mrf_bf16_tile(self.vd, torch.from_numpy(bits.view(np.int16)).view(torch.bfloat16))
 
 
 class VMATPOP_FP32_ACC_NV(MXUAccumulatorPop, VRType[MatrixReg, Accumulator]):

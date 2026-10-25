@@ -81,13 +81,6 @@ def codes(row_bytes) -> list[int]:
     return out
 
 
-def f32_to_bf16(x: int) -> int:
-    """FP32 bits -> BF16 bits, round to nearest even; NaN -> quiet NaN with the input's sign."""
-    if (x >> 23) & 255 == 255 and x & 0x7F_FFFF:
-        return (x >> 16) & 0x8000 | 0x7FC0
-    return ((x + 0x7FFF + ((x >> 16) & 1)) >> 16) & 0xFFFF
-
-
 def matmul(a_rows, a_scales, w_rows, w_scales, c):
     """acc (32 x 32 FP32 bits) = c + A @ W^T: A row r and W row j are 32-byte m-register rows,
     scales are 4-byte rows."""

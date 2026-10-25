@@ -907,7 +907,7 @@ syntax = "vmatpop.bf16.acc.nv m(vd), acc(vs2)"
 unit = "nv"
 configs = ["ipt-nvfp4"]
 m = "rows"
-operation = "{m[vd], m[vd+1]} = BF16(nv.acc[vs2]) (round to nearest even)"
+operation = "{m[vd], m[vd+1]} = BF16_RNE(nv.acc[vs2])"
 ver = "2.0"
 
 [[instruction]]

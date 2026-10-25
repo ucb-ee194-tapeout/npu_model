@@ -325,7 +325,7 @@ Rows are ordered by hex value.
 | `vmatpush.weight.nv w(vd), m(vs1)` | VR | `0B/60` | `c000000b` / `fff81f7f` | nv | ipt-nvfp4 | `nv.w[vd] = m[vs1] and its scales (row j = output column j)` |
 | `vmatpush.acc.bf16.nv acc(vd), m(vs1)` | VR | `0B/61` | `c200000b` / `fff83f7f` | nv | ipt-nvfp4 | `nv.acc[vd] = {m[vs1], m[vs1+1]} (BF16, exact in FP32)` |
 | `vmatpush.acc.fp32.nv acc(vd), m(vs1)` | VR | `0B/62` | `c400000b` / `fff87f7f` | nv | ipt-nvfp4 | `nv.acc[vd] = m[vs1..vs1+3] (register q holds columns 8q..8q+7)` |
-| `vmatpop.bf16.acc.nv m(vd), acc(vs2)` | VR | `0B/64` | `c800000b` / `fff7e0ff` | nv | ipt-nvfp4 | `{m[vd], m[vd+1]} = BF16(nv.acc[vs2]) (round to nearest even)` |
+| `vmatpop.bf16.acc.nv m(vd), acc(vs2)` | VR | `0B/64` | `c800000b` / `fff7e0ff` | nv | ipt-nvfp4 | `{m[vd], m[vd+1]} = BF16_RNE(nv.acc[vs2])` |
 | `vmatpop.fp32.acc.nv m(vd), acc(vs2)` | VR | `0B/66` | `cc00000b` / `fff7e1ff` | nv | ipt-nvfp4 | `m[vd..vd+3] = nv.acc[vs2] (register q holds columns 8q..8q+7)` |
 | `vmatmul.nv acc(vd), m(vs1), w(vs2)` | VR | `0B/68` | `d000000b` / `fff01f7f` | nv | ipt-nvfp4 | `nv.acc[vd] = m[vs1] @ nv.w[vs2]^T (64 NVFP4 elements, FP32)` |
 | `vmatmul.acc.nv acc(vd), m(vs1), w(vs2)` | VR | `0B/69` | `d200000b` / `fff01f7f` | nv | ipt-nvfp4 | `nv.acc[vd] = nv.acc[vd] + m[vs1] @ nv.w[vs2]^T (one NVIDIA m16n8k64 step)` |
