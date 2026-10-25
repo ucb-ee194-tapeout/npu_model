@@ -410,8 +410,10 @@ tensor operations in these tests.
 ### Regenerate actual Verilator traces and unary tables
 
 Java, Verilator, and the dependencies needed by the parent accelerator's Mill
-build must be available. The local Chipyard environment used for verification
-provides tools under `.conda-env/bin`:
+build must be available. The DMA suite also needs a Chipyard whose sbt project
+`sp26atlas` builds this checkout. [tests/rtl/README.md](../tests/rtl/README.md)
+tells how to use a shadow Chipyard tree for it. The local Chipyard environment used
+for verification provides tools under `.conda-env/bin`:
 
 ```bash
 cd /scratch/kellytou/chipyard/generators/sp26-atlas-acc/npu-model

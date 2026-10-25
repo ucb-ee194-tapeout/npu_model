@@ -66,3 +66,27 @@ The DMA suite runs in Chipyard's sbt project `sp26atlas`, so one generator
 directory of that Chipyard must be this checkout (`generators/atlas-npu`). Give the
 Chipyard root with `--chipyard DIR` or `CY_DIR`. The default is two directories
 above this checkout, as in `chipyard/generators/atlas-npu`.
+
+If the generator directory of your Chipyard is another checkout, make a shadow
+tree. The shadow tree does not change the Chipyard checkout:
+
+```sh
+scripts/chipyard_shadow.sh CHIPYARD SHADOW
+export COURSIER_CACHE=SHADOW/.coursier PATH=CHIPYARD/.conda-env/bin:$PATH
+python scripts/regenerate_rtl_fixtures.py --chipyard SHADOW
+```
+
+The shadow tree has copies of `build.sbt`, `project/` and `scripts/sbt-launch.jar`,
+and links to the other Chipyard directories. Its `generators/atlas-npu` is a link
+to this checkout. sbt writes its outputs (`target/`) and its caches (`.sbt`,
+`.ivy2`, and Coursier with `COURSIER_CACHE`) in the shadow tree. Chipyard's sbt
+1.8.2 needs a Java that its Scala 2.12.17 can read, for example Java 20 of the
+Chipyard conda environment. Java 21 does not load the build.
+
+With the same environment, the shadow tree also compiles the Chipyard
+configurations of `chipyard/config` with the other Chipyard generators:
+
+```sh
+cd SHADOW && java -jar scripts/sbt-launch.jar -Dsbt.ivy.home=$PWD/.ivy2 \
+  -Dsbt.global.base=$PWD/.sbt -Dsbt.boot.directory=$PWD/.sbt/boot/ chipyard/compile
+```
