@@ -382,14 +382,6 @@ class ArchState:
 
         return self.wb[unit][ws].view(torch.float8_e4m3fn).reshape(num_rows, num_cols)
 
-    def write_acc_bf16(self, unit: str, wd: int, value: torch.Tensor) -> None:
-        assert value.dtype == torch.bfloat16
-        assert value.shape == self.acc[unit][wd].shape
-        self.acc[unit][wd][:] = value
-
-    def read_acc_bf16(self, unit: str, ws: int) -> torch.Tensor:
-        return self.acc[unit][ws].clone()
-
     def write_acc_f32(self, unit: str, wd: int, value: torch.Tensor) -> None:
         assert value.dtype == torch.float32
         assert value.shape == self.acc[unit][wd].shape

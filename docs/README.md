@@ -161,12 +161,9 @@ Weights are stored as **output columns**: if the source register contains W,
 the dot products compute A × Wᵀ. The supplied row-major B workloads therefore
 transpose each B tile before pushing it into the weight buffer.
 
-Numerical implementations in [`rtl_math.py`](../npu_model/hardware/rtl_math.py)
-follow the default datapaths:
-
-- MXU1: `AnchorAccumulationTree`, NVIDIA Blackwell FP8 MMA arithmetic with FP32
-  accumulators ([`fp8_mma.py`](../npu_model/configs/fp8_mma.py)); its pushes and pops
-  use the conversions of [`cvt.py`](../npu_model/configs/cvt.py).
+MXU1 numerics follow `AnchorAccumulationTree`: NVIDIA Blackwell FP8 MMA arithmetic with FP32
+accumulators ([`fp8_mma.py`](../npu_model/configs/fp8_mma.py)); its pushes and pops use the
+conversions of [`cvt.py`](../npu_model/configs/cvt.py).
 
 A single ideal FP32 matrix multiply followed by one BF16 cast does not reproduce
 these operations. Untimed workload references were adjusted where necessary.
@@ -326,7 +323,7 @@ separate trace tests check their integration with reads, issue, and writeback.
 | `NpuModelVectorTraceTest` / [`test_rtl_vector_traces.py`](../tests/test_rtl_vector_traces.py) | `VectorEngineTop` | MREG read/write cycles and addresses, every write-data bit, busy, and opcode-specific issue-busy mask. |
 | `NpuModelMatrixTraceTest` / [`test_rtl_matrix_traces.py`](../tests/test_rtl_matrix_traces.py) | Full default `InnerProductTreesTop` | All seven command types, MREG accesses/data, accumulator chaining, and overlapping weight push/compute. |
 | `NpuModelMemoryTraceTest` / [`test_rtl_memory_traces.py`](../tests/test_rtl_memory_traces.py) | `LSU` and `XluEngine` | Concurrent scalar/VLOAD/VSTORE and transpose accesses, VMEM/MREG addresses and write data, and scalar writeback. |
-| `NpuModelArithmeticTraceTest` / [`test_rtl_arithmetic.py`](../tests/test_rtl_arithmetic.py) | Anchor tree and FPUtils converters | Bitwise arithmetic results for 512 seeded random/boundary cases, covering all 256 scale encodings and FP8 input encodings. |
+| `NpuModelArithmeticTraceTest` / [`test_rtl_arithmetic.py`](../tests/test_rtl_arithmetic.py) | `AnchorAccumulationTree` | Bitwise FP32 results for 512 seeded random/boundary cases, covering all 256 FP8 input encodings and FP32 accumulator edge cases. |
 | `NpuModelUnaryTableTest` | Actual VPU lane boxes through `VectorEngineTop` | All 65,536 BF16 encodings for each of 11 unary operations. |
 
 The scalar harness substitutes a synchronous instruction ROM, idle tensor

@@ -10,12 +10,7 @@ import numpy as np
 import torch
 
 from . import cvt, fp8_mma
-from .rtl_math import (unary, minmax, extremum, pack_row, unpack_row, _truncated_bf16,
-                       canonical_nan)
-
-
-def _exponent(scale: int) -> int:
-    return min(127, max(-128, int(scale) - 127))
+from .rtl_math import unary, minmax, extremum, _truncated_bf16, canonical_nan
 
 
 class RtlNumerics:
@@ -82,16 +77,6 @@ class RtlNumerics:
         """FP8Unpack: BF16_RNE(x * 2**(scale - 127)), as cvt.py."""
         codes = x.contiguous().view(torch.uint8).numpy()
         return torch.from_numpy(cvt.bf16_rne(cvt.e4m3_to_f32(codes), scale).view(np.int16)).view(torch.bfloat16)
-
-    @staticmethod
-    def acc_from_fp8(x: torch.Tensor) -> torch.Tensor:
-        """mxu0 push, FPUtils.e4m3ToBf16: flushes subnormal and NaN inputs to signed zero."""
-        return unpack_row(x.flatten().view(torch.uint8)).reshape(x.shape)
-
-    @staticmethod
-    def acc_to_fp8(x: torch.Tensor, scale: int) -> torch.Tensor:
-        """mxu0 pop, BF16ScaleToE4M3, as rtl_math.pack_row."""
-        return pack_row(x.flatten(), scale).view(torch.float8_e4m3fn).reshape(x.shape)
 
     @staticmethod
     def f32_from_fp8(x: torch.Tensor) -> torch.Tensor:
@@ -180,15 +165,6 @@ class TorchNumerics:
     @staticmethod
     def from_fp8(x: torch.Tensor, scale: int) -> torch.Tensor:
         return (x.double() * 2.0 ** (int(scale) - 127)).to(torch.bfloat16)
-
-    @staticmethod
-    def acc_from_fp8(x: torch.Tensor) -> torch.Tensor:
-        return x.to(torch.bfloat16)
-
-    @staticmethod
-    def acc_to_fp8(x: torch.Tensor, scale: int) -> torch.Tensor:
-        scaled = x.float() * 2.0 ** _exponent(scale)
-        return scaled.clamp(-448, 448).to(torch.float8_e4m3fn)
 
     @staticmethod
     def f32_from_fp8(x: torch.Tensor) -> torch.Tensor:

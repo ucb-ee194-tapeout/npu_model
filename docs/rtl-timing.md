@@ -110,9 +110,7 @@ physical port checks account for mN/m(N+32) sharing a 1R1W bank.
 - E8M0 unit scale is **127**. VPU pack and unpack multiply by the scale and
   round once, as the Blackwell conversions of `configs/cvt.py` do: E4M3 and BF16
   subnormals are kept, pack saturates to 448, and NaN gives 0x7f or 0x7fff. MXU1's
-  pushes and pops use the same conversions. MXU0's pop also multiplies, but flushes
-  subnormal results and can emit 0x7f; its FP8 push flushes subnormal and NaN
-  inputs. The model keeps both behaviors.
+  pushes and pops use the same conversions.
 
 The supplied assembly now uses correct VLS address units, even BF16 register
 pairs, compatible layouts and legal physical-bank schedules. All `.bin`/`.hex`
