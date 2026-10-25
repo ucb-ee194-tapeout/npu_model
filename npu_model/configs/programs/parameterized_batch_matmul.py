@@ -69,27 +69,14 @@ def batch_matmul_reference(
     a: torch.Tensor,
     b: torch.Tensor,
 ) -> torch.Tensor:
-    """Hardware-faithful batch matmul: fp8 inputs, bf16 accumulation per K-tile.
+    """Hardware-faithful batch matmul: fp8 inputs, an FP32 accumulator over all K-tiles (mxu1;
+    exact for these integer inputs), and one bf16 rounding at the pop.
 
     a: (B, M, K) fp8 — activations
     b: (B, K, N) fp8 — weights
     Returns: (B, M, N) bf16
     """
-    B, M, K = a.shape
-    N = b.shape[2]
-    K_tiles = K // TILE
-    results = []
-    for bi in range(B):
-        acc = None
-        for k in range(K_tiles):
-            a_k = a[bi, :, k * TILE : (k + 1) * TILE].to(torch.float16)
-            b_k = b[bi, k * TILE : (k + 1) * TILE, :].to(torch.float16)
-            if acc is None:
-                acc = a_k @ b_k
-            else:
-                acc = acc.to(torch.bfloat16).to(torch.float16) + (a_k @ b_k)
-        results.append(acc.to(torch.bfloat16))
-    return torch.stack(results)
+    return (a.float() @ b.float()).to(torch.bfloat16)
 
 
 def _batch_expected_stacked(result: torch.Tensor, B: int, M: int, N: int) -> torch.Tensor:
