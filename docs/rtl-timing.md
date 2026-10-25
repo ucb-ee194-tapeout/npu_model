@@ -53,7 +53,8 @@ For a command issued at T (default 32 rows):
 | MXU weight/accumulator push, accumulator pop | T+1 | T+32 |
 | MXU1 FP32 accumulator push or pop (columns 0-15, then 16-31) | T+1 | T+64 |
 | MXU1 inner-product compute, accumulator rows | T+3 | T+34 |
-| VPU ordinary BF16 operations | T+2 | T+65 |
+| VPU ordinary BF16 operations, `.vx` | T+2 | T+65 |
+| VPU `.vr` (row 0 of T(vs2) read at T) | T+3 | T+66 |
 | VPU row min/max | T+2 | T+33 |
 | VPU row sum | T+7 | T+38 |
 | VPU column reductions | T+66 | T+129 |
@@ -88,7 +89,10 @@ needs. Scalar, vector-load and vector-store paths progress independently. Source
 sampled at their row-read edges; results become visible row by row. Software scheduling
 violations raise errors.
 VPU has two independent single-input slots; binary and row-reduction operations
-occupy both. `issue_busy_mask` exposes the opcode-specific issue restrictions.
+occupy both. `.vx` and `.vr` take one slot. A `.vr` reads row 0 of T(vs2) on both
+read ports in its issue cycle, so it waits until the other slot has read its last
+row. `issue_busy_mask(form)` exposes the opcode-specific issue restrictions of the
+`.bf16`, `.vx` and `.vr` forms (the RTL's issueBusy, indexed by vpu_src).
 
 Scalar LSU addresses are **bytes**. VLOAD/VSTORE bases are **words**, and their
 immediate contributes 32 words per unit. For example, byte address 0x2000 needs

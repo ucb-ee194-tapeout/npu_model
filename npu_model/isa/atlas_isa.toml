@@ -95,6 +95,8 @@ opcode = [6, 0]
 vd = [12, 7]
 vs1 = [18, 13]
 vs2 = [24, 19]
+rs2 = [24, 20]
+vs2lsb = [19, 19]
 funct7 = [31, 25]
 
 [format.VI]
@@ -1061,6 +1063,131 @@ syntax = "vmaximum.bf16 m(vd), m(vs1), m(vs2)"
 unit = "vpu"
 m = "rows"
 operation = "{m[vd], m[vd+1]} = max({m[vs1], m[vs1+1]}, {m[vs2], m[vs2+1]})"
+ver = "2.0"
+
+[[instruction]]
+mnemonic = "vadd.bf16.vx"
+format = "VR"
+opcode = 0x0B
+select = { funct7 = 0x08 }
+fixed = { vs2lsb = 0 }
+operands = { vd = "mp", vs1 = "mp", rs2 = "x" }
+syntax = "vadd.bf16.vx m(vd), m(vs1), x(rs2)"
+unit = "vpu"
+m = "rows"
+operation = "{m[vd], m[vd+1]} = {m[vs1], m[vs1+1]} + s, s = BF16 x[rs2][31:16]"
+ver = "2.0"
+
+[[instruction]]
+mnemonic = "vsub.bf16.vx"
+format = "VR"
+opcode = 0x0B
+select = { funct7 = 0x0A }
+fixed = { vs2lsb = 0 }
+operands = { vd = "mp", vs1 = "mp", rs2 = "x" }
+syntax = "vsub.bf16.vx m(vd), m(vs1), x(rs2)"
+unit = "vpu"
+m = "rows"
+operation = "{m[vd], m[vd+1]} = {m[vs1], m[vs1+1]} - s, s = BF16 x[rs2][31:16]"
+ver = "2.0"
+
+[[instruction]]
+mnemonic = "vmul.bf16.vx"
+format = "VR"
+opcode = 0x0B
+select = { funct7 = 0x0B }
+fixed = { vs2lsb = 0 }
+operands = { vd = "mp", vs1 = "mp", rs2 = "x" }
+syntax = "vmul.bf16.vx m(vd), m(vs1), x(rs2)"
+unit = "vpu"
+m = "rows"
+operation = "{m[vd], m[vd+1]} = {m[vs1], m[vs1+1]} * s, s = BF16 x[rs2][31:16]"
+ver = "2.0"
+
+[[instruction]]
+mnemonic = "vminimum.bf16.vx"
+format = "VR"
+opcode = 0x0B
+select = { funct7 = 0x0C }
+fixed = { vs2lsb = 0 }
+operands = { vd = "mp", vs1 = "mp", rs2 = "x" }
+syntax = "vminimum.bf16.vx m(vd), m(vs1), x(rs2)"
+unit = "vpu"
+m = "rows"
+operation = "{m[vd], m[vd+1]} = min({m[vs1], m[vs1+1]}, s), s = BF16 x[rs2][31:16]"
+ver = "2.0"
+
+[[instruction]]
+mnemonic = "vmaximum.bf16.vx"
+format = "VR"
+opcode = 0x0B
+select = { funct7 = 0x0E }
+fixed = { vs2lsb = 0 }
+operands = { vd = "mp", vs1 = "mp", rs2 = "x" }
+syntax = "vmaximum.bf16.vx m(vd), m(vs1), x(rs2)"
+unit = "vpu"
+m = "rows"
+operation = "{m[vd], m[vd+1]} = max({m[vs1], m[vs1+1]}, s), s = BF16 x[rs2][31:16]"
+ver = "2.0"
+
+[[instruction]]
+mnemonic = "vadd.bf16.vr"
+format = "VR"
+opcode = 0x0B
+select = { funct7 = 0x10 }
+operands = { vd = "mp", vs1 = "mp", vs2 = "mp" }
+syntax = "vadd.bf16.vr m(vd), m(vs1), m(vs2)"
+unit = "vpu"
+m = "rows"
+operation = "{m[vd], m[vd+1]} = {m[vs1], m[vs1+1]} + r, r = row 0 of {m[vs2], m[vs2+1]} in every row"
+ver = "2.0"
+
+[[instruction]]
+mnemonic = "vsub.bf16.vr"
+format = "VR"
+opcode = 0x0B
+select = { funct7 = 0x12 }
+operands = { vd = "mp", vs1 = "mp", vs2 = "mp" }
+syntax = "vsub.bf16.vr m(vd), m(vs1), m(vs2)"
+unit = "vpu"
+m = "rows"
+operation = "{m[vd], m[vd+1]} = {m[vs1], m[vs1+1]} - r, r = row 0 of {m[vs2], m[vs2+1]} in every row"
+ver = "2.0"
+
+[[instruction]]
+mnemonic = "vmul.bf16.vr"
+format = "VR"
+opcode = 0x0B
+select = { funct7 = 0x13 }
+operands = { vd = "mp", vs1 = "mp", vs2 = "mp" }
+syntax = "vmul.bf16.vr m(vd), m(vs1), m(vs2)"
+unit = "vpu"
+m = "rows"
+operation = "{m[vd], m[vd+1]} = {m[vs1], m[vs1+1]} * r, r = row 0 of {m[vs2], m[vs2+1]} in every row"
+ver = "2.0"
+
+[[instruction]]
+mnemonic = "vminimum.bf16.vr"
+format = "VR"
+opcode = 0x0B
+select = { funct7 = 0x14 }
+operands = { vd = "mp", vs1 = "mp", vs2 = "mp" }
+syntax = "vminimum.bf16.vr m(vd), m(vs1), m(vs2)"
+unit = "vpu"
+m = "rows"
+operation = "{m[vd], m[vd+1]} = min({m[vs1], m[vs1+1]}, r), r = row 0 of {m[vs2], m[vs2+1]} in every row"
+ver = "2.0"
+
+[[instruction]]
+mnemonic = "vmaximum.bf16.vr"
+format = "VR"
+opcode = 0x0B
+select = { funct7 = 0x16 }
+operands = { vd = "mp", vs1 = "mp", vs2 = "mp" }
+syntax = "vmaximum.bf16.vr m(vd), m(vs1), m(vs2)"
+unit = "vpu"
+m = "rows"
+operation = "{m[vd], m[vd+1]} = max({m[vs1], m[vs1+1]}, r), r = row 0 of {m[vs2], m[vs2+1]} in every row"
 ver = "2.0"
 
 [[instruction]]

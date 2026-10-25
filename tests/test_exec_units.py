@@ -70,7 +70,9 @@ def asm(name):
         return f"{name} m4, m8"
     if ".mxu" in name:
         return f"{name} {MXU_OPERANDS[name.rsplit('.', 1)[0]]}"
-    return f"{name} m4, m0, m2" if name in TWO_INPUT else f"{name} m4, m0"
+    if name.endswith(".vx"):
+        return f"{name} m4, m0, x3"
+    return f"{name} m4, m0, m2" if name in TWO_INPUT or name.endswith(".vr") else f"{name} m4, m0"
 
 
 def run(unit, insn):
@@ -130,6 +132,28 @@ def test_unit_commits_exec_results_on_a_numerics_independent_schedule(unit, name
         schedules.append(run(exu, insn))
         assert_same_state(exu.arch_state, reference)
     assert schedules[0] == schedules[1]
+
+
+@pytest.mark.parametrize("name", sorted(TWO_INPUT))
+def test_broadcast_forms_equal_the_bf16_op_on_a_broadcast_tile(name):
+    """.vx and .vr give the .bf16 instruction's result, bit for bit, with their operand as a tile."""
+    state = make().arch_state
+    specials = [0x0000, 0x8000, 0x0001, 0x8001, 0x7F80, 0xFF80, 0x7FC0, 0xFFC1, 0x3F80, 0x7F7F]
+    for bank in (0, 3):
+        state.mrf[bank].view(torch.uint16)[:len(specials)] = torch.tensor(specials, dtype=torch.uint16)
+    execute = lambda text: stream_to_instrs(StringIO(text))[0].exec(state)
+    for scalar in specials + [0xC0A0]:
+        state.write_xrf(9, scalar << 16 | 0x1234)
+        execute(f"{name}.vx m4, m0, x9")
+        for bank in (6, 7):
+            state.mrf[bank].view(torch.uint16)[:] = scalar
+        execute(f"{name} m8, m0, m6")
+        assert torch.equal(state.mrf[4], state.mrf[8]) and torch.equal(state.mrf[5], state.mrf[9]), hex(scalar)
+    execute(f"{name}.vr m4, m0, m2")
+    for bank in (6, 7):
+        state.mrf[bank].view(torch.uint16).view(32, 16)[:] = state.mrf[bank - 4].view(torch.uint16)[:16]
+    execute(f"{name} m8, m0, m6")
+    assert torch.equal(state.mrf[4], state.mrf[8]) and torch.equal(state.mrf[5], state.mrf[9])
 
 
 def test_numerics_backend_selects_rounding():

@@ -282,7 +282,8 @@ format (branches), and `UJ` corresponds to the RISC-V `J` format (jumps).
 
 Each format has its own custom major opcode: VR is custom-0 (`0x0B`), VI is
 custom-1 (`0x2B`) and VLS is custom-2 (`0x5B`). The R-format Atlas instructions
-(`dma.*` and `seld`) are in custom-3 (`0x7B`).
+(`dma.*` and `seld`) are in custom-3 (`0x7B`). In a `.vx` instruction, bits 24:20 of
+the VR format hold rs2, as in RV32I, and bit 19 is 0.
 
 ## 3. Instructions
 
@@ -304,6 +305,16 @@ Rows are ordered by hex value.
 | `vredmin.bf16 m(vd), m(vs1)` | VR | `0B/05` | `0a00000b` / `fff820ff` | vpu | all | `lane j: min of column j of m[vs1] and m[vs1+1], in every row of m[vd] and m[vd+1]` |
 | `vmaximum.bf16 m(vd), m(vs1), m(vs2)` | VR | `0B/06` | `0c00000b` / `fe0820ff` | vpu | all | `{m[vd], m[vd+1]} = max({m[vs1], m[vs1+1]}, {m[vs2], m[vs2+1]})` |
 | `vredmax.bf16 m(vd), m(vs1)` | VR | `0B/07` | `0e00000b` / `fff820ff` | vpu | all | `lane j: max of column j of m[vs1] and m[vs1+1], in every row of m[vd] and m[vd+1]` |
+| `vadd.bf16.vx m(vd), m(vs1), x(rs2)` | VR | `0B/08` | `1000000b` / `fe0820ff` | vpu | all | `{m[vd], m[vd+1]} = {m[vs1], m[vs1+1]} + s, s = BF16 x[rs2][31:16]` |
+| `vsub.bf16.vx m(vd), m(vs1), x(rs2)` | VR | `0B/0A` | `1400000b` / `fe0820ff` | vpu | all | `{m[vd], m[vd+1]} = {m[vs1], m[vs1+1]} - s, s = BF16 x[rs2][31:16]` |
+| `vmul.bf16.vx m(vd), m(vs1), x(rs2)` | VR | `0B/0B` | `1600000b` / `fe0820ff` | vpu | all | `{m[vd], m[vd+1]} = {m[vs1], m[vs1+1]} * s, s = BF16 x[rs2][31:16]` |
+| `vminimum.bf16.vx m(vd), m(vs1), x(rs2)` | VR | `0B/0C` | `1800000b` / `fe0820ff` | vpu | all | `{m[vd], m[vd+1]} = min({m[vs1], m[vs1+1]}, s), s = BF16 x[rs2][31:16]` |
+| `vmaximum.bf16.vx m(vd), m(vs1), x(rs2)` | VR | `0B/0E` | `1c00000b` / `fe0820ff` | vpu | all | `{m[vd], m[vd+1]} = max({m[vs1], m[vs1+1]}, s), s = BF16 x[rs2][31:16]` |
+| `vadd.bf16.vr m(vd), m(vs1), m(vs2)` | VR | `0B/10` | `2000000b` / `fe0820ff` | vpu | all | `{m[vd], m[vd+1]} = {m[vs1], m[vs1+1]} + r, r = row 0 of {m[vs2], m[vs2+1]} in every row` |
+| `vsub.bf16.vr m(vd), m(vs1), m(vs2)` | VR | `0B/12` | `2400000b` / `fe0820ff` | vpu | all | `{m[vd], m[vd+1]} = {m[vs1], m[vs1+1]} - r, r = row 0 of {m[vs2], m[vs2+1]} in every row` |
+| `vmul.bf16.vr m(vd), m(vs1), m(vs2)` | VR | `0B/13` | `2600000b` / `fe0820ff` | vpu | all | `{m[vd], m[vd+1]} = {m[vs1], m[vs1+1]} * r, r = row 0 of {m[vs2], m[vs2+1]} in every row` |
+| `vminimum.bf16.vr m(vd), m(vs1), m(vs2)` | VR | `0B/14` | `2800000b` / `fe0820ff` | vpu | all | `{m[vd], m[vd+1]} = min({m[vs1], m[vs1+1]}, r), r = row 0 of {m[vs2], m[vs2+1]} in every row` |
+| `vmaximum.bf16.vr m(vd), m(vs1), m(vs2)` | VR | `0B/16` | `2c00000b` / `fe0820ff` | vpu | all | `{m[vd], m[vd+1]} = max({m[vs1], m[vs1+1]}, r), r = row 0 of {m[vs2], m[vs2+1]} in every row` |
 | `vredsum.row.bf16 m(vd), m(vs1)` | VR | `0B/21` | `4200000b` / `fff820ff` | vpu | all | `{m[vd], m[vd+1]}[i, j] = sum({m[vs1], m[vs1+1]}[i, :])` |
 | `vredmin.row.bf16 m(vd), m(vs1)` | VR | `0B/24` | `4800000b` / `fff820ff` | vpu | all | `{m[vd], m[vd+1]}[i, j] = min({m[vs1], m[vs1+1]}[i, :])` |
 | `vredmax.row.bf16 m(vd), m(vs1)` | VR | `0B/26` | `4c00000b` / `fff820ff` | vpu | all | `{m[vd], m[vd+1]}[i, j] = max({m[vs1], m[vs1+1]}[i, :])` |

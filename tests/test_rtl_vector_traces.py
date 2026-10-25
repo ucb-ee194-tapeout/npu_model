@@ -41,7 +41,7 @@ def test_vector_rtl_port_trace(vpu, name):
     for expected in TRACES[case]:
         accesses.clear()
         assert vpu.has_in_flight == expected['busy'], (case, expected['cycle'], 'busy')
-        assert vpu.issue_busy_mask == expected['issue_busy'], (case, expected['cycle'], 'issue_busy')
+        assert vpu.issue_busy_mask() == expected['issue_busy'], (case, expected['cycle'], 'issue_busy')
         command = insn if expected['cycle'] == 1 else None
         if case == 'mov_overlap' and expected['cycle'] == 2:
             command = stream_to_instrs(StringIO('vrecip.bf16 m10, m8'))[0]

@@ -154,6 +154,7 @@ the register.
 | VPU op, then a binary or row-reduction op, or the reverse | latency of A - 1 | latency of A - 3 |
 | VPU op, then the same op or one from its logic group* | latency of A - 1 | latency of A - 3 |
 | VPU single-input op, then a single-input op from another group | 1 | none (two VPU slots) |
+| VPU op, then a `.vr` op from another group | read cycles of A | read cycles of A - 2 |
 | XLU, then XLU | 66 | 64 |
 | `vload`, then `vload`; `vstore`, then `vstore` | 35 | 33 |
 | Scalar load, then scalar load | 3 | 1 |
@@ -165,10 +166,14 @@ the register.
 
 \* Logic groups: {`vadd`, `vsub`, `vredsum.row`}, {`vexp`, `vexp2`},
 {`vsin`, `vcos`}, {`vsquare`, `vcube`}, {`vmaximum`, `vredmax`},
-{`vminimum`, `vredmin`}, and all `vli` forms. A binary or row-reduction op
-occupies both VPU slots; at most two VPU ops are in flight. `vload` and
-`vstore` use independent paths. On the MXU, weight pushes share one write
-path and accumulator pushes another, which carries one push at a time.
+{`vminimum`, `vredmin`}, and all `vli` forms; a `.vx` or `.vr` op is in the group
+of its `.bf16` op. A binary `.bf16` or row-reduction op occupies both VPU slots;
+`.vx` and `.vr` ops take one, as a single-input op does. A `.vr` op reads row 0 of
+T(vs2) on both read ports in its issue cycle, so it waits until the other slot
+has read its last row (64 cycles for a BF16 tile). At most two VPU ops are in
+flight. `vload` and `vstore` use independent paths. On the MXU, weight pushes
+share one write path and accumulator pushes another, which carries one push at a
+time.
 
 ### MXU buffer rules
 
@@ -291,7 +296,8 @@ Requirements:
 The VPU baseline implements:
 
 - binary BF16 operations: `vadd.bf16`, `vsub.bf16`, `vmul.bf16`,
-  `vminimum.bf16`, `vmaximum.bf16`
+  `vminimum.bf16`, `vmaximum.bf16`, and their `.vx` and `.vr` forms, whose second
+  operand is the BF16 scalar x[rs2][31:16] or row 0 of T(vs2) in every row
 - unary BF16 operations: `vmov`, `vrecip.bf16`, `vsqrt.bf16`, `vsin.bf16`,
   `vcos.bf16`, `vtanh.bf16`, `vlog2.bf16`, `vexp.bf16`, `vexp2.bf16`,
   `vrelu.bf16`, `vsquare.bf16`, `vcube.bf16`

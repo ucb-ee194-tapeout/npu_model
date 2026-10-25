@@ -9,7 +9,7 @@ from npu_model.configs.hardware.default import DefaultHardwareConfig
 from npu_model.configs.isa_definition import (
     VADD_BF16, VMOV, VLI_ALL, VLI_ROW, VLI_COL, VLI_ONE, VREDSUM_BF16,
     VREDSUM_ROW_BF16, VREDMAX_ROW_BF16, VPACK_BF16_FP8, VUNPACK_FP8_BF16,
-    VSQUARE_BF16, VCUBE_BF16, VTRPOSE_XLU,
+    VSQUARE_BF16, VCUBE_BF16, VTRPOSE_XLU, VADD_BF16_VX, VSUB_BF16_VR, VMUL_BF16_VR,
 )
 from npu_model.hardware.arch_state import ArchState
 from npu_model.hardware.bank_conflict import BankConflictError
@@ -17,7 +17,7 @@ from npu_model.configs.numerics import NUMERICS
 from npu_model.hardware.vpu import VectorExecutionUnit
 from npu_model.hardware.xlu import CrossLaneExecutionUnit
 from npu_model.logging.logger import Logger
-from npu_model.software import e, m
+from npu_model.software import e, m, x
 from npu_model.software.instruction import Uop
 
 
@@ -56,6 +56,8 @@ def fill_pair(state, bank, value):
     (VREDSUM_BF16(vd=m(4), vs1=m(0)), 66, 129, 64),
     (VPACK_BF16_FP8(vd=m(4), vs2=m(0), es1=e(0)), 3, 65, 32),
     (VUNPACK_FP8_BF16(vd=m(4), vs2=m(0), es1=e(0)), 3, 66, 64),
+    (VADD_BF16_VX(vd=m(4), vs1=m(0), rs2=x(5)), 2, 65, 64),
+    (VMUL_BF16_VR(vd=m(4), vs1=m(0), vs2=m(2)), 3, 66, 64),
 ])
 def test_operation_write_edges(vpu, op, first, last, count):
     state = vpu.arch_state
@@ -182,6 +184,50 @@ def test_mirrored_binary_operand_uses_one_physical_read_port(vpu):
     for _ in range(65):
         tick(vpu)
     assert torch.all(vpu.arch_state.mrf[4].view(torch.bfloat16) == 4)
+
+
+def test_broadcast_forms_read_their_operand_at_issue(vpu):
+    state = vpu.arch_state
+    fill_pair(state, 0, 3)
+    fill_pair(state, 2, 1)
+    tick(vpu, VMUL_BF16_VR(vd=m(6), vs1=m(0), vs2=m(2)))
+    fill_pair(state, 2, 7)                               # after the issue-cycle read of row 0
+    state.write_xrf(x(5), 0x40000000)                    # 2.0
+    tick(vpu, VADD_BF16_VX(vd=m(4), vs1=m(0), rs2=x(5)))
+    state.write_xrf(x(5), 0)
+    for _ in range(66):
+        tick(vpu)
+    assert torch.all(state.mrf[4].view(torch.bfloat16) == 5)
+    assert torch.all(state.mrf[7].view(torch.bfloat16) == 3)
+
+
+def test_vr_may_overwrite_its_row_operand(vpu):
+    state = vpu.arch_state
+    fill_pair(state, 0, 3)
+    fill_pair(state, 2, 1)
+    row(state, 3, 0).view(torch.bfloat16).fill_(2)
+    tick(vpu, VMUL_BF16_VR(vd=m(2), vs1=m(0), vs2=m(2)))
+    for _ in range(66):
+        tick(vpu)
+    assert torch.all(state.mrf[2].view(torch.bfloat16) == 3)
+    assert torch.all(state.mrf[3].view(torch.bfloat16) == 6)
+
+
+def test_vr_waits_for_the_read_port_of_the_other_slot(vpu):
+    tick(vpu, VMOV(vd=m(8), vs1=m(10)))
+    assert vpu.issue_busy_mask(".vx") & 2 == 0           # VPU_ADD: a single-input form may overlap
+    for _ in range(63):
+        assert vpu.issue_busy_mask(".vr") & 2
+        tick(vpu)
+    assert vpu.issue_busy_mask(".vr") & 2 == 0           # vmov has read its last row
+    tick(vpu, VSUB_BF16_VR(vd=m(4), vs1=m(0), vs2=m(2)))
+    assert len(vpu.operations) == 2
+
+
+def test_broadcast_forms_share_the_lane_box_of_their_op(vpu):
+    tick(vpu, VSUB_BF16_VR(vd=m(4), vs1=m(0), vs2=m(2)))
+    with pytest.raises(RuntimeError, match="issue-busy"):
+        tick(vpu, VADD_BF16_VX(vd=m(6), vs1=m(12), rs2=x(1)))
 
 
 def test_fp8_conversion_multiplies_by_the_scale_and_keeps_subnormals():

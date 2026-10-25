@@ -249,11 +249,13 @@ class VRType[VD: (MatrixReg,Accumulator,WeightBuffer) = MatrixReg, VS2: (MatrixR
     vs1: MatrixReg
     es1: ExponentReg
     vs2: VS2
+    rs2: ScalarReg
     vd:  VD
 
     def to_bytecode(self):
         vs1 = self.vs1 if hasattr(self, 'vs1') else (self.es1 if hasattr(self, 'es1') else 0)
-        vs2 = self.vs2 if hasattr(self, 'vs2') else 0
+        # A .vx instruction holds rs2 in bits 24:20, the upper 5 bits of vs2.
+        vs2 = self.vs2 if hasattr(self, 'vs2') else (self.rs2 << 1 if hasattr(self, 'rs2') else 0)
         vd  = self.vd  if hasattr(self, 'vd')  else 0
 
         funct7_b = _mask(self.funct7, 7) # Bits 31:25

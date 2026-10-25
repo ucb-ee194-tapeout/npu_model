@@ -518,6 +518,24 @@ class TensorComputeBinary(InstructionPattern):
     params = [mp_vd, mp_vs1, mp_vs2]
 
 @dataclass()
+class TensorComputeScalar(InstructionPattern):
+    """
+    Instruction pattern for tensor instructions with a scalar second operand.
+
+    Matches assembly patterns of the form `instr m(vd), m(vs1), x(rs2)`. This pattern is used for
+    the .vx forms of the binary BF16 operations: the second operand is the BF16 bits x[rs2][31:16].
+
+    Attributes:
+        vd: The destination tensor register.
+        vs1: The source tensor register.
+        rs2: The scalar register that holds the second operand.
+    """
+    vd: MatrixReg
+    vs1: MatrixReg
+    rs2: ScalarReg
+    params = [mp_vd, mp_vs1, x_rs2]
+
+@dataclass()
 class TensorComputeMixed(InstructionPattern):
     """
     Instruction pattern for tensor instructions with mixed tensor and exponent register operands.

@@ -34,6 +34,7 @@ from npu_model.isa_patterns import (
     TensorBaseOffset,
     TensorComputeBinary,
     TensorComputeMixed,
+    TensorComputeScalar,
     TensorComputeUnary,
     MXUWeightPush,
     MXUAccumulatorPush,
@@ -176,6 +177,17 @@ def _write_mrf_bf16_rows(state: ArchState, reg: int, value: torch.Tensor) -> Non
     _assert_bf16_pair(state, reg)
     state.write_mrf_bf16(reg, value[:state.cfg.mrf_depth].contiguous())
     state.write_mrf_bf16(reg + 1, value[state.cfg.mrf_depth:].contiguous())
+
+
+def _scalar_tile(state: ArchState, rs2: int) -> torch.Tensor:
+    """The BF16 bits x[rs2][31:16] in every element of a tile (the .vx operand)."""
+    bits = torch.full(_bf16_pair_shape(state), state.read_xrf(rs2) >> 16 & 0xFFFF, dtype=torch.uint16)
+    return bits.view(torch.bfloat16)
+
+
+def _row0_tile(state: ArchState, reg: int) -> torch.Tensor:
+    """Row 0 of the tile {m[reg], m[reg + 1]} in every row (the .vr operand)."""
+    return _read_mrf_bf16_pair(state, reg)[:1].expand(_bf16_pair_shape(state)).contiguous()
 
 
 class LB(ScalarOffsetLoad, IType):
@@ -426,6 +438,66 @@ class VREDMAX_BF16(TensorComputeUnary, VRType):
     def exec(self, state: ArchState) -> None:
         x = _read_mrf_bf16_rows(state, self.vs1)
         _write_mrf_bf16_rows(state, self.vd, state.math.amax(x, 0).expand_as(x).contiguous())
+
+
+class VADD_BF16_VX(TensorComputeScalar, VRType):
+    def exec(self, state: ArchState) -> None:
+        a = _read_mrf_bf16_pair(state, self.vs1)
+        _write_mrf_bf16_pair(state, self.vd, state.math.add(a, _scalar_tile(state, self.rs2)))
+
+
+class VSUB_BF16_VX(TensorComputeScalar, VRType):
+    def exec(self, state: ArchState) -> None:
+        a = _read_mrf_bf16_pair(state, self.vs1)
+        _write_mrf_bf16_pair(state, self.vd, state.math.sub(a, _scalar_tile(state, self.rs2)))
+
+
+class VMUL_BF16_VX(TensorComputeScalar, VRType):
+    def exec(self, state: ArchState) -> None:
+        a = _read_mrf_bf16_pair(state, self.vs1)
+        _write_mrf_bf16_pair(state, self.vd, state.math.mul(a, _scalar_tile(state, self.rs2)))
+
+
+class VMINIMUM_BF16_VX(TensorComputeScalar, VRType):
+    def exec(self, state: ArchState) -> None:
+        a = _read_mrf_bf16_pair(state, self.vs1)
+        _write_mrf_bf16_pair(state, self.vd, state.math.minimum(a, _scalar_tile(state, self.rs2)))
+
+
+class VMAXIMUM_BF16_VX(TensorComputeScalar, VRType):
+    def exec(self, state: ArchState) -> None:
+        a = _read_mrf_bf16_pair(state, self.vs1)
+        _write_mrf_bf16_pair(state, self.vd, state.math.maximum(a, _scalar_tile(state, self.rs2)))
+
+
+class VADD_BF16_VR(TensorComputeBinary, VRType):
+    def exec(self, state: ArchState) -> None:
+        a = _read_mrf_bf16_pair(state, self.vs1)
+        _write_mrf_bf16_pair(state, self.vd, state.math.add(a, _row0_tile(state, self.vs2)))
+
+
+class VSUB_BF16_VR(TensorComputeBinary, VRType):
+    def exec(self, state: ArchState) -> None:
+        a = _read_mrf_bf16_pair(state, self.vs1)
+        _write_mrf_bf16_pair(state, self.vd, state.math.sub(a, _row0_tile(state, self.vs2)))
+
+
+class VMUL_BF16_VR(TensorComputeBinary, VRType):
+    def exec(self, state: ArchState) -> None:
+        a = _read_mrf_bf16_pair(state, self.vs1)
+        _write_mrf_bf16_pair(state, self.vd, state.math.mul(a, _row0_tile(state, self.vs2)))
+
+
+class VMINIMUM_BF16_VR(TensorComputeBinary, VRType):
+    def exec(self, state: ArchState) -> None:
+        a = _read_mrf_bf16_pair(state, self.vs1)
+        _write_mrf_bf16_pair(state, self.vd, state.math.minimum(a, _row0_tile(state, self.vs2)))
+
+
+class VMAXIMUM_BF16_VR(TensorComputeBinary, VRType):
+    def exec(self, state: ArchState) -> None:
+        a = _read_mrf_bf16_pair(state, self.vs1)
+        _write_mrf_bf16_pair(state, self.vd, state.math.maximum(a, _row0_tile(state, self.vs2)))
 
 
 class VREDSUM_ROW_BF16(TensorComputeUnary, VRType):

@@ -15,6 +15,10 @@ from ..isa import EXU
 _TWO_INPUT = {"vadd.bf16", "vsub.bf16", "vmul.bf16", "vminimum.bf16", "vmaximum.bf16"}
 _ROW_REDUCE = {"vredsum.row.bf16", "vredmin.row.bf16", "vredmax.row.bf16"}
 _COL_REDUCE = {"vredsum.bf16", "vredmin.bf16", "vredmax.bf16"}
+# The .vx and .vr forms stream one pair, so they take one slot. A .vr reads row 0 of T(vs2) on both
+# read ports in its issue cycle, then streams T(vs1).
+_VX = {f"{name}.vx" for name in _TWO_INPUT}
+_VR = {f"{name}.vr" for name in _TWO_INPUT}
 _GROUPS = (
     {"vadd.bf16", "vsub.bf16", "vredsum.row.bf16"},
     {"vexp.bf16", "vexp2.bf16"},
@@ -52,7 +56,14 @@ VPU_OP_LATENCIES = {
     "vli.col": 33,
     "vli.one": 33,
     "vunpack.fp8.bf16": 67,
+    **dict.fromkeys(_VX, 66),
+    **dict.fromkeys(_VR, 67),
 }
+
+
+def _base(name: str) -> str:
+    """The .bf16 instruction of a .vx or .vr form: it uses the same lane box."""
+    return name.removesuffix(".vx").removesuffix(".vr")
 
 
 @dataclass
@@ -103,19 +114,21 @@ class VectorExecutionUnit(ExecutionUnit):
 
     @staticmethod
     def _share_logic(left: str, right: str) -> bool:
+        left, right = _base(left), _base(right)
         return left == right or any(left in group and right in group for group in _GROUPS)
 
     def _issue_blocked(self, name: str, cycle: int) -> bool:
         live = [op for op in self.operations if cycle - op.issued < op.write_last]
         return bool(live and (len(live) == 2 or self._double(name)
                     or any(self._double(op.uop.insn.mnemonic)
-                           or self._share_logic(name, op.uop.insn.mnemonic) for op in live)))
+                           or self._share_logic(name, op.uop.insn.mnemonic) for op in live)
+                    or (name.endswith(".vr") and any(cycle - op.issued <= op.read_last for op in live))))
 
-    @property
-    def issue_busy_mask(self) -> int:
-        """RTL issueBusy for the next tick, before its command is accepted."""
+    def issue_busy_mask(self, form: str = "") -> int:
+        """RTL issueBusy for the next tick, before its command is accepted: of each op, or with form
+        ".vx" or ".vr" of its .vx or .vr form (issueBusy indexed by vpu_src)."""
         return sum(1 << index for index, name in enumerate(_OP_ORDER, 1)
-                   if self._issue_blocked(name, self.cycle + 1))
+                   if self._issue_blocked(name + form, self.cycle + 1))
 
     def can_handle(self, uop: Uop) -> bool:
         return uop.insn.exu == EXU.VECTOR
@@ -150,11 +163,18 @@ class VectorExecutionUnit(ExecutionUnit):
                     raise RuntimeError("VPU pair-read secondary bank must be even")
                 reads.update({source2, source2 + 1})
         read_last = -1 if vli else (31 if name in _ROW_REDUCE | {"vunpack.fp8.bf16"}
-                                    else 127 if name in _COL_REDUCE else 63)
+                                    else 127 if name in _COL_REDUCE else 64 if name in _VR else 63)
         owner = f"{self.name}:{uop.id}:{name}"
-        self.arch_state.conflict_checker.reserve_mreg(owner, frozenset(reads), writes)
+        checker = self.arch_state.conflict_checker
+        sampled = set(reads)
+        if name in _VR:
+            # Row 0 of T(vs2) is read in the issue cycle only.
+            row0 = frozenset({int(insn.vs2), int(insn.vs2) + 1})
+            checker.reserve_mreg(owner, row0, frozenset())
+            sampled |= row0
+        checker.reserve_mreg(owner, frozenset(reads), writes)
         latency = self._execution_latency(uop)
-        staged = StagedExecution(uop, self.arch_state, [("mrf", bank) for bank in reads],
+        staged = StagedExecution(uop, self.arch_state, [("mrf", bank) for bank in sampled],
                                  [("mrf", bank) for bank in writes], "VectorFSM")
         op = _VectorOperation(uop, self.cycle, slot, owner, frozenset(reads), writes,
                               read_last, latency - 1, staged)
@@ -177,6 +197,10 @@ class VectorExecutionUnit(ExecutionUnit):
         if not 0 <= age <= op.read_last:
             return []
         insn, name = op.uop.insn, op.uop.insn.mnemonic
+        if name in _VR:
+            if age == 0:
+                return [(int(insn.vs2), 0), (int(insn.vs2) + 1, 0)]
+            age -= 1
         if name in _ROW_REDUCE:
             return [(int(insn.vs1), age), (int(insn.vs1) + 1, age)]
         if name == "vunpack.fp8.bf16":
@@ -200,7 +224,7 @@ class VectorExecutionUnit(ExecutionUnit):
             # FP8 row k packs BF16 rows 2k and 2k + 1, two cycles after the second.
             return [(vd, (age - 3) // 2)] if 3 <= age <= 65 and age % 2 else []
         # The rest write one row per cycle across the pair, starting at `first`.
-        first = (1 if name.startswith("vli.") else 3 if name == "vunpack.fp8.bf16"
+        first = (1 if name.startswith("vli.") else 3 if name == "vunpack.fp8.bf16" or name in _VR
                  else 66 if name in _COL_REDUCE else 2)
         index = age - first
         count = 32 if name in {"vli.col", "vli.one"} else 64
@@ -209,8 +233,8 @@ class VectorExecutionUnit(ExecutionUnit):
     def _advance(self, op: _VectorOperation) -> None:
         age = self.cycle - op.issued
         for bank, row in self._reads(op, age):
-            # Only the first pass over the pair feeds the result.
-            self._read(op, bank, row, sample=age < 64)
+            # Only the first pass of a column reduction over the pair feeds the result.
+            self._read(op, bank, row, sample=op.uop.insn.mnemonic not in _COL_REDUCE or age < 64)
         if age == op.read_last:
             self.arch_state.conflict_checker.release_mreg(op.owner, reads=True, writes=False)
         for bank, row in self._writes(op, age):
