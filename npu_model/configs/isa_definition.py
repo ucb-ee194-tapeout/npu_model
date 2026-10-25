@@ -137,11 +137,8 @@ def _vmatmul(
     # Weight-buffer row j holds output column j's weights: acc = A @ W^T (+ acc).
     a = state.read_mrf_fp8(vs1)
     b = state.read_wb_fp8("mxu1", vs2).T
-    if accumulate:
-        c = state.read_acc_bf16("mxu1", vd)
-    else:
-        c = torch.zeros(a.shape[0], b.shape[1], dtype=torch.bfloat16)
-    state.write_acc_bf16("mxu1", vd, state.math.inner_product_matmul(a, b, c))
+    c = state.read_acc_f32("mxu1", vd) if accumulate else torch.zeros(a.shape[0], b.shape[1])
+    state.write_acc_f32("mxu1", vd, state.math.inner_product_matmul(a, b, c))
 
 
 def _assert_bf16_pair(state: ArchState, reg: int) -> None:
@@ -714,25 +711,25 @@ class VMATPUSH_ACC_FP8_MXU1(MXUAccumulatorPush, VRType[Accumulator, MatrixReg]):
     params = [acc_vd, m_vs1]
 
     def exec(self, state: ArchState) -> None:
-        x = state.read_mrf_fp8(self.vs1)
-        state.write_acc_bf16("mxu1", self.vd, state.math.acc_from_fp8(x))
+        state.write_acc_f32("mxu1", self.vd, state.math.f32_from_fp8(state.read_mrf_fp8(self.vs1)))
 
 
 class VMATPUSH_ACC_BF16_MXU1(MXUAccumulatorPush, VRType[Accumulator, MatrixReg]):
     def exec(self, state: ArchState) -> None:
-        state.write_acc_bf16("mxu1", self.vd, state.read_mrf_bf16_tile(self.vs1))
+        bits = state.read_mrf_bf16_tile(self.vs1).view(torch.int16).to(torch.int32) << 16
+        state.write_acc_f32("mxu1", self.vd, bits.view(torch.float32))
 
 
 class VMATPOP_FP8_ACC_MXU1(MXUAccumulatorPopE1, VRType[MatrixReg, Accumulator]):
     def exec(self, state: ArchState) -> None:
-        acc = state.read_acc_bf16("mxu1", self.vs2)
-        fp8 = state.math.acc_to_fp8(acc, state.read_erf(self.es1))
+        acc = state.read_acc_f32("mxu1", self.vs2)
+        fp8 = state.math.f32_to_fp8(acc, state.read_erf(self.es1))
         state.write_mrf_u8(self.vd, fp8.view(torch.uint8))
 
 
 class VMATPOP_BF16_ACC_MXU1(MXUAccumulatorPop, VRType[MatrixReg, Accumulator]):
     def exec(self, state: ArchState) -> None:
-        state.write_mrf_bf16_tile(self.vd, state.read_acc_bf16("mxu1", self.vs2))
+        state.write_mrf_bf16_tile(self.vd, state.math.f32_to_bf16(state.read_acc_f32("mxu1", self.vs2)))
 
 
 class VMATMUL_MXU1(MXUMatMul, VRType[Accumulator, WeightBuffer]):

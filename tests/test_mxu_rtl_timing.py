@@ -78,9 +78,9 @@ def test_compute_uses_weight_rows_as_output_lanes(mxu):
     tick(mxu, instruction(mxu, "VMATMUL", vd=acc(0), vs1=m(0), vs2=w(0)))
     for _ in range(mxu.compute_first + 31):
         tick(mxu)
-    expected = torch.zeros(32, 32, dtype=torch.bfloat16)
+    expected = torch.zeros(32, 32)
     expected[:, 7] = 2
-    assert torch.equal(state.acc[mxu.mxu][0], expected)
+    assert torch.equal(state.acc[mxu.mxu][0].float(), expected)
 
 
 def test_pop_can_follow_first_result_while_compute_drains(mxu):
@@ -105,7 +105,7 @@ def test_overwrite_compute_may_follow_pop_on_same_accumulator(mxu):
     state = mxu.arch_state
     put_fp8(state, m(0), torch.ones(32, 32))
     put_fp8(state, m(1), torch.ones(32, 32))
-    state.acc[mxu.mxu][0] = torch.full((32, 32), 3.0).to(torch.bfloat16)
+    state.acc[mxu.mxu][0][:] = torch.full((32, 32), 3.0)
     tick(mxu, instruction(mxu, "VMATPUSH_WEIGHT", vd=w(0), vs1=m(1)))
     for _ in range(mxu.compute_first + 32):
         tick(mxu)

@@ -3,14 +3,15 @@
 Both backends implement one ISA: which elements an instruction combines and
 where its results land are fixed by isa_definition. They differ only in
 rounding, special values and function approximation. Tensors are BF16 unless
-noted; ``scale`` is a raw ERF value, the power of two 2**(scale - 127).
+noted (mxu1 accumulators are FP32); ``scale`` is a raw ERF value, the power of two
+2**(scale - 127).
 """
 import numpy as np
 import torch
 
-from . import cvt
+from . import cvt, fp8_mma
 from .rtl_math import (unary, minmax, extremum, pack_row, unpack_row, _truncated_bf16,
-                       canonical_nan, ipt_row)
+                       canonical_nan)
 
 
 def _exponent(scale: int) -> int:
@@ -84,19 +85,39 @@ class RtlNumerics:
 
     @staticmethod
     def acc_from_fp8(x: torch.Tensor) -> torch.Tensor:
-        """MXU push, FPUtils.e4m3ToBf16: flushes subnormal and NaN inputs to signed zero."""
+        """mxu0 push, FPUtils.e4m3ToBf16: flushes subnormal and NaN inputs to signed zero."""
         return unpack_row(x.flatten().view(torch.uint8)).reshape(x.shape)
 
     @staticmethod
     def acc_to_fp8(x: torch.Tensor, scale: int) -> torch.Tensor:
-        """BF16ScaleToE4M3, as rtl_math.pack_row."""
+        """mxu0 pop, BF16ScaleToE4M3, as rtl_math.pack_row."""
         return pack_row(x.flatten(), scale).view(torch.float8_e4m3fn).reshape(x.shape)
 
     @staticmethod
+    def f32_from_fp8(x: torch.Tensor) -> torch.Tensor:
+        """mxu1 push: E4M3 to FP32, exact (cvt.py)."""
+        codes = x.contiguous().view(torch.uint8).numpy()
+        return torch.from_numpy(cvt.e4m3_to_f32(codes).view(np.float32))
+
+    @staticmethod
+    def f32_to_fp8(x: torch.Tensor, scale: int) -> torch.Tensor:
+        """mxu1 pop: E4M3_RN_SATFINITE(x * 2**(scale - 127)) (cvt.py)."""
+        bits = x.contiguous().view(torch.int32).numpy().view(np.uint32)
+        return torch.from_numpy(cvt.e4m3_rn_satfinite(bits, scale)).view(torch.float8_e4m3fn)
+
+    @staticmethod
+    def f32_to_bf16(x: torch.Tensor) -> torch.Tensor:
+        """mxu1 pop: BF16_RNE(x) (cvt.py)."""
+        bits = x.contiguous().view(torch.int32).numpy().view(np.uint32)
+        return torch.from_numpy(cvt.bf16_rne(bits).view(np.int16)).view(torch.bfloat16)
+
+    @staticmethod
     def inner_product_matmul(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
-        """AnchorAccumulationTree: c + a @ b, rounding each output once."""
-        weights = b.view(torch.uint8).T.contiguous().view(torch.float8_e4m3fn)
-        return torch.stack([ipt_row(a[row], weights, c[row]) for row in range(a.shape[0])])
+        """AnchorAccumulationTree: FP32 c + a @ b, a Blackwell FP8 MMA per output (fp8_mma.py)."""
+        a8 = a.contiguous().view(torch.uint8).numpy()
+        w8 = b.contiguous().view(torch.uint8).T.numpy()
+        bits = c.contiguous().view(torch.int32).numpy().view(np.uint32)
+        return torch.from_numpy(fp8_mma.matmul(a8, w8, bits).view(np.float32))
 
 
 _TORCH_UNARY = {
@@ -170,8 +191,21 @@ class TorchNumerics:
         return scaled.clamp(-448, 448).to(torch.float8_e4m3fn)
 
     @staticmethod
+    def f32_from_fp8(x: torch.Tensor) -> torch.Tensor:
+        return x.float()
+
+    @staticmethod
+    def f32_to_fp8(x: torch.Tensor, scale: int) -> torch.Tensor:
+        scaled = x.double() * 2.0 ** (int(scale) - 127)
+        return scaled.clamp(-448, 448).to(torch.float8_e4m3fn)
+
+    @staticmethod
+    def f32_to_bf16(x: torch.Tensor) -> torch.Tensor:
+        return x.to(torch.bfloat16)
+
+    @staticmethod
     def inner_product_matmul(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
-        return (a.float() @ b.float() + c.float()).to(torch.bfloat16)
+        return a.float() @ b.float() + c
 
 
 Numerics = RtlNumerics | TorchNumerics

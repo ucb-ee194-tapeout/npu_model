@@ -33,9 +33,12 @@ def _tiles(state: ArchState) -> dict[Location, torch.Tensor]:
     return tiles
 
 
+_INTEGER_VIEW = {torch.bfloat16: torch.int16, torch.float32: torch.int32}
+
+
 def _bits(tensor: torch.Tensor) -> torch.Tensor:
     """Integer encodings, so NaN payloads and signed zeros compare exactly."""
-    return tensor.view(torch.int16) if tensor.dtype == torch.bfloat16 else tensor
+    return tensor.view(_INTEGER_VIEW.get(tensor.dtype, tensor.dtype))
 
 
 def _name(location: Location) -> str:

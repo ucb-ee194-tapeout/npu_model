@@ -18,14 +18,9 @@ It is the npu_model-side equivalent of merlin's
 cross-file helpers, seeded golden tensor, torch-allclose validation
 via ``pytest tests/test_programs.py``.
 
-Per-tile arithmetic mirrors the MXU semantics exactly:
-    acc_fp16_1   = A_k0 @ B_k0   (fp16 × fp16)
-    acc_bf16_1   = acc_fp16_1.to(bf16)
-    acc_fp16_2   = A_k1 @ B_k1  + acc_bf16_1.to(fp16)
-    out_bf16     = acc_fp16_2.to(bf16)
-
-So the torch reference below rounds to bf16 at each accumulator store
-to capture the bf16 round-trip the hardware performs between tiles.
+The torch reference mirrors the mxu1 semantics: the FP32 accumulator holds
+A_k0 @ B_k0 + A_k1 @ B_k1 exactly (integer inputs), and the pop rounds it once
+to bf16.
 """
 
 import torch
@@ -52,7 +47,7 @@ func.func @matmul_k_chain(
 }
 """
 # Note: MLIR uses f32 for IREE compatibility. Hardware computes in fp8
-# with bf16 accumulator; PyTorch reference mirrors the hardware. The
+# with an FP32 accumulator and a bf16 pop; PyTorch reference mirrors the hardware. The
 # IREE cross-check below tolerates a loose tol (~2.0) to cover the
 # fp8-quantization gap between the f32 MLIR and bf16 hardware ref.
 
@@ -63,12 +58,8 @@ func.func @matmul_k_chain(
 
 
 def matmul_k_chain_reference(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
-    # Mirror MXU per-tile semantics: fp8 → fp16 multiply, bf16 accumulate.
-    a0, a1 = a[:, :32].to(torch.float16), a[:, 32:].to(torch.float16)
-    b0, b1 = b[:32, :].to(torch.float16), b[32:, :].to(torch.float16)
-    acc_bf16 = (a0 @ b0).to(torch.bfloat16)  # first tile writes acc
-    acc_fp16 = (a1 @ b1) + acc_bf16.to(torch.float16)  # accumulate second tile
-    return acc_fp16.to(torch.bfloat16)
+    # mxu1: FP32 accumulator over both K tiles, one bf16 rounding at the pop.
+    return (a.float() @ b.float()).to(torch.bfloat16)
 
 
 # ═══════════════════════════════════════════════════════════════════════════

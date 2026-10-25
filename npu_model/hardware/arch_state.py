@@ -52,8 +52,9 @@ class ArchState:
         ]
         acc_cols = self.cfg.mrf_width // torch.bfloat16.itemsize * 2
         self.acc: dict[str, list[torch.Tensor]] = {}
+        # mxu1 accumulates in FP32 (configs/fp8_mma.py); exact bits, NaN payloads included.
         self.acc["mxu1"] = [
-            torch.zeros((self.cfg.mrf_depth, acc_cols), dtype=torch.bfloat16)
+            torch.zeros((self.cfg.mrf_depth, acc_cols), dtype=torch.float32)
             for _ in range(self.cfg.num_wb_registers)
         ]
         # NVFP4 MXU configs: per-register UE4M3 scale sidecar (32 rows x 4 bytes), two weight
@@ -110,7 +111,7 @@ class ArchState:
             for tensor in self.wb["mxu1"]:
                 self._fill_u8_random(tensor, generator)
             for tensor in self.acc["mxu1"]:
-                self._fill_bf16_random(tensor, generator)
+                self._fill_bytes_random(tensor, generator)
         else:
             for i in range(len(self.xrf)):
                 self.xrf[i] = 0
@@ -145,9 +146,7 @@ class ArchState:
     def _fill_u8_random(self, tensor: torch.Tensor, generator: torch.Generator) -> None:
         tensor.random_(0, 256, generator=generator)
 
-    def _fill_bf16_random(
-        self, tensor: torch.Tensor, generator: torch.Generator
-    ) -> None:
+    def _fill_bytes_random(self, tensor: torch.Tensor, generator: torch.Generator) -> None:
         tensor.view(torch.uint8).reshape(-1).random_(0, 256, generator=generator)
 
     def _random_int_list(
@@ -389,6 +388,14 @@ class ArchState:
         self.acc[unit][wd][:] = value
 
     def read_acc_bf16(self, unit: str, ws: int) -> torch.Tensor:
+        return self.acc[unit][ws].clone()
+
+    def write_acc_f32(self, unit: str, wd: int, value: torch.Tensor) -> None:
+        assert value.dtype == torch.float32
+        assert value.shape == self.acc[unit][wd].shape
+        self.acc[unit][wd][:] = value
+
+    def read_acc_f32(self, unit: str, ws: int) -> torch.Tensor:
         return self.acc[unit][ws].clone()
 
     def dma_vmem_byte_address(self, operand: int) -> int:
