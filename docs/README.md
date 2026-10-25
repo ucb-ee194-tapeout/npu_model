@@ -34,23 +34,21 @@ are relative to this README.
 | Area | RTL behavior | Model change |
 | --- | --- | --- |
 | Pipeline | `atlas/scalar/ScalarCore.scala` has instruction fetch followed by combined S1 decode, scalar execution/writeback, and engine launch. | Reworked [`core.py`](../npu_model/hardware/core.py), [`idu.py`](../npu_model/hardware/idu.py), and [`ifu.py`](../npu_model/hardware/ifu.py) around two stages. First fetch is cycle 1; first issue is cycle 2. |
-| Branches | `PcControl.scala` redirects fetch while the sequential successor occupies one delay slot. Only taken control flow marks that slot. | Removed extra pipeline/delay-slot assumptions. A control-flow instruction in a marked delay slot raises an error; a branch after an untaken branch is allowed. |
-| PC units | PCs and links count instruction words. Branch/JAL displacement is the encoded immediate shifted right by one. JALR adds a signed immediate to a word-addressed register value. | Corrected PC-relative arithmetic, AUIPC, jump links (`PC + 1`), and JALR, including when source and destination registers are the same. Each fetched uop carries its own PC through stalls. |
+| Branches | `PcControl.scala` redirects fetch and drops the sequential successor of a taken branch or jump (no delay slot). A taken target with bit 1 set is illegal. | The fetch stage drops the instruction that it read in the redirect cycle. S1 halts on a taken target with bit 1 set when the branch or jump would issue. |
+| PC units | The architectural PC is a byte address, four times the IMEM word index that `PcControl.scala` keeps. Links are `pc + 4`. Branch/JAL displacement is a byte offset; the RTL adds `offset >> 2` to the word index. JALR jumps to `(x[rs1] + imm) & ~1`. | Corrected PC-relative arithmetic, AUIPC, jump links (`pc + 4`), and JALR, including when source and destination registers are the same. Each fetched uop carries its IMEM word index through stalls. |
 | DELAY | DELAY issues, then stalls the following instruction for N cycles. | The delay instruction retires at issue; the successor is held for N cycles rather than holding DELAY as an executing scalar operation. |
 | DMA.WAIT | S1 waits for the selected channel's busy flag to clear. | Holds instruction and PC while testing the channel flag, which the beat-level DMA engine clears when the slot retires. `dma.config` no longer occupies a channel. |
 | Halt | ECALL/EBREAK detection takes priority over frontend stalls and does not count as ordinary retirement. | Matched halt priority and counter behavior. |
 | RV32 arithmetic | Scalar writes wrap to 32 bits; signed comparisons/arithmetic shifts use signed RV32 values and shifts mask the count. | Corrected Python integer handling rather than allowing unbounded integers or unsigned comparisons to change control flow. |
-| Assembly | Atlas assembly branch/JAL offsets are expressed in words, with their corresponding encoded immediate fields. | Corrected immediate widths and word-to-encoded-offset conversion. Label resolution accounts for LI expansion. Direct typed Python constructors retain raw encoded immediates. Fixed I-type encoding so the destination register is independent of the immediate. |
+| Assembly | Atlas assembly branch/JAL offsets are byte offsets, as in RV32I. | Byte offsets in assembly and in typed Python constructors. Label resolution accounts for LI expansion. Fixed I-type encoding so the destination register is independent of the immediate. |
 
-The assembly distinction is intentional: a source branch offset of `3` words
-encodes an immediate of `6`; a direct `BEQ(...)` constructor holds that encoded
-value. See [`test_assembler.py`](../tests/test_assembler.py) for range, label,
-JALR, and instruction-word checks.
+See [`test_assembler.py`](../tests/test_assembler.py) for range, label, JALR,
+and odd-offset checks.
 
 During a tick, S1 consumes the previous edge's state. Scalar operand reads and
 engine launch happen before scalar-load writeback, matching the lack of a load
-bypass. Fetch uses the old fetch PC even when S1 redirects, preserving the delay
-slot. `Core.last_cycle` records fetch/S1 PCs, issue, stall, redirect, and halt
+bypass. When S1 redirects, fetch drops the instruction that it read in that
+cycle. `Core.last_cycle` records fetch/S1 PCs, issue, stall, redirect, and halt
 observations for debugging and trace comparison.
 
 ### CSR state and retirement
@@ -329,7 +327,8 @@ not instantiate a complete AtlasTile or variable TileLink traffic.
 ### Additional directed and workload checks
 
 - [`test_rtl_pipeline.py`](../tests/test_rtl_pipeline.py): scalar stage ordering,
-  delay slots, stalls, halt priority, signed RV32 behavior, and CSR counters.
+  redirects, illegal jump targets, stalls, halt priority, signed RV32 behavior,
+  and CSR counters.
 - [`test_imem_timing.py`](../tests/test_imem_timing.py): live single-bank memory,
   synchronous reads, host arbitration/backpressure, collision handling, reset,
   instruction holding, high-PC aliases, and writes beyond the loaded image.
@@ -432,7 +431,7 @@ setup may also need dependency downloads. Use the script rather than invoking a
 bare test class directly: the canonical harnesses live in the model repository
 and are normally outside Mill's test-source tree.
 
-Generated artifacts are `tests/rtl/{scalar,vector,sa,ipt,memory}_traces.json`,
+Generated artifacts are `tests/rtl/{scalar,vector,ipt,memory}_traces.json`,
 `tests/rtl/arithmetic.json`, `npu_model/hardware/data/*.bin.gz`, and
 `tests/rtl/provenance.json`. `scalar_cases.json` is an input specification, not
 an output automatically reassembled by the regeneration script.

@@ -14,11 +14,13 @@ models one clock edge. Cycle 1 follows host start and fetches word 0, which
 executes in cycle 2. Decode, scalar execution/writeback and engine launch share
 stage S1.
 
-Taken branches and jumps have **one delay slot**. A not-taken branch does not
-mark its successor as a delay slot. PCs and jump links count words. Assembly
-branch and JAL offsets count words; direct Python instruction constructors hold
-the encoded immediate, which the RTL shifts right by one. JALR adds its signed
-12-bit immediate to its source register as a word address.
+There is **no delay slot**. A taken branch or jump drops the instruction that
+fetch reads in its cycle: one bubble, then the target. The architectural PC is a
+byte address: jump links are `pc + 4`, AUIPC adds the byte PC, and branch and
+JAL offsets are byte offsets in assembly and in Python instruction constructors.
+The RTL keeps an IMEM word index and adds `offset >> 2`. JALR jumps to
+`(x[rs1] + imm) & ~1`. A taken branch or jump to a target with bit 1 set is
+illegal; the core checks it when the instruction would issue.
 
 `delay N` issues first, then stalls the following S1 instruction for N cycles.
 DMA.WAIT holds S1 while its channel is busy. Halt detection precedes stalls.
@@ -63,17 +65,18 @@ The MXU table lists row-write edges; command issue checks can impose additional
 spacing when operations reuse a port, register or accumulator. The bank-conflict
 tests distinguish these cases: MXU1 requires `delay 30` before a matmul reads a
 slot that a push is still streaming. A weight push and matmul that both read
-`m0` need `delay 30` because their physical MRF reads overlap; `vadd.bf16` reading `m0`
-followed by that matmul also needs `delay 30`, and XLU transpose reading `m0`
-needs `delay 31`. After a matmul writes `acc0`, a pop that reads `acc0` needs
-`delay 2`, and an accumulate matmul needs `delay 30` for the activation read
-port. Each accumulator has one read port,
-so a pop and an accumulate matmul cannot stream from the same accumulator at
-once; an overwrite matmul does not read it and may issue the cycle after a pop
-of the same accumulator (the `perf_mm_*` baremetal schedule). A VPU or XLU write to `m4` followed
-by a matmul reading `m4` needs `delay 64`. `tests/test_bank_conflict.py` checks
-each minimum and the one-cycle-short case. The `DELAY` immediate is not the
-issue-cycle gap: the `DELAY` instruction itself issues before its stall begins.
+`m0` need `delay 30` because their physical MRF reads overlap; `vadd.bf16`
+reading `m0` followed by that matmul also needs `delay 30`, and XLU transpose
+reading `m0` needs `delay 31`. After a matmul writes `acc0`, a pop that reads
+`acc0` needs `delay 2`, and an accumulate matmul needs `delay 30` for the
+activation read port. Each accumulator has one read port, so a pop and an
+accumulate matmul cannot stream from the same accumulator at once; an overwrite
+matmul does not read it and may issue the cycle after a pop of the same
+accumulator (the `perf_mm_*` baremetal schedule). A VPU or XLU write to `m4`
+followed by a matmul reading `m4` needs `delay 64`. `tests/test_bank_conflict.py`
+checks each minimum and the one-cycle-short case. The `DELAY` immediate is not
+the issue-cycle gap: the `DELAY` instruction itself issues before its stall
+begins.
 
 
 Scalar loads have no same-cycle bypass. Scalar, vector-load and vector-store

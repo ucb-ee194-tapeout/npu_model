@@ -46,10 +46,11 @@ Execution is overlap-oriented rather than superscalar:
   conditions
 - architectural state updates become visible when the producing instruction completes
 
-Control flow is explicit and compiler-visible:
+Control flow follows RV32I:
 
-- branches and jumps have exactly `1` architecturally visible delay slot when taken
-- a control-transfer instruction appearing in a delay slot is illegal
+- the program counter, jump links and branch offsets are byte addresses
+- branches and jumps have no delay slot
+- a taken branch or jump to a target with bit 1 set is illegal
 
 ## Baseline Tile Geometry
 

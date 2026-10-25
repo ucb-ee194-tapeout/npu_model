@@ -11,8 +11,8 @@ Rules:
 
 - each scalar register stores one `32`-bit value
 - `x0` is hardwired to zero
-- `pc` stores the architectural instruction-word index
-- under normal sequential execution, `pc` increments by `1`
+- `pc` stores the byte address of the instruction
+- under normal sequential execution, `pc` increments by `4`
 
 ## Tensor and Scale State
 

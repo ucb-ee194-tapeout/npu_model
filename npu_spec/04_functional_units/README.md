@@ -172,7 +172,8 @@ path and accumulator pushes another, which carries one push at a time.
 | --- | --- |
 | Weight push to `wN`, then matmul reading `wN` | 32: the whole slot is read from B's T+1 |
 | Matmul reading `wN`, then weight push to `wN` | 32 |
-| Matmul writing `accN`, then pop or `matmul.acc` of `accN` | 32: a pop may not read `accN` while the matmul does, and a second matmul waits for the read port |
+| Matmul writing `accN`, then pop of `accN` | 4: row 0 lands at T+3 |
+| Matmul writing `accN`, then `matmul.acc` of `accN` | 32: the second matmul waits for the activation read port |
 | FP8 accumulator push to `accN`, then matmul on `accN`‡ | 33 |
 | Accumulator push to `accN`, then pop of `accN` | 2 |
 
@@ -182,7 +183,8 @@ waits 32 cycles.
 ### Tested examples
 
 `tests/test_bank_conflict.py` checks that each minimum below passes and that
-one cycle less raises (for `DELAY 0`, one cycle less means no `DELAY`). Cycles count from A's issue T; B issues at T+G.
+one cycle less raises (for `DELAY 0`, one cycle less means no `DELAY`). Cycles
+count from A's issue T; B issues at T+G.
 
 | A, then B | Shared resource and binding cycles | G | Minimum `DELAY` |
 | --- | --- | ---: | ---: |
@@ -232,12 +234,13 @@ consume or produce `{m[r], m[r + 1]}`:
 - the encoded tensor register field names the low register of the pair
 - encoding `r = 63` for such a field is illegal
 
-## Delay-Slot Handling
+## Control Flow
 
-The RTL has one delay slot for taken branches and jumps. The sequential word
-already being fetched executes once before the redirect target. A branch or jump
-in that slot halts as illegal; a not-taken branch does not mark a delay slot.
-The slot marker and S1 PC hold across DELAY and DMA.WAIT stalls.
+There is no delay slot. A taken branch or jump drops the sequential word that is
+already being fetched: one bubble, then the target. A taken branch or jump to a
+target with bit 1 set halts as illegal; the core checks this when the branch or
+jump would issue, so a not-taken branch is legal. The S1 PC holds across DELAY
+and DMA.WAIT stalls.
 
 ## Scalar Arithmetic and Logical Unit
 

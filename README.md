@@ -157,10 +157,11 @@ S0: synchronous IMEM fetch → S1: decode / scalar execute / writeback / engine 
                                   └→ independent multi-cycle engines
 ```
 
-Cycle 1 fetches word 0; cycle 2 executes it. Taken branches and jumps execute
-exactly one sequential delay-slot instruction, then the target. PCs and jump
-links are word indices. `delay N` retires immediately, then stalls the following
-instruction for N cycles. `dma.wait` holds S1 while its channel is busy.
+Cycle 1 fetches word 0; cycle 2 executes it. A taken branch or jump drops the
+instruction fetched after it (one bubble), then runs the target. The PC, jump
+links and branch offsets are in bytes, as in RV32I. `delay N` retires
+immediately, then stalls the following instruction for N cycles. `dma.wait`
+holds S1 while its channel is busy.
 
 `Core.last_cycle` exposes the fetch PC, S1 PC, issue, stall, redirect, and halt
 signals for comparisons. `StageData` connects the stages and engine launch
@@ -189,7 +190,7 @@ npu_model/
 │   │   └── program.py     # Program class
 │   ├── logging/           # Trace logging
 │   │   └── logger.py      # Perfetto trace logger
-│   ├── isa/               # ISA table (atlas_isa.toml), loader, generators, disassembler, instruction types
+│   ├── isa/               # ISA table, loader, generators, disassembler, instruction types
 │   └── simulation.py      # Simulation orchestration
 ├── scripts/
 │   └── run.py             # Main simulation runner

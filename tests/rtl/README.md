@@ -46,9 +46,11 @@ memory response (`0x12345678`). IMEM host arbitration and CSR counters have
 separate Python tests, rather than full-system RTL traces.
 
 Signals are sampled before the clock edge; `next_pc` in the scalar trace is
-sampled after it. Scalar cycle 1 follows the host start edge: the first fetched
-instruction executes in cycle 2. Engine cycle 1 is command issue. The memory
-harness includes ScalarCore's scalar command/response registers.
+sampled after it. `fetch_pc` and `next_pc` are IMEM word indices; `s1_pc` is the
+byte address of the S1 instruction (ScalarCore's illegal-PC output). Scalar
+cycle 1 follows the host start edge: the first fetched instruction executes in
+cycle 2. Engine cycle 1 is command issue. The memory harness includes
+ScalarCore's scalar command/response registers.
 
 Unary table files contain gzip-compressed little-endian uint16 results indexed
 by the raw BF16 input encoding. They deliberately retain the RTL's approximation,
