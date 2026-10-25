@@ -395,6 +395,7 @@ OMP_NUM_THREADS=1 uv run python -m pytest -q \
   tests/test_rtl_vector_traces.py \
   tests/test_rtl_matrix_traces.py \
   tests/test_rtl_memory_traces.py \
+  tests/test_rtl_dma_traces.py \
   tests/test_rtl_arithmetic.py \
   tests/test_rtl_artifacts.py
 
@@ -427,19 +428,22 @@ The regeneration script:
 
 1. Copies the canonical harnesses from `tests/rtl/scala/` into a temporary
    directory under the parent accelerator's `src/test/scala/atlas/` tree.
-2. Runs the parent `mill --no-server atlas.test.testOnly` with the six suites
-   listed in `scripts/regenerate_rtl_fixtures.py`.
+2. Runs the parent `mill --no-server atlas.test.testOnly` with the six Mill
+   suites listed in `scripts/regenerate_rtl_fixtures.py`.
 3. Lets those suites record the JSON traces and regenerate unary tables.
 4. Removes its temporary harness directory.
-5. Writes and checks SHA256 provenance after successful simulation.
+5. Runs the DMA suite in the same way with Chipyard's sbt, from a temporary
+   directory under `src/test/scala/`.
+6. Records SHA256 provenance for the suites that ran, then checks the records of
+   all suites.
 
 Expect several minutes, mainly for compiling the full 32×32 MXUs. Initial build
 setup may also need dependency downloads. Use the script rather than invoking a
 bare test class directly: the canonical harnesses live in the model repository
 and are normally outside Mill's test-source tree.
 
-Generated artifacts are `tests/rtl/{scalar,vector,ipt,memory}_traces.json`,
-`tests/rtl/arithmetic.json`, `npu_model/hardware/data/*.bin.gz`, and
+Generated artifacts are `tests/rtl/{scalar,vector,ipt,memory,dma}_traces.json`,
+`tests/rtl/arithmetic.json`, `npu_model/configs/data/*.bin.gz`, and
 `tests/rtl/provenance.json`. `scalar_cases.json` is an input specification, not
 an output automatically reassembled by the regeneration script.
 
@@ -470,8 +474,10 @@ For scalar scenarios, keep `source` and `words` in `scalar_cases.json` consisten
 The RTL executes the stored words; Python assembles the source and first checks
 that it produces those same words. Editing only the source is insufficient.
 
-The provenance manifest records hashes for Scala sources in the parent RTL and
-FP dependency trees, the canonical harnesses, JSON fixtures, and unary tables.
+The provenance manifest has one record for each harness suite. The record has
+the hashes of the suite's fixtures (JSON fixtures, unary tables, scalar cases) and
+one hash of the Scala sources in the parent RTL and FP dependency trees and the
+canonical harnesses. `--only` rewrites only the records of the suites that ran.
 `--check` validates the recorded files and does not run a simulation. It is a
 staleness/integrity check, not an equivalence proof. A standalone checkout
 without adjacent RTL checks artifacts without requiring those RTL sources.

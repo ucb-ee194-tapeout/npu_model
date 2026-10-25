@@ -13,17 +13,19 @@ MODEL = Path(__file__).resolve().parents[1]
 RTL = MODEL.parent
 CHIPYARD = RTL.parents[1]
 MANIFEST = MODEL / 'tests/rtl/provenance.json'
-# Harnesses for src/main/scala/atlas, run by the accelerator's Mill module.
-SUITES = ['atlas.scalar.NpuModelScalarTraceTest',
-          'atlas.vector.NpuModelVectorTraceTest',
-          'atlas.vector.NpuModelUnaryTableTest',
-          'atlas.mxu.NpuModelMatrixTraceTest',
-          'atlas.mxu.NpuModelArithmeticTraceTest',
-          'atlas.lsu.NpuModelMemoryTraceTest']
+# Harnesses for src/main/scala/atlas, run by the accelerator's Mill module, and the
+# fixtures (globs in npu-model) that each one records.
+SUITES = {'atlas.scalar.NpuModelScalarTraceTest': ['tests/rtl/scalar_cases.json', 'tests/rtl/scalar_traces.json'],
+          'atlas.vector.NpuModelVectorTraceTest': ['tests/rtl/vector_traces.json'],
+          'atlas.vector.NpuModelUnaryTableTest': ['npu_model/configs/data/*.bin.gz'],
+          'atlas.mxu.NpuModelMatrixTraceTest': ['tests/rtl/ipt_traces.json'],
+          'atlas.mxu.NpuModelArithmeticTraceTest': ['tests/rtl/arithmetic.json'],
+          'atlas.lsu.NpuModelMemoryTraceTest': ['tests/rtl/memory_traces.json']}
 # Harnesses for src/main/scala/diplomatic (DMA, VMEM), which need rocket-chip
 # and are compiled only by Chipyard's sbt project `sp26atlas`.
 SBT_HARNESS_DIR = 'dma'
-SBT_SUITES = ['atlas.dma.NpuModelDmaTraceTest']
+SBT_SUITES = {'atlas.dma.NpuModelDmaTraceTest': ['tests/rtl/dma_traces.json']}
+ALL_SUITES = {**SUITES, **SBT_SUITES}
 SBT_OPTS = ['-Dsbt.ivy.home={cy}/.ivy2', '-Dsbt.global.base={cy}/.sbt',
             '-Dsbt.boot.directory={cy}/.sbt/boot/', '-Dsbt.supershell=false',
             '-Dsbt.server.forcestart=true']
@@ -39,33 +41,48 @@ def source_paths():
     return sorted(p for root in roots for p in root.rglob('*.scala'))
 
 
-def artifact_paths():
-    return sorted([p for p in (MODEL/'tests/rtl').glob('*.json') if p != MANIFEST]
-                  + list((MODEL/'npu_model/configs/data').glob('*.bin.gz')))
+def sources_digest():
+    files = {str(p.relative_to(RTL)): digest(p) for p in source_paths()}
+    return hashlib.sha256(json.dumps(files, sort_keys=True).encode()).hexdigest()
 
 
-def write_manifest():
-    manifest = {'description': 'SHA256 of RTL/harness sources and their generated artifacts.',
-                'sources': {str(p.relative_to(RTL)): digest(p) for p in source_paths()},
-                'artifacts': {str(p.relative_to(MODEL)): digest(p) for p in artifact_paths()}}
-    MANIFEST.write_text(json.dumps(manifest,indent=2,sort_keys=True)+'\n')
+def fixture_digests(suite):
+    return {str(p.relative_to(MODEL)): digest(p)
+            for pattern in ALL_SUITES[suite] for p in sorted(MODEL.glob(pattern))}
+
+
+def write_manifest(suites):
+    """Record the fixtures of `suites` with the current sources. Keep the records of the other suites."""
+    records = json.loads(MANIFEST.read_text()).get('suites', {}) if MANIFEST.exists() else {}
+    records = {suite: record for suite, record in records.items() if suite in ALL_SUITES}
+    sources = sources_digest()
+    records.update({suite: {'fixtures': fixture_digests(suite), 'sources': sources} for suite in suites})
+    manifest = {'description': 'Per harness suite: SHA256 of its fixtures, and one SHA256 of the '
+                               'RTL and harness sources that recorded them.',
+                'suites': records}
+    MANIFEST.write_text(json.dumps(manifest, indent=2, sort_keys=True)+'\n')
 
 
 def check_manifest():
-    manifest = json.loads(MANIFEST.read_text())
-    for category,root in [('artifacts',MODEL),('sources',RTL)]:
-        for name,expected in manifest[category].items():
-            path = root/name
-            if category == 'sources' and not (RTL/'src/main/scala/atlas').exists():
-                continue  # The Python model can also be used as a standalone checkout.
-            if not path.is_file() or digest(path) != expected:
-                raise RuntimeError(f'RTL fixture provenance mismatch: {path}; regenerate fixtures')
+    records = json.loads(MANIFEST.read_text()).get('suites', {})
+    # The Python model can also be used as a standalone checkout, without the RTL sources.
+    sources = sources_digest() if (RTL/'src/main/scala/atlas').exists() else None
+    for suite in ALL_SUITES:
+        if suite not in records:
+            raise RuntimeError(f'RTL fixture provenance: no record of {suite}; regenerate fixtures')
+        recorded, actual = records[suite]['fixtures'], fixture_digests(suite)
+        for name in sorted(recorded.keys() | actual.keys()):
+            if recorded.get(name) != actual.get(name):
+                raise RuntimeError(f'RTL fixture provenance mismatch: {MODEL/name}; regenerate fixtures')
+        if sources is not None and records[suite]['sources'] != sources:
+            raise RuntimeError(f'RTL fixture provenance mismatch: the sources changed after {suite} ran; '
+                               'regenerate fixtures')
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--check',action='store_true',help='Check source/artifact fingerprints without simulating')
-    parser.add_argument('--only',metavar='TEXT',help='Run only suites whose name contains TEXT (manifest still covers everything)')
+    parser.add_argument('--only',metavar='TEXT',help='Run only suites whose name contains TEXT (keep the records of the others)')
     args=parser.parse_args()
     if args.check:
         check_manifest()
@@ -91,7 +108,7 @@ def main():
                             *[opt.format(cy=CHIPYARD) for opt in SBT_OPTS],
                             'project sp26atlas',f'testOnly {" ".join(sbt_suites)}'],
                            cwd=CHIPYARD,env=env,check=True)
-    write_manifest()
+    write_manifest(mill_suites + sbt_suites)
     check_manifest()
 
 

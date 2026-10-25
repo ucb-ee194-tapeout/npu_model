@@ -16,9 +16,12 @@ python -m pytest tests/test_rtl_*traces.py tests/test_rtl_arithmetic.py tests/te
 
 Regeneration also recreates the exhaustive unary BF16 tables in
 `npu_model/configs/data/`. It takes several minutes, primarily compiling the
-full 32×32 MXUs. `provenance.json` fingerprints the RTL sources, harnesses and
-artifacts; Python tests detect stale fixtures when the adjacent RTL changes.
-The standalone Python checkout checks artifact hashes without requiring RTL.
+full 32×32 MXUs. `provenance.json` has one record for each harness suite: the
+fingerprints of its fixtures, and one fingerprint of the RTL and harness sources
+that recorded them. Python tests detect stale fixtures when the adjacent RTL changes.
+The standalone Python checkout checks the fixture fingerprints without requiring RTL.
+`--only TEXT` runs only the suites whose names contain `TEXT`. The other suites
+keep their records, so a stale suite stays stale until it runs again.
 
 | Fixture | Real RTL instantiated | Signals compared / coverage |
 | --- | --- | --- |
