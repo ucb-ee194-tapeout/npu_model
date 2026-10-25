@@ -733,6 +733,14 @@ class VMATPOP_BF16_ACC_MXU1(MXUAccumulatorPop, VRType[MatrixReg, Accumulator]):
         state.write_mrf_bf16_tile(self.vd, state.math.f32_to_bf16(state.read_acc_f32("mxu1", self.vs2)))
 
 
+class VMATPOP_BF16_SCALED_ACC_MXU1(MXUAccumulatorPopE1, VRType[MatrixReg, Accumulator]):
+    params = [mp_vd, acc_vs2, e_es1]
+
+    def exec(self, state: ArchState) -> None:
+        acc = state.read_acc_f32("mxu1", self.vs2)
+        state.write_mrf_bf16_tile(self.vd, state.math.f32_to_bf16(acc, state.read_erf(self.es1)))
+
+
 class VMATMUL_MXU1(MXUMatMul, VRType[Accumulator, WeightBuffer]):
     def exec(self, state: ArchState) -> None:
         _vmatmul(state, self.vd, self.vs1, self.vs2, accumulate=False)
@@ -803,12 +811,25 @@ class VMATPUSH_ACC_FP32_NV(MXUAccumulatorPush, VRType[Accumulator, MatrixReg]):
         state.acc_nv[self.vd & 1] = [[regs[j // 8][r][j % 8] for j in range(32)] for r in range(len(regs[0]))]
 
 
+def _nv_pop_bf16(state: ArchState, vd: int, acc: int, e: int) -> None:
+    """{m[vd], m[vd+1]} = BF16_RNE(acc x 2^(e - 127)), one rounding."""
+    from npu_model.configs import cvt
+    bits = cvt.bf16_rne(np.array(state.acc_nv[acc], dtype=np.uint32), e)
+    state.write_mrf_bf16_tile(vd, torch.from_numpy(bits.view(np.int16)).view(torch.bfloat16))
+
+
 class VMATPOP_BF16_ACC_NV(MXUAccumulatorPop, VRType[MatrixReg, Accumulator]):
     """``vmatpop.bf16.acc.nv m(vd), acc(vs2)``: {m[vd], m[vd+1]} = BF16_RNE(acc)."""
     def exec(self, state: ArchState) -> None:
-        from npu_model.configs import cvt
-        bits = cvt.bf16_rne(np.array(state.acc_nv[self.vs2 & 1], dtype=np.uint32))
-        state.write_mrf_bf16_tile(self.vd, torch.from_numpy(bits.view(np.int16)).view(torch.bfloat16))
+        _nv_pop_bf16(state, self.vd, self.vs2 & 1, 127)
+
+
+class VMATPOP_BF16_SCALED_ACC_NV(MXUAccumulatorPopE1, VRType[MatrixReg, Accumulator]):
+    """``vmatpop.bf16.scaled.acc.nv m(vd), acc(vs2), e(es1)``: {m[vd], m[vd+1]} = BF16_RNE(acc x 2^(e - 127))."""
+    params = [mp_vd, acc_vs2, e_es1]
+
+    def exec(self, state: ArchState) -> None:
+        _nv_pop_bf16(state, self.vd, self.vs2 & 1, state.read_erf(self.es1))
 
 
 class VMATPOP_FP32_ACC_NV(MXUAccumulatorPop, VRType[MatrixReg, Accumulator]):

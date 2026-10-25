@@ -19,7 +19,7 @@ from .config import HardwareConfig
 MXU_OP_LATENCIES = {
     f"{op}.mxu1": 35 if op.startswith("vmatmul") else 33
     for op in ("vmatpush.weight", "vmatpush.acc.fp8", "vmatpush.acc.bf16",
-               "vmatmul.acc", "vmatmul", "vmatpop.fp8.acc", "vmatpop.bf16.acc")
+               "vmatmul.acc", "vmatmul", "vmatpop.fp8.acc", "vmatpop.bf16.acc", "vmatpop.bf16.scaled.acc")
 }
 
 

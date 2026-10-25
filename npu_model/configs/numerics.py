@@ -91,10 +91,10 @@ class RtlNumerics:
         return torch.from_numpy(cvt.e4m3_rn_satfinite(bits, scale)).view(torch.float8_e4m3fn)
 
     @staticmethod
-    def f32_to_bf16(x: torch.Tensor) -> torch.Tensor:
-        """mxu1 pop: BF16_RNE(x) (cvt.py)."""
+    def f32_to_bf16(x: torch.Tensor, scale: int = 127) -> torch.Tensor:
+        """mxu1 pops: BF16_RNE(x * 2**(scale - 127)) (cvt.py)."""
         bits = x.contiguous().view(torch.int32).numpy().view(np.uint32)
-        return torch.from_numpy(cvt.bf16_rne(bits).view(np.int16)).view(torch.bfloat16)
+        return torch.from_numpy(cvt.bf16_rne(bits, scale).view(np.int16)).view(torch.bfloat16)
 
     @staticmethod
     def inner_product_matmul(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
@@ -176,8 +176,8 @@ class TorchNumerics:
         return scaled.clamp(-448, 448).to(torch.float8_e4m3fn)
 
     @staticmethod
-    def f32_to_bf16(x: torch.Tensor) -> torch.Tensor:
-        return x.to(torch.bfloat16)
+    def f32_to_bf16(x: torch.Tensor, scale: int = 127) -> torch.Tensor:
+        return (x.double() * 2.0 ** (int(scale) - 127)).to(torch.bfloat16)
 
     @staticmethod
     def inner_product_matmul(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:

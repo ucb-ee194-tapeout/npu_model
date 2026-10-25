@@ -829,6 +829,18 @@ operation = "{m[vd], m[vd+1]} = BF16_RNE(mxu1.acc[vs2])"
 ver = "2.0"
 
 [[instruction]]
+mnemonic = "vmatpop.bf16.scaled.acc.mxu1"
+format = "VR"
+opcode = 0x0B
+select = { funct7 = 0x75 }
+operands = { vd = "mp", vs2 = "acc", vs1 = "e" }
+syntax = "vmatpop.bf16.scaled.acc.mxu1 m(vd), acc(vs2), e(vs1)"
+unit = "mxu1"
+m = "rows"
+operation = "{m[vd], m[vd+1]} = BF16_RNE(mxu1.acc[vs2] * 2^(e[vs1] - 127)): one rounding of the exact product (an FMUL + cvt epilogue rounds twice below 2^-126)"
+ver = "2.0"
+
+[[instruction]]
 mnemonic = "vmatmul.mxu1"
 format = "VR"
 opcode = 0x0B
@@ -908,6 +920,19 @@ unit = "nv"
 configs = ["ipt-nvfp4"]
 m = "rows"
 operation = "{m[vd], m[vd+1]} = BF16_RNE(nv.acc[vs2])"
+ver = "2.0"
+
+[[instruction]]
+mnemonic = "vmatpop.bf16.scaled.acc.nv"
+format = "VR"
+opcode = 0x0B
+select = { funct7 = 0x65 }
+operands = { vd = "mp", vs2 = "acc", vs1 = "e" }
+syntax = "vmatpop.bf16.scaled.acc.nv m(vd), acc(vs2), e(vs1)"
+unit = "nv"
+configs = ["ipt-nvfp4"]
+m = "rows"
+operation = "{m[vd], m[vd+1]} = BF16_RNE(nv.acc[vs2] * 2^(e[vs1] - 127)): one rounding of the exact product (an FMUL + cvt epilogue rounds twice below 2^-126)"
 ver = "2.0"
 
 [[instruction]]
