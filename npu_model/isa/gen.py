@@ -33,6 +33,8 @@ def instructions_scala(t: Table) -> str:
     pad = max(len(e.name) for e in t.entries.values())
     defs = "\n".join(f'  def {e.name:<{pad}} = BitPat("b{bitpat(e)}")' for e in t.entries.values())
     units = ",\n".join(f'    ("{e.name}", {e.name}, "{e.unit}")' for e in t.entries.values())
+    fields = {e.name: [f'"{f}"' for f in ("rd", "rs1", "rs2") if e.operands.get(f) == "x"] for e in t.entries.values()}
+    xregs = ",\n".join(f'    "{name}" -> Set({", ".join(fs)})' for name, fs in fields.items() if fs)
     return f"""{comment("//", HEADER.format("scala"))}
 
 package atlas.scalar
@@ -51,6 +53,10 @@ object Instructions {{
   /** Each instruction's name, encoding and unit: {", ".join(UNITS)}. */
   val all: Seq[(String, BitPat, String)] = Seq(
 {units})
+
+  /** The fields that hold an x-register, for each instruction that has one: rd, rs1, rs2. */
+  val xRegs: Map[String, Set[String]] = Map(
+{xregs})
 }}
 """
 
