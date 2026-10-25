@@ -11,7 +11,6 @@ import tempfile
 
 MODEL = Path(__file__).resolve().parents[1]
 RTL = MODEL.parent
-CHIPYARD = RTL.parents[1]
 MANIFEST = MODEL / 'tests/rtl/provenance.json'
 # Harnesses for src/main/scala/atlas, run by the accelerator's Mill module, and the
 # fixtures (globs in npu-model) that each one records.
@@ -83,6 +82,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--check',action='store_true',help='Check source/artifact fingerprints without simulating')
     parser.add_argument('--only',metavar='TEXT',help='Run only suites whose name contains TEXT (keep the records of the others)')
+    parser.add_argument('--chipyard',metavar='DIR',type=Path,default=Path(os.environ.get('CY_DIR',RTL.parents[1])),
+                        help='Chipyard root for the sbt suites; one of its generators must be this checkout '
+                             '(default: $CY_DIR, else two levels above this checkout)')
     args=parser.parse_args()
     if args.check:
         check_manifest()
@@ -91,6 +93,9 @@ def main():
     selected = lambda suite: args.only is None or args.only in suite
     mill_suites = [s for s in SUITES if selected(s)]
     sbt_suites = [s for s in SBT_SUITES if selected(s)]
+    chipyard = args.chipyard.resolve()
+    if sbt_suites and RTL not in [path.resolve() for path in (chipyard/'generators').glob('*')]:
+        raise SystemExit(f'No generator of {chipyard} is {RTL}; see tests/rtl/README.md')
     if mill_suites:
         # Mill includes this test-source tree. Keep the canonical harnesses in the
         # model repo, and install temporary copies only for the simulator invocation.
@@ -103,11 +108,11 @@ def main():
         with tempfile.TemporaryDirectory(prefix='npu_model_',dir=RTL/'src/test/scala') as work:
             shutil.copytree(MODEL/'tests/rtl/scala'/SBT_HARNESS_DIR,Path(work)/'harnesses')
             env = {**os.environ, 'NPU_MODEL_ROOT': str(MODEL)}
-            env.setdefault('JAVA_TOOL_OPTIONS', f'-Xmx8G -Xss8M -Djava.io.tmpdir={CHIPYARD}/.java_tmp')
-            subprocess.run(['java','-jar',str(CHIPYARD/'scripts/sbt-launch.jar'),
-                            *[opt.format(cy=CHIPYARD) for opt in SBT_OPTS],
+            env.setdefault('JAVA_TOOL_OPTIONS', f'-Xmx8G -Xss8M -Djava.io.tmpdir={chipyard}/.java_tmp')
+            subprocess.run(['java','-jar',str(chipyard/'scripts/sbt-launch.jar'),
+                            *[opt.format(cy=chipyard) for opt in SBT_OPTS],
                             'project sp26atlas',f'testOnly {" ".join(sbt_suites)}'],
-                           cwd=CHIPYARD,env=env,check=True)
+                           cwd=chipyard,env=env,check=True)
     write_manifest(mill_suites + sbt_suites)
     check_manifest()
 

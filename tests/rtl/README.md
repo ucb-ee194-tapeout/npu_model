@@ -9,7 +9,7 @@ No production RTL is modified.
 From `npu-model`, with Java and Verilator on `PATH`:
 
 ```sh
-python scripts/regenerate_rtl_fixtures.py
+python scripts/regenerate_rtl_fixtures.py --chipyard CHIPYARD
 python scripts/regenerate_rtl_fixtures.py --check
 python -m pytest tests/test_rtl_*traces.py tests/test_rtl_arithmetic.py tests/test_rtl_artifacts.py
 ```
@@ -59,3 +59,10 @@ Unary table files contain gzip-compressed little-endian uint16 results indexed
 by the raw BF16 input encoding. They deliberately retain the RTL's approximation,
 NaN, infinity, signed-zero and subnormal behavior. They are model datapath data;
 the trace fixtures separately verify indexing, scheduling and writeback.
+
+## Chipyard for the DMA suite
+
+The DMA suite runs in Chipyard's sbt project `sp26atlas`, so one generator
+directory of that Chipyard must be this checkout (`generators/atlas-npu`). Give the
+Chipyard root with `--chipyard DIR` or `CY_DIR`. The default is two directories
+above this checkout, as in `chipyard/generators/atlas-npu`.
