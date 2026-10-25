@@ -117,6 +117,8 @@ For the frozen baseline values:
   `32` cycles
 - one `vmatpush.acc.bf16.*` or `vmatpop.bf16.acc.*` of a `2048`-byte `BF16` tile takes
   `32` cycles
+- one `vmatpush.acc.fp32.*` or `vmatpop.fp32.acc.*` of a `4096`-byte `FP32` tile takes
+  `64` cycles
 
 ## Transfer Granularity by Structure
 

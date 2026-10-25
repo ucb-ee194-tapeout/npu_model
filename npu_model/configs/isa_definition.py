@@ -721,6 +721,14 @@ class VMATPUSH_ACC_BF16_MXU1(MXUAccumulatorPush, VRType[Accumulator, MatrixReg])
         state.write_acc_f32("mxu1", self.vd, bits.view(torch.float32))
 
 
+class VMATPUSH_ACC_FP32_MXU1(MXUAccumulatorPush, VRType[Accumulator, MatrixReg]):
+    params = [acc_vd, mq_vs1]
+
+    def exec(self, state: ArchState) -> None:
+        tile = torch.cat([state.read_mrf_f32(self.vs1 + q) for q in range(4)], dim=1)
+        state.write_acc_f32("mxu1", self.vd, tile)
+
+
 class VMATPOP_FP8_ACC_MXU1(MXUAccumulatorPopE1, VRType[MatrixReg, Accumulator]):
     def exec(self, state: ArchState) -> None:
         acc = state.read_acc_f32("mxu1", self.vs2)
@@ -739,6 +747,15 @@ class VMATPOP_BF16_SCALED_ACC_MXU1(MXUAccumulatorPopE1, VRType[MatrixReg, Accumu
     def exec(self, state: ArchState) -> None:
         acc = state.read_acc_f32("mxu1", self.vs2)
         state.write_mrf_bf16_tile(self.vd, state.math.f32_to_bf16(acc, state.read_erf(self.es1)))
+
+
+class VMATPOP_FP32_ACC_MXU1(MXUAccumulatorPop, VRType[MatrixReg, Accumulator]):
+    params = [mq_vd, acc_vs2]
+
+    def exec(self, state: ArchState) -> None:
+        acc = state.read_acc_f32("mxu1", self.vs2)
+        for q in range(4):
+            state.write_mrf_f32(self.vd + q, acc[:, 8 * q:8 * q + 8].contiguous())
 
 
 class VMATMUL_MXU1(MXUMatMul, VRType[Accumulator, WeightBuffer]):

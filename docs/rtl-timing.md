@@ -50,6 +50,7 @@ For a command issued at T (default 32 rows):
 | Scalar load register writeback | T+3 | T+3 |
 | VLOAD / VSTORE | T+3 | T+34 |
 | MXU weight/accumulator push, accumulator pop | T+1 | T+32 |
+| MXU1 FP32 accumulator push or pop (columns 0-15, then 16-31) | T+1 | T+64 |
 | MXU1 inner-product compute, accumulator rows | T+3 | T+34 |
 | VPU ordinary BF16 operations | T+2 | T+65 |
 | VPU row min/max | T+2 | T+33 |

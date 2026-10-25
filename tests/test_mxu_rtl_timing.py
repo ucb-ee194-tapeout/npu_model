@@ -8,6 +8,7 @@ import torch
 from npu_model.configs.hardware.default import DefaultHardwareConfig
 from npu_model.configs import isa_definition as isa
 from npu_model.hardware.arch_state import ArchState
+from npu_model.hardware.bank_conflict import BankConflictError
 from npu_model.hardware.mxu import MatrixExecutionUnitInner
 from npu_model.logging.logger import Logger
 from npu_model.software import acc, m, w
@@ -180,3 +181,60 @@ def test_weight_push_after_compute_uses_engine_specific_drain(mxu):
     for _ in range(32):
         tick(mxu)
     assert not mxu.has_in_flight
+
+
+def test_fp32_push_writes_columns_0_15_then_16_31(mxu):
+    """Step s writes row s % 32 at T+1+s: columns 0-15 from m[r], m[r+1], then 16-31 from m[r+2], m[r+3]."""
+    state = mxu.arch_state
+    for q in range(4):
+        state.write_mrf_f32(m(4 + q), torch.full((32, 8), float(q + 1)))
+    tick(mxu, instruction(mxu, "VMATPUSH_ACC_FP32", vd=acc(0), vs1=m(4)))
+    want = torch.tensor([float(j // 8 + 1) for j in range(32)])
+    for step in range(64):
+        tick(mxu)
+        row, half = step % 32, slice(16 * (step // 32), 16 * (step // 32) + 16)
+        assert torch.equal(state.acc[mxu.mxu][0][row, half], want[half])
+        if step < 32:
+            assert state.acc[mxu.mxu][0][:, 16:].count_nonzero() == 0
+    assert torch.equal(state.acc[mxu.mxu][0], want.expand(32, 32))
+    assert not mxu.has_in_flight
+
+
+def test_fp32_pop_writes_m_r_r1_then_r2_r3(mxu):
+    state = mxu.arch_state
+    state.acc[mxu.mxu][1][:] = torch.arange(1024, dtype=torch.float32).reshape(32, 32)
+    tick(mxu, instruction(mxu, "VMATPOP_FP32_ACC", vd=m(8), vs2=acc(1)))
+    for _ in range(32):
+        tick(mxu)
+    assert [state.read_mrf_f32(m(8 + q)).count_nonzero().item() for q in range(4)] == [255, 256, 0, 0]
+    for _ in range(32):
+        tick(mxu)
+    assert torch.equal(torch.cat([state.read_mrf_f32(m(8 + q)) for q in range(4)], 1), state.acc[mxu.mxu][1])
+    assert not mxu.has_in_flight
+
+
+def test_pop_waits_for_the_fp32_push_second_write_of_row_0(mxu):
+    tick(mxu, instruction(mxu, "VMATPUSH_ACC_FP32", vd=acc(0), vs1=m(4)))
+    for _ in range(32):
+        tick(mxu)
+    with pytest.raises(RuntimeError, match="after a push"):
+        tick(mxu, instruction(mxu, "VMATPOP_BF16_ACC", vd=m(8), vs2=acc(0)))
+
+
+def test_accumulator_writes_wait_for_the_fp32_pop_first_phase(mxu):
+    tick(mxu, instruction(mxu, "VMATPOP_FP32_ACC", vd=m(8), vs2=acc(0)))
+    for _ in range(31):
+        tick(mxu)
+    with pytest.raises(RuntimeError, match="first half of an FP32 pop"):
+        tick(mxu, instruction(mxu, "VMATPUSH_ACC_BF16", vd=acc(0), vs1=m(2)))
+
+
+def test_fp32_transfer_frees_its_first_pair_after_32_steps(mxu):
+    checker = mxu.arch_state.conflict_checker
+    tick(mxu, instruction(mxu, "VMATPUSH_ACC_FP32", vd=acc(0), vs1=m(4)))
+    for _ in range(32):
+        tick(mxu)
+    checker.begin_cycle(mxu.cycle + 1)
+    checker.reserve_mreg("writer", reads=frozenset(), writes=frozenset({4, 5}))
+    with pytest.raises(BankConflictError):
+        checker.reserve_mreg("writer", reads=frozenset(), writes=frozenset({6}))

@@ -804,6 +804,19 @@ operation = "mxu1.acc[vd] = {m[vs1], m[vs1+1]} (BF16, exact in FP32)"
 ver = "2.0"
 
 [[instruction]]
+mnemonic = "vmatpush.acc.fp32.mxu1"
+format = "VR"
+opcode = 0x0B
+select = { funct7 = 0x72 }
+fixed = { vs2 = 0 }
+operands = { vd = "acc", vs1 = "mq" }
+syntax = "vmatpush.acc.fp32.mxu1 acc(vd), m(vs1)"
+unit = "mxu1"
+m = "rows"
+operation = "mxu1.acc[vd] = m[vs1..vs1+3], bit for bit (register q holds columns 8q..8q+7)"
+ver = "2.0"
+
+[[instruction]]
 mnemonic = "vmatpop.fp8.acc.mxu1"
 format = "VR"
 opcode = 0x0B
@@ -838,6 +851,19 @@ syntax = "vmatpop.bf16.scaled.acc.mxu1 m(vd), acc(vs2), e(vs1)"
 unit = "mxu1"
 m = "rows"
 operation = "{m[vd], m[vd+1]} = BF16_RNE(mxu1.acc[vs2] * 2^(e[vs1] - 127)): one rounding of the exact product (an FMUL + cvt epilogue rounds twice below 2^-126)"
+ver = "2.0"
+
+[[instruction]]
+mnemonic = "vmatpop.fp32.acc.mxu1"
+format = "VR"
+opcode = 0x0B
+select = { funct7 = 0x76 }
+fixed = { vs1 = 0 }
+operands = { vd = "mq", vs2 = "acc" }
+syntax = "vmatpop.fp32.acc.mxu1 m(vd), acc(vs2)"
+unit = "mxu1"
+m = "rows"
+operation = "m[vd..vd+3] = mxu1.acc[vs2], bit for bit (register q holds columns 8q..8q+7)"
 ver = "2.0"
 
 [[instruction]]

@@ -1,5 +1,6 @@
-"""Accumulator pops of both MXUs: BF16_RNE with the GPU's NaN, and the scaled BF16 pops, which round
-BF16_RNE(acc x 2^(e - 127)) once (docs/fp8-mxu.md, docs/nvfp4-mxu.md)."""
+"""Accumulator pushes and pops of both MXUs: BF16_RNE with the GPU's NaN, the scaled BF16 pops, which
+round BF16_RNE(acc x 2^(e - 127)) once, and the FP32 push and pop of mxu1, which copy every bit
+(docs/fp8-mxu.md, docs/nvfp4-mxu.md)."""
 from dataclasses import replace
 
 import numpy as np
@@ -9,7 +10,8 @@ import torch
 from npu_model.configs import cvt
 from npu_model.configs.hardware.default import DefaultHardwareConfig
 from npu_model.configs.isa_definition import (
-    VMATPOP_BF16_ACC_NV, VMATPOP_BF16_SCALED_ACC_MXU1, VMATPOP_BF16_SCALED_ACC_NV,
+    VMATPOP_BF16_ACC_NV, VMATPOP_BF16_SCALED_ACC_MXU1, VMATPOP_BF16_SCALED_ACC_NV, VMATPOP_FP32_ACC_MXU1,
+    VMATPUSH_ACC_FP32_MXU1,
 )
 from npu_model.hardware.arch_state import ArchState
 from npu_model.software import acc, e, m
@@ -90,3 +92,26 @@ def test_a_two_rounding_epilogue_differs():
     x = np.array(0x3CBF_FFC0, np.uint32).view(np.float32)
     product = (x * np.float32(2.0 ** -127)).view(np.uint32)
     assert product == 0x0001_8000 and cvt.bf16_rne(product) == 0x0002
+
+
+# FP32 bit patterns of every class, both signs: zero, subnormals, normals, the largest finite value,
+# infinity, and quiet and signaling NaNs with payloads.
+FP32_CLASSES = [
+    0x0000_0000, 0x8000_0000, 0x0000_0001, 0x8000_0001, 0x007F_FFFF, 0x807F_FFFF, 0x0080_0000,
+    0x8080_0000, 0x3F80_0000, 0xBF80_0000, 0x7F7F_FFFF, 0xFF7F_FFFF, 0x7F80_0000, 0xFF80_0000,
+    0x7FC0_0000, 0xFFC0_0000, 0x7FC1_2345, 0xFFFF_FFFF, 0x7F80_0001, 0xFF80_0001, 0x7FBF_FFFF,
+    0xFFBF_FFFF,
+]
+
+
+def test_fp32_push_and_pop_copy_every_bit_pattern(state):
+    rng = np.random.default_rng(7)
+    words = np.concatenate([np.array(FP32_CLASSES, np.uint32),
+                            rng.integers(0, 1 << 32, 1024 - len(FP32_CLASSES), dtype=np.uint32)]).reshape(32, 32)
+    for q in range(4):  # register q holds columns 8q .. 8q + 7
+        state.mrf[8 + q].view(torch.int32)[:] = torch.from_numpy(words[:, 8 * q:8 * q + 8].ravel().view(np.int32))
+    VMATPUSH_ACC_FP32_MXU1(vd=acc(1), vs1=m(8)).exec(state)
+    assert (state.acc["mxu1"][1].view(torch.int32).numpy().view(np.uint32) == words).all()
+    VMATPOP_FP32_ACC_MXU1(vd=m(12), vs2=acc(1)).exec(state)
+    for q in range(4):
+        assert torch.equal(state.mrf[12 + q], state.mrf[8 + q]), f"m{12 + q}"

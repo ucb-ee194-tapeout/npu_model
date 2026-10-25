@@ -33,6 +33,7 @@ WRITE_WIDTHS = {
     "vmatpop.fp8.acc.mxu1": 1,
     "vmatpop.bf16.acc.mxu1": 2,
     "vmatpop.bf16.scaled.acc.mxu1": 2,
+    "vmatpop.fp32.acc.mxu1": 4,
     "vmatpop.bf16.acc.nv": 2,
     "vmatpop.bf16.scaled.acc.nv": 2,
     "vmatpop.fp32.acc.nv": 4,

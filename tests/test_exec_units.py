@@ -29,7 +29,9 @@ UNITS = {"VPU": VectorExecutionUnit, "MXU1": MatrixExecutionUnitInner, "XLU": Cr
 TWO_INPUT = {"vadd.bf16", "vsub.bf16", "vmul.bf16", "vminimum.bf16", "vmaximum.bf16"}
 MXU_OPERANDS = {
     "vmatpush.weight": "w1, m8", "vmatpush.acc.fp8": "acc1, m8", "vmatpush.acc.bf16": "acc1, m2",
+    "vmatpush.acc.fp32": "acc1, m4",
     "vmatpop.fp8.acc": "m4, acc1, e0", "vmatpop.bf16.acc": "m4, acc1", "vmatpop.bf16.scaled.acc": "m4, acc1, e0",
+    "vmatpop.fp32.acc": "m12, acc1",
     "vmatmul": "acc1, m8, w1", "vmatmul.acc": "acc1, m8, w1",
 }
 
