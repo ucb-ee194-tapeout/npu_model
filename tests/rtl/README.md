@@ -24,7 +24,7 @@ The standalone Python checkout checks artifact hashes without requiring RTL.
 | --- | --- | --- |
 | `scalar_cases.json`, `scalar_traces.json` | `ScalarCore` | Fetch/S1 PCs, issue, halt, illegal, CSR write data; 14 branch, jump, delay, load and DMA-wait scenarios |
 | `vector_traces.json` | `VectorEngineTop` | Every MREG read/write cycle, address and output bit; 29 operations, special encodings, overlap, mirrored reads, in-place move and last-write handoff |
-| `ipt_traces.json` | `InnerProductTreesTop` | Every MREG read/write cycle/address/data; all seven commands, accumulator chaining and overlapping weight push/compute |
+| `ipt_traces.json` | `InnerProductTreesTop` | Every MREG read/write cycle/address/data; all ten commands, accumulator chaining and overlapping weight push/compute |
 | `memory_traces.json` | `LSU`, `XluEngine` | Concurrent scalar/VLOAD/VSTORE and transpose requests, write data, scalar writeback; VMEM and MREG accesses |
 | `dma_traces.json` | `DmaEngine`, `Vmem` | Per-cycle TileLink A/D fires, VMEM read/write requests and grants, channel busy; six interleaved load/store commands, out-of-order responses, A-channel backpressure, LSU bank denials |
 | `arithmetic.json` | `AnchorAccumulationTree` | 512 seeded random/boundary cases, all 256 FP8 input encodings and FP32 accumulator edge cases |
