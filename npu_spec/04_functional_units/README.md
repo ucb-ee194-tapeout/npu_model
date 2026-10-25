@@ -272,13 +272,15 @@ Requirements:
 
 - whole-register activation source
 - two resident local weight slots
-- `BF16` architectural accumulation
-- two local `32 x 32 BF16` accumulation buffers
+- `FP32` architectural accumulation
+- two local `32 x 32 FP32` accumulation buffers
 - tensor-register-only accumulator preload and spill path
 - local quantization path for `vmatpop.fp8.acc.*`
 - ability to overlap with scalar and other long-chime units
 
 - internal `32 x 32` reduction-tree or equivalent throughput-matched fabric
+- each output of a matmul is one NVIDIA Blackwell FP8 MMA step (E4M3 x E4M3 + FP32,
+  `K = 32`), bit for bit (`npu_model/configs/fp8_mma.py`)
 
 ## Vector Processing Unit
 

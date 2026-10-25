@@ -414,7 +414,7 @@ take a 5-bit immediate in place of `rs1`.
 | Tensor register storage | `32 rows x 32 bytes = 1024 bytes` |
 | FP8 MXU count | `1` |
 | MXU weight slots per MXU | `2` |
-| MXU accumulator storage | `32 x 32 BF16` |
+| MXU accumulator storage | `32 x 32 BF16` (`mxu0`), `32 x 32 FP32` (`mxu1`) |
 | DMA channels | `8` |
 | `IMEM` | `0x0002_0000` ~ `0x0004_0000` |
 | `VMEM` | `0x2000_0000` ~ `0x2004_0000` |

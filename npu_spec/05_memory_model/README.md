@@ -124,12 +124,12 @@ The baseline transfer sizes implied by the local geometry are:
 
 - tensor register: `1024` bytes
 - MXU weight slot: `1024` bytes
-- MXU accumulation buffer: `2048` bytes
+- MXU accumulation buffer: `2048` bytes (`mxu0`), `4096` bytes (`mxu1`)
 
 These sizes are derived from:
 
 - one `32 x 32 FP8` tile per tensor register or weight slot
-- one `32 x 32 BF16` tile per accumulation buffer
+- one `32 x 32` tile per accumulation buffer: `BF16` in `mxu0`, `FP32` in `mxu1`
 
 ## Initialization and Visibility
 

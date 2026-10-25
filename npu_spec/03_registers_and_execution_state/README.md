@@ -48,8 +48,8 @@ Scale-register rules:
 
 Accumulator-buffer rules:
 
-- each accumulation buffer stores one `32 x 32 BF16` tile
-- each accumulation buffer therefore stores `2048` raw bytes
+- each accumulation buffer stores one `32 x 32` tile: `BF16` in `mxu0` (`2048` raw bytes),
+  `FP32` in `mxu1` (`4096` raw bytes)
 - accumulation buffers are written by MXU instructions
 - accumulation buffers are loaded from and stored to tensor registers only
 - accumulation buffers are not directly addressed as `m` registers

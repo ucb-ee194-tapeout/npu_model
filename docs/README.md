@@ -164,9 +164,9 @@ transpose each B tile before pushing it into the weight buffer.
 Numerical implementations in [`rtl_math.py`](../npu_model/hardware/rtl_math.py)
 follow the default datapaths:
 
-- MXU1: `AnchorAccumulationTree` / `FPUtils` anchor alignment into 32-bit
-  integers, seven bits of exponent headroom, reduction, and conversion to BF16.
-- Push/pop conversions: explicit FP8/BF16 conversion and special-value handling.
+- MXU1: `AnchorAccumulationTree`, NVIDIA Blackwell FP8 MMA arithmetic with FP32
+  accumulators ([`fp8_mma.py`](../npu_model/configs/fp8_mma.py)); its pushes and pops
+  use the conversions of [`cvt.py`](../npu_model/configs/cvt.py).
 
 A single ideal FP32 matrix multiply followed by one BF16 cast does not reproduce
 these operations. Untimed workload references were adjusted where necessary.

@@ -17,8 +17,8 @@
 | `WEIGHT_SLOTS_PER_MXU` | `2` | Weight slots per MXU |
 | `WEIGHT_SLOT_BYTES` | `1024` bytes | Bytes per MXU weight slot |
 | `ACCUM_BUFFER_ROWS` | `32` | Rows per MXU accumulation buffer |
-| `ACCUM_BUFFER_COLS_BF16` | `32` | BF16 columns per MXU accumulation buffer |
-| `ACCUM_BUFFER_BYTES` | `2048` bytes | Bytes per MXU accumulation buffer |
+| `ACCUM_BUFFER_COLS_BF16` | `32` | Columns per MXU accumulation buffer |
+| `ACCUM_BUFFER_BYTES` | `4096` bytes | Bytes per MXU accumulation buffer (FP32) |
 | `MXU1_ARRAY_ROWS` | `32` | Rows in the `mxu1` reduction-tree fabric |
 | `MXU1_ARRAY_COLS` | `32` | Columns in the `mxu1` reduction-tree fabric |
 | `VPU_LANES_BF16` | `16` | BF16 lanes in the baseline VPU |
@@ -77,7 +77,7 @@ The frozen tensor-register views are:
 The frozen MXU-local views are:
 
 - one `32 x 32 FP8` weight tile per weight slot
-- one `32 x 32 BF16` accumulation tile per accumulation buffer
+- one `32 x 32` accumulation tile per accumulation buffer: `BF16` in `mxu0`, `FP32` in `mxu1`
 
 ## Derived Throughput Roofs
 
