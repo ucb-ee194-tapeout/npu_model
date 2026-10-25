@@ -1,0 +1,1392 @@
+# The Atlas instruction set: one entry per instruction.
+#
+# This table is the source of the encodings. npu_model's instruction classes take their opcode
+# and selectors from it, and `python -m npu_model.isa.gen` writes atlas-npu's Instructions.scala,
+# the instruction table of npu_spec/06_instruction_set/README.md and the atlas-mlir encoding
+# header from it. Do not copy an encoding into another file: generate it.
+#
+# Top-level keys:
+#   pc              the unit of the PC, link values and branch targets: "word" (an IMEM word
+#                   index; the B and J offset fields hold two times the word offset) or "byte"
+#   configurations  the Atlas configurations
+#
+# [format.F] gives the bit range of each field of format F: [hi, lo], or, for an immediate that
+# the format splits, a list of [hi, lo, at] pieces (word bits hi..lo hold the immediate's bits
+# from bit `at` up). Fields with the same bits are names for different uses of these bits.
+#
+# Keys of an [[instruction]]:
+#   mnemonic   the assembly mnemonic
+#   format     a format of [format]
+#   opcode     inst[6:0]
+#   select     the selector fields (funct3, funct7, ...) and their values
+#   fixed      other fields that must have the given value (optional)
+#   operands   the operand fields and their kinds:
+#                x, e, m        x-, e- or m-register
+#                mp             BF16 tile {m[r], m[r+1]}
+#                mq             FP32 tile m[r..r+3]
+#                acc, w         accumulator or weight slot of the MXU
+#                ch             DMA channel ch0-ch7
+#                imm, uimm      signed or unsigned immediate
+#                hex            immediate that holds a bit pattern (shown in hex)
+#                label          branch or jump offset
+#   syntax     the assembly syntax: x(rd), m(vd), ... name a register operand and its field, and
+#              a bare field name (imm, csr, ch, ...) names any other operand
+#   unit       the unit that executes it: scalar, lsu, vpu, xlu, mxu0, mxu1, nv or dma
+#   configs    the configurations that have the unit (optional; all if not given)
+#   m          the rows of a tensor register that it reads and writes (optional): "rows" for
+#              rows 0..M-1 (M is 32 in ISA 1.0), "all" for all 32 rows
+#   operation  what it does, in one line
+#   ver        the ISA version that added it; the highest ver is the ISA version (CSR atlas.isa)
+#
+# Bits that are not in select, fixed or operands are not decoded: they can have any value.
+
+pc = "word"
+configurations = ["default", "ipt", "ipt-nvfp4"]
+
+[format.R]
+opcode = [6, 0]
+rd = [11, 7]
+funct3 = [14, 12]
+ch = [14, 12]
+rs1 = [19, 15]
+rs2 = [24, 20]
+funct7 = [31, 25]
+
+[format.I]
+opcode = [6, 0]
+rd = [11, 7]
+funct3 = [14, 12]
+rs1 = [19, 15]
+uimm = [19, 15]
+imm = [31, 20]
+csr = [31, 20]
+shamt = [24, 20]
+funct7 = [31, 25]
+
+[format.S]
+opcode = [6, 0]
+funct3 = [14, 12]
+rs1 = [19, 15]
+rs2 = [24, 20]
+imm = [[31, 25, 5], [11, 7, 0]]
+
+[format.B]
+opcode = [6, 0]
+funct3 = [14, 12]
+rs1 = [19, 15]
+rs2 = [24, 20]
+offset = [[31, 31, 12], [30, 25, 5], [11, 8, 1], [7, 7, 11]]
+
+[format.U]
+opcode = [6, 0]
+rd = [11, 7]
+imm = [31, 12]
+
+[format.J]
+opcode = [6, 0]
+rd = [11, 7]
+offset = [[31, 31, 20], [30, 21, 1], [20, 20, 11], [19, 12, 12]]
+
+[format.VR]
+opcode = [6, 0]
+vd = [12, 7]
+vs1 = [18, 13]
+vs2 = [24, 19]
+funct7 = [31, 25]
+
+[format.VI]
+opcode = [6, 0]
+vd = [12, 7]
+funct3 = [15, 13]
+imm = [31, 16]
+
+[format.VLS]
+opcode = [6, 0]
+vd = [12, 7]
+funct2 = [14, 13]
+rs1 = [19, 15]
+imm = [31, 20]
+
+# ---- RV32I: register-register ALU ---------------------------------------------------------------
+
+[[instruction]]
+mnemonic = "add"
+format = "R"
+opcode = 0x33
+select = { funct3 = 0, funct7 = 0x00 }
+operands = { rd = "x", rs1 = "x", rs2 = "x" }
+syntax = "add x(rd), x(rs1), x(rs2)"
+unit = "scalar"
+operation = "x[rd] = x[rs1] + x[rs2]"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "sub"
+format = "R"
+opcode = 0x33
+select = { funct3 = 0, funct7 = 0x20 }
+operands = { rd = "x", rs1 = "x", rs2 = "x" }
+syntax = "sub x(rd), x(rs1), x(rs2)"
+unit = "scalar"
+operation = "x[rd] = x[rs1] - x[rs2]"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "sll"
+format = "R"
+opcode = 0x33
+select = { funct3 = 1, funct7 = 0x00 }
+operands = { rd = "x", rs1 = "x", rs2 = "x" }
+syntax = "sll x(rd), x(rs1), x(rs2)"
+unit = "scalar"
+operation = "x[rd] = x[rs1] << x[rs2][4:0]"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "slt"
+format = "R"
+opcode = 0x33
+select = { funct3 = 2, funct7 = 0x00 }
+operands = { rd = "x", rs1 = "x", rs2 = "x" }
+syntax = "slt x(rd), x(rs1), x(rs2)"
+unit = "scalar"
+operation = "x[rd] = ($signed(x[rs1]) < $signed(x[rs2]))"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "sltu"
+format = "R"
+opcode = 0x33
+select = { funct3 = 3, funct7 = 0x00 }
+operands = { rd = "x", rs1 = "x", rs2 = "x" }
+syntax = "sltu x(rd), x(rs1), x(rs2)"
+unit = "scalar"
+operation = "x[rd] = (x[rs1] < x[rs2])"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "xor"
+format = "R"
+opcode = 0x33
+select = { funct3 = 4, funct7 = 0x00 }
+operands = { rd = "x", rs1 = "x", rs2 = "x" }
+syntax = "xor x(rd), x(rs1), x(rs2)"
+unit = "scalar"
+operation = "x[rd] = x[rs1] ^ x[rs2]"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "srl"
+format = "R"
+opcode = 0x33
+select = { funct3 = 5, funct7 = 0x00 }
+operands = { rd = "x", rs1 = "x", rs2 = "x" }
+syntax = "srl x(rd), x(rs1), x(rs2)"
+unit = "scalar"
+operation = "x[rd] = x[rs1] >> x[rs2][4:0]"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "sra"
+format = "R"
+opcode = 0x33
+select = { funct3 = 5, funct7 = 0x20 }
+operands = { rd = "x", rs1 = "x", rs2 = "x" }
+syntax = "sra x(rd), x(rs1), x(rs2)"
+unit = "scalar"
+operation = "x[rd] = $signed(x[rs1]) >>> x[rs2][4:0]"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "or"
+format = "R"
+opcode = 0x33
+select = { funct3 = 6, funct7 = 0x00 }
+operands = { rd = "x", rs1 = "x", rs2 = "x" }
+syntax = "or x(rd), x(rs1), x(rs2)"
+unit = "scalar"
+operation = "x[rd] = x[rs1] | x[rs2]"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "and"
+format = "R"
+opcode = 0x33
+select = { funct3 = 7, funct7 = 0x00 }
+operands = { rd = "x", rs1 = "x", rs2 = "x" }
+syntax = "and x(rd), x(rs1), x(rs2)"
+unit = "scalar"
+operation = "x[rd] = x[rs1] & x[rs2]"
+ver = "1.0"
+
+# ---- RV32I: register-immediate ALU --------------------------------------------------------------
+
+[[instruction]]
+mnemonic = "addi"
+format = "I"
+opcode = 0x13
+select = { funct3 = 0 }
+operands = { rd = "x", rs1 = "x", imm = "imm" }
+syntax = "addi x(rd), x(rs1), imm"
+unit = "scalar"
+operation = "x[rd] = x[rs1] + imm"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "slti"
+format = "I"
+opcode = 0x13
+select = { funct3 = 2 }
+operands = { rd = "x", rs1 = "x", imm = "imm" }
+syntax = "slti x(rd), x(rs1), imm"
+unit = "scalar"
+operation = "x[rd] = ($signed(x[rs1]) < $signed(imm))"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "sltiu"
+format = "I"
+opcode = 0x13
+select = { funct3 = 3 }
+operands = { rd = "x", rs1 = "x", imm = "imm" }
+syntax = "sltiu x(rd), x(rs1), imm"
+unit = "scalar"
+operation = "x[rd] = (x[rs1] < $unsigned($signed(imm)))"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "xori"
+format = "I"
+opcode = 0x13
+select = { funct3 = 4 }
+operands = { rd = "x", rs1 = "x", imm = "imm" }
+syntax = "xori x(rd), x(rs1), imm"
+unit = "scalar"
+operation = "x[rd] = x[rs1] ^ imm"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "ori"
+format = "I"
+opcode = 0x13
+select = { funct3 = 6 }
+operands = { rd = "x", rs1 = "x", imm = "imm" }
+syntax = "ori x(rd), x(rs1), imm"
+unit = "scalar"
+operation = "x[rd] = x[rs1] | imm"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "andi"
+format = "I"
+opcode = 0x13
+select = { funct3 = 7 }
+operands = { rd = "x", rs1 = "x", imm = "imm" }
+syntax = "andi x(rd), x(rs1), imm"
+unit = "scalar"
+operation = "x[rd] = x[rs1] & imm"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "slli"
+format = "I"
+opcode = 0x13
+select = { funct3 = 1, funct7 = 0x00 }
+operands = { rd = "x", rs1 = "x", shamt = "uimm" }
+syntax = "slli x(rd), x(rs1), shamt"
+unit = "scalar"
+operation = "x[rd] = x[rs1] << shamt"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "srli"
+format = "I"
+opcode = 0x13
+select = { funct3 = 5, funct7 = 0x00 }
+operands = { rd = "x", rs1 = "x", shamt = "uimm" }
+syntax = "srli x(rd), x(rs1), shamt"
+unit = "scalar"
+operation = "x[rd] = x[rs1] >> shamt"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "srai"
+format = "I"
+opcode = 0x13
+select = { funct3 = 5, funct7 = 0x20 }
+operands = { rd = "x", rs1 = "x", shamt = "uimm" }
+syntax = "srai x(rd), x(rs1), shamt"
+unit = "scalar"
+operation = "x[rd] = $signed(x[rs1]) >>> shamt"
+ver = "1.0"
+
+# ---- RV32I: control flow (pc counts words; one delay slot) --------------------------------------
+
+[[instruction]]
+mnemonic = "beq"
+format = "B"
+opcode = 0x63
+select = { funct3 = 0 }
+operands = { rs1 = "x", rs2 = "x", offset = "label" }
+syntax = "beq x(rs1), x(rs2), offset"
+unit = "scalar"
+operation = "if (x[rs1] == x[rs2]) pc = pc + offset after 1 delay slot"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "bne"
+format = "B"
+opcode = 0x63
+select = { funct3 = 1 }
+operands = { rs1 = "x", rs2 = "x", offset = "label" }
+syntax = "bne x(rs1), x(rs2), offset"
+unit = "scalar"
+operation = "if (x[rs1] != x[rs2]) pc = pc + offset after 1 delay slot"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "blt"
+format = "B"
+opcode = 0x63
+select = { funct3 = 4 }
+operands = { rs1 = "x", rs2 = "x", offset = "label" }
+syntax = "blt x(rs1), x(rs2), offset"
+unit = "scalar"
+operation = "if ($signed(x[rs1]) < $signed(x[rs2])) pc = pc + offset after 1 delay slot"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "bge"
+format = "B"
+opcode = 0x63
+select = { funct3 = 5 }
+operands = { rs1 = "x", rs2 = "x", offset = "label" }
+syntax = "bge x(rs1), x(rs2), offset"
+unit = "scalar"
+operation = "if ($signed(x[rs1]) >= $signed(x[rs2])) pc = pc + offset after 1 delay slot"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "bltu"
+format = "B"
+opcode = 0x63
+select = { funct3 = 6 }
+operands = { rs1 = "x", rs2 = "x", offset = "label" }
+syntax = "bltu x(rs1), x(rs2), offset"
+unit = "scalar"
+operation = "if (x[rs1] < x[rs2]) pc = pc + offset after 1 delay slot"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "bgeu"
+format = "B"
+opcode = 0x63
+select = { funct3 = 7 }
+operands = { rs1 = "x", rs2 = "x", offset = "label" }
+syntax = "bgeu x(rs1), x(rs2), offset"
+unit = "scalar"
+operation = "if (x[rs1] >= x[rs2]) pc = pc + offset after 1 delay slot"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "jal"
+format = "J"
+opcode = 0x6F
+operands = { rd = "x", offset = "label" }
+syntax = "jal x(rd), offset"
+unit = "scalar"
+operation = "x[rd] = pc + 1; pc = pc + offset after 1 delay slot"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "jalr"
+format = "I"
+opcode = 0x67
+select = { funct3 = 0 }
+operands = { rd = "x", rs1 = "x", imm = "imm" }
+syntax = "jalr x(rd), x(rs1), imm"
+unit = "scalar"
+operation = "next_pc = x[rs1] + imm; x[rd] = pc + 1; pc = next_pc after 1 delay slot"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "delay"
+format = "I"
+opcode = 0x67
+select = { funct3 = 1 }
+operands = { imm = "uimm" }
+syntax = "delay imm"
+unit = "scalar"
+operation = "hold decode issue for imm cycles"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "lui"
+format = "U"
+opcode = 0x37
+operands = { rd = "x", imm = "hex" }
+syntax = "lui x(rd), imm"
+unit = "scalar"
+operation = "x[rd] = {imm, 12'b0}"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "auipc"
+format = "U"
+opcode = 0x17
+operands = { rd = "x", imm = "hex" }
+syntax = "auipc x(rd), imm"
+unit = "scalar"
+operation = "x[rd] = pc + {imm, 12'b0}"
+ver = "1.0"
+
+# ---- RV32I: system ------------------------------------------------------------------------------
+
+[[instruction]]
+mnemonic = "csrrw"
+format = "I"
+opcode = 0x73
+select = { funct3 = 1 }
+operands = { rd = "x", csr = "hex", rs1 = "x" }
+syntax = "csrrw x(rd), csr, x(rs1)"
+unit = "scalar"
+operation = "x[rd] = CSR[csr]; CSR[csr] = x[rs1]"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "csrrs"
+format = "I"
+opcode = 0x73
+select = { funct3 = 2 }
+operands = { rd = "x", csr = "hex", rs1 = "x" }
+syntax = "csrrs x(rd), csr, x(rs1)"
+unit = "scalar"
+operation = "x[rd] = CSR[csr]; if (rs1 != 0) CSR[csr] = CSR[csr] | x[rs1]"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "csrrc"
+format = "I"
+opcode = 0x73
+select = { funct3 = 3 }
+operands = { rd = "x", csr = "hex", rs1 = "x" }
+syntax = "csrrc x(rd), csr, x(rs1)"
+unit = "scalar"
+operation = "x[rd] = CSR[csr]; if (rs1 != 0) CSR[csr] = CSR[csr] & ~x[rs1]"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "csrrwi"
+format = "I"
+opcode = 0x73
+select = { funct3 = 5 }
+operands = { rd = "x", csr = "hex", uimm = "uimm" }
+syntax = "csrrwi x(rd), csr, uimm"
+unit = "scalar"
+operation = "x[rd] = CSR[csr]; CSR[csr] = uimm"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "csrrsi"
+format = "I"
+opcode = 0x73
+select = { funct3 = 6 }
+operands = { rd = "x", csr = "hex", uimm = "uimm" }
+syntax = "csrrsi x(rd), csr, uimm"
+unit = "scalar"
+operation = "x[rd] = CSR[csr]; if (uimm != 0) CSR[csr] = CSR[csr] | uimm"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "csrrci"
+format = "I"
+opcode = 0x73
+select = { funct3 = 7 }
+operands = { rd = "x", csr = "hex", uimm = "uimm" }
+syntax = "csrrci x(rd), csr, uimm"
+unit = "scalar"
+operation = "x[rd] = CSR[csr]; if (uimm != 0) CSR[csr] = CSR[csr] & ~uimm"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "ecall"
+format = "I"
+opcode = 0x73
+select = { funct3 = 0, imm = 0x000 }
+fixed = { rd = 0, rs1 = 0 }
+operands = {}
+syntax = "ecall"
+unit = "scalar"
+operation = "halt_reason = ECALL; halt = 1'b1"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "ebreak"
+format = "I"
+opcode = 0x73
+select = { funct3 = 0, imm = 0x001 }
+fixed = { rd = 0, rs1 = 0 }
+operands = {}
+syntax = "ebreak"
+unit = "scalar"
+operation = "halt_reason = EBREAK; halt = 1'b1"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "fence"
+format = "I"
+opcode = 0x0F
+select = { funct3 = 0 }
+operands = {}
+syntax = "fence"
+unit = "scalar"
+operation = "no operation"
+ver = "1.0"
+
+# ---- Scalar loads and stores (VMEM byte addresses) ----------------------------------------------
+
+[[instruction]]
+mnemonic = "lb"
+format = "I"
+opcode = 0x03
+select = { funct3 = 0 }
+operands = { rd = "x", imm = "imm", rs1 = "x" }
+syntax = "lb x(rd), imm(x(rs1))"
+unit = "lsu"
+operation = "x[rd] = {{24{VMEM[x[rs1] + imm][7]}}, VMEM[x[rs1] + imm]}"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "lh"
+format = "I"
+opcode = 0x03
+select = { funct3 = 1 }
+operands = { rd = "x", imm = "imm", rs1 = "x" }
+syntax = "lh x(rd), imm(x(rs1))"
+unit = "lsu"
+operation = "x[rd] = {{16{VMEM[x[rs1] + imm][15]}}, VMEM[x[rs1] + imm]}"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "lw"
+format = "I"
+opcode = 0x03
+select = { funct3 = 2 }
+operands = { rd = "x", imm = "imm", rs1 = "x" }
+syntax = "lw x(rd), imm(x(rs1))"
+unit = "lsu"
+operation = "x[rd] = VMEM[x[rs1] + imm]"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "lbu"
+format = "I"
+opcode = 0x03
+select = { funct3 = 4 }
+operands = { rd = "x", imm = "imm", rs1 = "x" }
+syntax = "lbu x(rd), imm(x(rs1))"
+unit = "lsu"
+operation = "x[rd] = {24'b0, VMEM[x[rs1] + imm]}"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "lhu"
+format = "I"
+opcode = 0x03
+select = { funct3 = 5 }
+operands = { rd = "x", imm = "imm", rs1 = "x" }
+syntax = "lhu x(rd), imm(x(rs1))"
+unit = "lsu"
+operation = "x[rd] = {16'b0, VMEM[x[rs1] + imm]}"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "seld"
+format = "I"
+opcode = 0x03
+select = { funct3 = 6 }
+operands = { rd = "e", imm = "imm", rs1 = "x" }
+syntax = "seld e(rd), imm(x(rs1))"
+unit = "lsu"
+operation = "e[rd] = byte 0 of the VMEM word that holds byte x[rs1] + imm"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "seli"
+format = "I"
+opcode = 0x03
+select = { funct3 = 7 }
+operands = { rd = "e", imm = "imm" }
+syntax = "seli e(rd), imm"
+unit = "scalar"
+operation = "e[rd] = imm[7:0]"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "sb"
+format = "S"
+opcode = 0x23
+select = { funct3 = 0 }
+operands = { rs2 = "x", imm = "imm", rs1 = "x" }
+syntax = "sb x(rs2), imm(x(rs1))"
+unit = "lsu"
+operation = "VMEM[x[rs1] + imm] = x[rs2][7:0]"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "sh"
+format = "S"
+opcode = 0x23
+select = { funct3 = 1 }
+operands = { rs2 = "x", imm = "imm", rs1 = "x" }
+syntax = "sh x(rs2), imm(x(rs1))"
+unit = "lsu"
+operation = "VMEM[x[rs1] + imm] = x[rs2][15:0]"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "sw"
+format = "S"
+opcode = 0x23
+select = { funct3 = 2 }
+operands = { rs2 = "x", imm = "imm", rs1 = "x" }
+syntax = "sw x(rs2), imm(x(rs1))"
+unit = "lsu"
+operation = "VMEM[x[rs1] + imm] = x[rs2]"
+ver = "1.0"
+
+# ---- Tensor loads and stores (VMEM word addresses) ----------------------------------------------
+
+[[instruction]]
+mnemonic = "vload"
+format = "VLS"
+opcode = 0x07
+select = { funct2 = 0 }
+operands = { vd = "m", imm = "imm", rs1 = "x" }
+syntax = "vload m(vd), imm(x(rs1))"
+unit = "lsu"
+m = "rows"
+operation = "m[vd] = VMEM[x[rs1] + (imm << 5)]"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "vstore"
+format = "VLS"
+opcode = 0x07
+select = { funct2 = 1 }
+operands = { vd = "m", imm = "imm", rs1 = "x" }
+syntax = "vstore m(vd), imm(x(rs1))"
+unit = "lsu"
+m = "rows"
+operation = "VMEM[x[rs1] + (imm << 5)] = m[vd]"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "vload.scale"
+format = "VLS"
+opcode = 0x07
+select = { funct2 = 2 }
+operands = { vd = "m", imm = "imm", rs1 = "x" }
+syntax = "vload.scale m(vd), imm(x(rs1))"
+unit = "lsu"
+configs = ["ipt-nvfp4"]
+m = "all"
+operation = "scales of m[vd] = 128 B of VMEM at x[rs1] + (imm << 5)"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "vstore.scale"
+format = "VLS"
+opcode = 0x07
+select = { funct2 = 3 }
+operands = { vd = "m", imm = "imm", rs1 = "x" }
+syntax = "vstore.scale m(vd), imm(x(rs1))"
+unit = "lsu"
+configs = ["ipt-nvfp4"]
+m = "all"
+operation = "128 B of VMEM at x[rs1] + (imm << 5) = scales of m[vd]"
+ver = "1.0"
+
+# ---- DMA (VMEM word addresses) ------------------------------------------------------------------
+
+[[instruction]]
+mnemonic = "dma.load"
+format = "R"
+opcode = 0x7B
+select = { funct7 = 0x00 }
+operands = { rd = "x", rs1 = "x", rs2 = "x", ch = "ch" }
+syntax = "dma.load x(rd), x(rs1), x(rs2), ch"
+unit = "dma"
+operation = "channel ch: VMEM[x[rd]] = DRAM[{dma.base, x[rs1]}], x[rs2] bytes"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "dma.store"
+format = "R"
+opcode = 0x7B
+select = { funct7 = 0x01 }
+operands = { rd = "x", rs1 = "x", rs2 = "x", ch = "ch" }
+syntax = "dma.store x(rd), x(rs1), x(rs2), ch"
+unit = "dma"
+operation = "channel ch: DRAM[{dma.base, x[rd]}] = VMEM[x[rs1]], x[rs2] bytes"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "dma.config"
+format = "R"
+opcode = 0x7F
+select = { funct7 = 0x00 }
+fixed = { rd = 0, rs2 = 0 }
+operands = { rs1 = "x", ch = "ch" }
+syntax = "dma.config x(rs1), ch"
+unit = "dma"
+operation = "dma.base = x[rs1]"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "dma.wait"
+format = "R"
+opcode = 0x7F
+select = { funct7 = 0x01 }
+fixed = { rd = 0, rs1 = 0, rs2 = 0 }
+operands = { ch = "ch" }
+syntax = "dma.wait ch"
+unit = "dma"
+operation = "hold issue until channel ch is idle"
+ver = "1.0"
+
+# ---- MXU0 (systolic array) and MXU1 (inner-product trees): E4M3 weights, BF16 accumulators -------
+
+[[instruction]]
+mnemonic = "vmatpush.weight.mxu0"
+format = "VR"
+opcode = 0x77
+select = { funct7 = 0x00 }
+operands = { vd = "w", vs1 = "m" }
+syntax = "vmatpush.weight.mxu0 w(vd), m(vs1)"
+unit = "mxu0"
+configs = ["default"]
+m = "all"
+operation = "mxu0.w[vd] = m[vs1] (E4M3; row j = output column j)"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "vmatpush.weight.mxu1"
+format = "VR"
+opcode = 0x77
+select = { funct7 = 0x01 }
+operands = { vd = "w", vs1 = "m" }
+syntax = "vmatpush.weight.mxu1 w(vd), m(vs1)"
+unit = "mxu1"
+m = "all"
+operation = "mxu1.w[vd] = m[vs1] (E4M3; row j = output column j)"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "vmatpush.acc.fp8.mxu0"
+format = "VR"
+opcode = 0x77
+select = { funct7 = 0x02 }
+operands = { vd = "acc", vs1 = "m" }
+syntax = "vmatpush.acc.fp8.mxu0 acc(vd), m(vs1)"
+unit = "mxu0"
+configs = ["default"]
+m = "rows"
+operation = "mxu0.acc[vd] = BF16(m[vs1]) (E4M3)"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "vmatpush.acc.fp8.mxu1"
+format = "VR"
+opcode = 0x77
+select = { funct7 = 0x03 }
+operands = { vd = "acc", vs1 = "m" }
+syntax = "vmatpush.acc.fp8.mxu1 acc(vd), m(vs1)"
+unit = "mxu1"
+m = "rows"
+operation = "mxu1.acc[vd] = BF16(m[vs1]) (E4M3)"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "vmatpush.acc.bf16.mxu0"
+format = "VR"
+opcode = 0x77
+select = { funct7 = 0x04 }
+operands = { vd = "acc", vs1 = "mp" }
+syntax = "vmatpush.acc.bf16.mxu0 acc(vd), m(vs1)"
+unit = "mxu0"
+configs = ["default"]
+m = "rows"
+operation = "mxu0.acc[vd] = {m[vs1], m[vs1+1]}"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "vmatpush.acc.bf16.mxu1"
+format = "VR"
+opcode = 0x77
+select = { funct7 = 0x05 }
+operands = { vd = "acc", vs1 = "mp" }
+syntax = "vmatpush.acc.bf16.mxu1 acc(vd), m(vs1)"
+unit = "mxu1"
+m = "rows"
+operation = "mxu1.acc[vd] = {m[vs1], m[vs1+1]}"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "vmatpop.fp8.acc.mxu0"
+format = "VR"
+opcode = 0x77
+select = { funct7 = 0x06 }
+operands = { vd = "m", vs2 = "acc", vs1 = "e" }
+syntax = "vmatpop.fp8.acc.mxu0 m(vd), acc(vs2), e(vs1)"
+unit = "mxu0"
+configs = ["default"]
+m = "rows"
+operation = "m[vd] = E4M3(mxu0.acc[vs2] * 2^(e[vs1] - 127))"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "vmatpop.fp8.acc.mxu1"
+format = "VR"
+opcode = 0x77
+select = { funct7 = 0x07 }
+operands = { vd = "m", vs2 = "acc", vs1 = "e" }
+syntax = "vmatpop.fp8.acc.mxu1 m(vd), acc(vs2), e(vs1)"
+unit = "mxu1"
+m = "rows"
+operation = "m[vd] = E4M3(mxu1.acc[vs2] * 2^(e[vs1] - 127))"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "vmatpop.bf16.acc.mxu0"
+format = "VR"
+opcode = 0x77
+select = { funct7 = 0x08 }
+operands = { vd = "mp", vs2 = "acc" }
+syntax = "vmatpop.bf16.acc.mxu0 m(vd), acc(vs2)"
+unit = "mxu0"
+configs = ["default"]
+m = "rows"
+operation = "{m[vd], m[vd+1]} = mxu0.acc[vs2]"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "vmatpop.bf16.acc.mxu1"
+format = "VR"
+opcode = 0x77
+select = { funct7 = 0x09 }
+operands = { vd = "mp", vs2 = "acc" }
+syntax = "vmatpop.bf16.acc.mxu1 m(vd), acc(vs2)"
+unit = "mxu1"
+m = "rows"
+operation = "{m[vd], m[vd+1]} = mxu1.acc[vs2]"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "vmatmul.mxu0"
+format = "VR"
+opcode = 0x77
+select = { funct7 = 0x0A }
+operands = { vd = "acc", vs1 = "m", vs2 = "w" }
+syntax = "vmatmul.mxu0 acc(vd), m(vs1), w(vs2)"
+unit = "mxu0"
+configs = ["default"]
+m = "rows"
+operation = "mxu0.acc[vd] = m[vs1] @ mxu0.w[vs2]^T"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "vmatmul.mxu1"
+format = "VR"
+opcode = 0x77
+select = { funct7 = 0x0B }
+operands = { vd = "acc", vs1 = "m", vs2 = "w" }
+syntax = "vmatmul.mxu1 acc(vd), m(vs1), w(vs2)"
+unit = "mxu1"
+m = "rows"
+operation = "mxu1.acc[vd] = m[vs1] @ mxu1.w[vs2]^T"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "vmatmul.acc.mxu0"
+format = "VR"
+opcode = 0x77
+select = { funct7 = 0x0C }
+operands = { vd = "acc", vs1 = "m", vs2 = "w" }
+syntax = "vmatmul.acc.mxu0 acc(vd), m(vs1), w(vs2)"
+unit = "mxu0"
+configs = ["default"]
+m = "rows"
+operation = "mxu0.acc[vd] = mxu0.acc[vd] + m[vs1] @ mxu0.w[vs2]^T"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "vmatmul.acc.mxu1"
+format = "VR"
+opcode = 0x77
+select = { funct7 = 0x0D }
+operands = { vd = "acc", vs1 = "m", vs2 = "w" }
+syntax = "vmatmul.acc.mxu1 acc(vd), m(vs1), w(vs2)"
+unit = "mxu1"
+m = "rows"
+operation = "mxu1.acc[vd] = mxu1.acc[vd] + m[vs1] @ mxu1.w[vs2]^T"
+ver = "1.0"
+
+# ---- NVFP4 MXU: E2M1 data and UE4M3 scales, FP32 accumulators (docs/nvfp4-mxu.md) -------------
+
+[[instruction]]
+mnemonic = "vmatpush.weight.nv"
+format = "VR"
+opcode = 0x77
+select = { funct7 = 0x0E }
+operands = { vd = "w", vs1 = "m" }
+syntax = "vmatpush.weight.nv w(vd), m(vs1)"
+unit = "nv"
+configs = ["ipt-nvfp4"]
+m = "all"
+operation = "nv.w[vd] = m[vs1] and its scales (row j = output column j)"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "vmatpush.acc.bf16.nv"
+format = "VR"
+opcode = 0x77
+select = { funct7 = 0x0F }
+operands = { vd = "acc", vs1 = "mp" }
+syntax = "vmatpush.acc.bf16.nv acc(vd), m(vs1)"
+unit = "nv"
+configs = ["ipt-nvfp4"]
+m = "rows"
+operation = "nv.acc[vd] = {m[vs1], m[vs1+1]} (BF16, exact in FP32)"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "vmatpush.acc.fp32.nv"
+format = "VR"
+opcode = 0x77
+select = { funct7 = 0x10 }
+operands = { vd = "acc", vs1 = "mq" }
+syntax = "vmatpush.acc.fp32.nv acc(vd), m(vs1)"
+unit = "nv"
+configs = ["ipt-nvfp4"]
+m = "rows"
+operation = "nv.acc[vd] = m[vs1..vs1+3] (register q holds columns 8q..8q+7)"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "vmatpop.bf16.acc.nv"
+format = "VR"
+opcode = 0x77
+select = { funct7 = 0x11 }
+operands = { vd = "mp", vs2 = "acc" }
+syntax = "vmatpop.bf16.acc.nv m(vd), acc(vs2)"
+unit = "nv"
+configs = ["ipt-nvfp4"]
+m = "rows"
+operation = "{m[vd], m[vd+1]} = BF16(nv.acc[vs2]) (round to nearest even)"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "vmatpop.fp32.acc.nv"
+format = "VR"
+opcode = 0x77
+select = { funct7 = 0x12 }
+operands = { vd = "mq", vs2 = "acc" }
+syntax = "vmatpop.fp32.acc.nv m(vd), acc(vs2)"
+unit = "nv"
+configs = ["ipt-nvfp4"]
+m = "rows"
+operation = "m[vd..vd+3] = nv.acc[vs2] (register q holds columns 8q..8q+7)"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "vmatmul.nv"
+format = "VR"
+opcode = 0x77
+select = { funct7 = 0x13 }
+operands = { vd = "acc", vs1 = "m", vs2 = "w" }
+syntax = "vmatmul.nv acc(vd), m(vs1), w(vs2)"
+unit = "nv"
+configs = ["ipt-nvfp4"]
+m = "rows"
+operation = "nv.acc[vd] = m[vs1] @ nv.w[vs2]^T (64 NVFP4 elements, FP32)"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "vmatmul.acc.nv"
+format = "VR"
+opcode = 0x77
+select = { funct7 = 0x14 }
+operands = { vd = "acc", vs1 = "m", vs2 = "w" }
+syntax = "vmatmul.acc.nv acc(vd), m(vs1), w(vs2)"
+unit = "nv"
+configs = ["ipt-nvfp4"]
+m = "rows"
+operation = "nv.acc[vd] = nv.acc[vd] + m[vs1] @ nv.w[vs2]^T (one NVIDIA m16n8k64 step)"
+ver = "1.0"
+
+# ---- VPU: BF16 tiles {m[r], m[r+1]} -------------------------------------------------------------
+
+[[instruction]]
+mnemonic = "vadd.bf16"
+format = "VR"
+opcode = 0x57
+select = { funct7 = 0x00 }
+operands = { vd = "mp", vs1 = "mp", vs2 = "mp" }
+syntax = "vadd.bf16 m(vd), m(vs1), m(vs2)"
+unit = "vpu"
+m = "rows"
+operation = "{m[vd], m[vd+1]} = {m[vs1], m[vs1+1]} + {m[vs2], m[vs2+1]}"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "vsub.bf16"
+format = "VR"
+opcode = 0x57
+select = { funct7 = 0x02 }
+operands = { vd = "mp", vs1 = "mp", vs2 = "mp" }
+syntax = "vsub.bf16 m(vd), m(vs1), m(vs2)"
+unit = "vpu"
+m = "rows"
+operation = "{m[vd], m[vd+1]} = {m[vs1], m[vs1+1]} - {m[vs2], m[vs2+1]}"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "vmul.bf16"
+format = "VR"
+opcode = 0x57
+select = { funct7 = 0x03 }
+operands = { vd = "mp", vs1 = "mp", vs2 = "mp" }
+syntax = "vmul.bf16 m(vd), m(vs1), m(vs2)"
+unit = "vpu"
+m = "rows"
+operation = "{m[vd], m[vd+1]} = {m[vs1], m[vs1+1]} * {m[vs2], m[vs2+1]}"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "vminimum.bf16"
+format = "VR"
+opcode = 0x57
+select = { funct7 = 0x04 }
+operands = { vd = "mp", vs1 = "mp", vs2 = "mp" }
+syntax = "vminimum.bf16 m(vd), m(vs1), m(vs2)"
+unit = "vpu"
+m = "rows"
+operation = "{m[vd], m[vd+1]} = min({m[vs1], m[vs1+1]}, {m[vs2], m[vs2+1]})"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "vmaximum.bf16"
+format = "VR"
+opcode = 0x57
+select = { funct7 = 0x06 }
+operands = { vd = "mp", vs1 = "mp", vs2 = "mp" }
+syntax = "vmaximum.bf16 m(vd), m(vs1), m(vs2)"
+unit = "vpu"
+m = "rows"
+operation = "{m[vd], m[vd+1]} = max({m[vs1], m[vs1+1]}, {m[vs2], m[vs2+1]})"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "vredsum.bf16"
+format = "VR"
+opcode = 0x57
+select = { funct7 = 0x01 }
+operands = { vd = "mp", vs1 = "mp" }
+syntax = "vredsum.bf16 m(vd), m(vs1)"
+unit = "vpu"
+m = "rows"
+operation = "lane j: sum of column j of m[vs1] and m[vs1+1], in every row of m[vd] and m[vd+1]"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "vredmin.bf16"
+format = "VR"
+opcode = 0x57
+select = { funct7 = 0x05 }
+operands = { vd = "mp", vs1 = "mp" }
+syntax = "vredmin.bf16 m(vd), m(vs1)"
+unit = "vpu"
+m = "rows"
+operation = "lane j: min of column j of m[vs1] and m[vs1+1], in every row of m[vd] and m[vd+1]"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "vredmax.bf16"
+format = "VR"
+opcode = 0x57
+select = { funct7 = 0x07 }
+operands = { vd = "mp", vs1 = "mp" }
+syntax = "vredmax.bf16 m(vd), m(vs1)"
+unit = "vpu"
+m = "rows"
+operation = "lane j: max of column j of m[vs1] and m[vs1+1], in every row of m[vd] and m[vd+1]"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "vredsum.row.bf16"
+format = "VR"
+opcode = 0x57
+select = { funct7 = 0x21 }
+operands = { vd = "mp", vs1 = "mp" }
+syntax = "vredsum.row.bf16 m(vd), m(vs1)"
+unit = "vpu"
+m = "rows"
+operation = "{m[vd], m[vd+1]}[i, j] = sum({m[vs1], m[vs1+1]}[i, :])"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "vredmin.row.bf16"
+format = "VR"
+opcode = 0x57
+select = { funct7 = 0x24 }
+operands = { vd = "mp", vs1 = "mp" }
+syntax = "vredmin.row.bf16 m(vd), m(vs1)"
+unit = "vpu"
+m = "rows"
+operation = "{m[vd], m[vd+1]}[i, j] = min({m[vs1], m[vs1+1]}[i, :])"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "vredmax.row.bf16"
+format = "VR"
+opcode = 0x57
+select = { funct7 = 0x26 }
+operands = { vd = "mp", vs1 = "mp" }
+syntax = "vredmax.row.bf16 m(vd), m(vs1)"
+unit = "vpu"
+m = "rows"
+operation = "{m[vd], m[vd+1]}[i, j] = max({m[vs1], m[vs1+1]}[i, :])"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "vmov"
+format = "VR"
+opcode = 0x57
+select = { funct7 = 0x40 }
+operands = { vd = "mp", vs1 = "mp" }
+syntax = "vmov m(vd), m(vs1)"
+unit = "vpu"
+m = "rows"
+operation = "{m[vd], m[vd+1]} = {m[vs1], m[vs1+1]}"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "vrecip.bf16"
+format = "VR"
+opcode = 0x57
+select = { funct7 = 0x41 }
+operands = { vd = "mp", vs1 = "mp" }
+syntax = "vrecip.bf16 m(vd), m(vs1)"
+unit = "vpu"
+m = "rows"
+operation = "{m[vd], m[vd+1]} = 1 / {m[vs1], m[vs1+1]}"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "vexp.bf16"
+format = "VR"
+opcode = 0x57
+select = { funct7 = 0x42 }
+operands = { vd = "mp", vs1 = "mp" }
+syntax = "vexp.bf16 m(vd), m(vs1)"
+unit = "vpu"
+m = "rows"
+operation = "{m[vd], m[vd+1]} = exp({m[vs1], m[vs1+1]})"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "vexp2.bf16"
+format = "VR"
+opcode = 0x57
+select = { funct7 = 0x43 }
+operands = { vd = "mp", vs1 = "mp" }
+syntax = "vexp2.bf16 m(vd), m(vs1)"
+unit = "vpu"
+m = "rows"
+operation = "{m[vd], m[vd+1]} = 2^{m[vs1], m[vs1+1]}"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "vsquare.bf16"
+format = "VR"
+opcode = 0x57
+select = { funct7 = 0x46 }
+operands = { vd = "mp", vs1 = "mp" }
+syntax = "vsquare.bf16 m(vd), m(vs1)"
+unit = "vpu"
+m = "rows"
+operation = "{m[vd], m[vd+1]} = {m[vs1], m[vs1+1]}^2"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "vcube.bf16"
+format = "VR"
+opcode = 0x57
+select = { funct7 = 0x47 }
+operands = { vd = "mp", vs1 = "mp" }
+syntax = "vcube.bf16 m(vd), m(vs1)"
+unit = "vpu"
+m = "rows"
+operation = "{m[vd], m[vd+1]} = {m[vs1], m[vs1+1]}^3"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "vpack.bf16.fp8"
+format = "VR"
+opcode = 0x57
+select = { funct7 = 0x44 }
+operands = { vd = "m", vs2 = "mp", vs1 = "e" }
+syntax = "vpack.bf16.fp8 m(vd), m(vs2), e(vs1)"
+unit = "vpu"
+m = "all"
+operation = "m[vd] = E4M3({m[vs2], m[vs2+1]} / 2^(e[vs1] - 127)) (FP8 row k = BF16 rows 2k, 2k+1)"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "vunpack.fp8.bf16"
+format = "VR"
+opcode = 0x57
+select = { funct7 = 0x45 }
+operands = { vd = "mp", vs2 = "m", vs1 = "e" }
+syntax = "vunpack.fp8.bf16 m(vd), m(vs2), e(vs1)"
+unit = "vpu"
+m = "all"
+operation = "{m[vd], m[vd+1]} = BF16(m[vs2] * 2^(e[vs1] - 127)) (vpack's row layout)"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "vrelu.bf16"
+format = "VR"
+opcode = 0x57
+select = { funct7 = 0x48 }
+operands = { vd = "mp", vs1 = "mp" }
+syntax = "vrelu.bf16 m(vd), m(vs1)"
+unit = "vpu"
+m = "rows"
+operation = "{m[vd], m[vd+1]} = max({m[vs1], m[vs1+1]}, 0)"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "vsin.bf16"
+format = "VR"
+opcode = 0x57
+select = { funct7 = 0x49 }
+operands = { vd = "mp", vs1 = "mp" }
+syntax = "vsin.bf16 m(vd), m(vs1)"
+unit = "vpu"
+m = "rows"
+operation = "{m[vd], m[vd+1]} = sin({m[vs1], m[vs1+1]})"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "vcos.bf16"
+format = "VR"
+opcode = 0x57
+select = { funct7 = 0x4A }
+operands = { vd = "mp", vs1 = "mp" }
+syntax = "vcos.bf16 m(vd), m(vs1)"
+unit = "vpu"
+m = "rows"
+operation = "{m[vd], m[vd+1]} = cos({m[vs1], m[vs1+1]})"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "vtanh.bf16"
+format = "VR"
+opcode = 0x57
+select = { funct7 = 0x4B }
+operands = { vd = "mp", vs1 = "mp" }
+syntax = "vtanh.bf16 m(vd), m(vs1)"
+unit = "vpu"
+m = "rows"
+operation = "{m[vd], m[vd+1]} = tanh({m[vs1], m[vs1+1]})"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "vlog2.bf16"
+format = "VR"
+opcode = 0x57
+select = { funct7 = 0x4C }
+operands = { vd = "mp", vs1 = "mp" }
+syntax = "vlog2.bf16 m(vd), m(vs1)"
+unit = "vpu"
+m = "rows"
+operation = "{m[vd], m[vd+1]} = log2({m[vs1], m[vs1+1]})"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "vsqrt.bf16"
+format = "VR"
+opcode = 0x57
+select = { funct7 = 0x4D }
+operands = { vd = "mp", vs1 = "mp" }
+syntax = "vsqrt.bf16 m(vd), m(vs1)"
+unit = "vpu"
+m = "rows"
+operation = "{m[vd], m[vd+1]} = sqrt({m[vs1], m[vs1+1]})"
+ver = "1.0"
+
+# ---- VPU: load immediate (imm holds BF16 bits) --------------------------------------------------
+
+[[instruction]]
+mnemonic = "vli.all"
+format = "VI"
+opcode = 0x5F
+select = { funct3 = 0 }
+operands = { vd = "mp", imm = "hex" }
+syntax = "vli.all m(vd), imm"
+unit = "vpu"
+m = "rows"
+operation = "{m[vd], m[vd+1]}[i, j] = imm"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "vli.row"
+format = "VI"
+opcode = 0x5F
+select = { funct3 = 1 }
+operands = { vd = "mp", imm = "hex" }
+syntax = "vli.row m(vd), imm"
+unit = "vpu"
+m = "rows"
+operation = "{m[vd], m[vd+1]}[0, j] = imm; the other rows = 0"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "vli.col"
+format = "VI"
+opcode = 0x5F
+select = { funct3 = 2 }
+operands = { vd = "m", imm = "hex" }
+syntax = "vli.col m(vd), imm"
+unit = "vpu"
+m = "rows"
+operation = "m[vd][i, 0] = imm; the other elements = 0"
+ver = "1.0"
+
+[[instruction]]
+mnemonic = "vli.one"
+format = "VI"
+opcode = 0x5F
+select = { funct3 = 3 }
+operands = { vd = "m", imm = "hex" }
+syntax = "vli.one m(vd), imm"
+unit = "vpu"
+m = "rows"
+operation = "m[vd][0, 0] = imm; the other elements = 0"
+ver = "1.0"
+
+# ---- XLU -----------------------------------------------------------------------------------------
+
+[[instruction]]
+mnemonic = "vtrpose.xlu"
+format = "VR"
+opcode = 0x6B
+select = { funct7 = 0x00 }
+operands = { vd = "m", vs1 = "m" }
+syntax = "vtrpose.xlu m(vd), m(vs1)"
+unit = "xlu"
+m = "all"
+operation = "m[vd] = m[vs1]^T (32 x 32 bytes)"
+ver = "1.0"

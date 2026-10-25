@@ -8,8 +8,8 @@ from pathlib import Path
 import pytest
 
 import npu_model.configs.isa_definition  # noqa: F401  (registers the instructions)
-from npu_model.isa import IsaSpec, UJType
-from npu_model.isa_types import Bundled, Imm20, Imm21
+from npu_model.isa import IsaSpec
+from tests.helpers import words
 
 ATLAS_SRC = Path(__file__).resolve().parents[2] / "src/main/scala/atlas"
 INSTRUCTIONS_SCALA = ATLAS_SRC / "scalar/Instructions.scala"
@@ -84,24 +84,6 @@ def bitpats() -> dict[str, tuple[int, int]]:
         assert len(bits) == 32 and name not in pats, name
         pats[name] = (int(bits.replace("0", "1").replace("?", "0"), 2), int(bits.replace("?", "0"), 2))
     return pats
-
-
-def operands(cls) -> list[tuple[str, type]]:
-    named = [n for p in cls.params for n in ((p.reg, p.imm) if isinstance(p, Bundled) else (p,))]
-    # jal's constructor takes the encoded immediate, twice the assembly word offset.
-    return [(n.repr, Imm21 if issubclass(cls, UJType) and n.inner is Imm20 else n.inner) for n in named]
-
-
-def corners(kind: type) -> list[int]:
-    """Zero, both ends of the operand range, and the largest even value (branch immediates)."""
-    return sorted({v for v in (0, kind.lower_bound, kind.upper_bound - 1, kind.upper_bound - 2) if not kind.lint(v)})
-
-
-def words(cls) -> list[int]:
-    """The instruction's words for every combination of operand corners."""
-    ops = operands(cls)
-    return [cls(**{name: v for (name, _), v in zip(ops, values)}).to_bytecode() & 0xFFFFFFFF
-            for values in itertools.product(*(corners(kind) for _, kind in ops))]
 
 
 @pytest.mark.parametrize("mnemonic", sorted(IsaSpec.operations))
