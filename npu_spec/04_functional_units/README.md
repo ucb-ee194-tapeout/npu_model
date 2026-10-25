@@ -37,7 +37,9 @@ Requirements:
 
 - `mxu1`, `vpu`, `xlu`, and DMA transfers may be active concurrently
 - only one new instruction may issue in a cycle
-- resource conflicts assert; only DELAY and DMA.WAIT stall the frontend
+- in npu_model, a resource conflict raises an error and only DELAY and DMA.WAIT
+  stall the frontend; the RTL interlock holds the instruction in S1 until it can
+  issue (Atlas `docs/interlock.md`)
 - issue does not perform dynamic reordering to bypass stalled older instructions
 - execution timing is determined by frontend ordering, the two blocking
   instructions (`DELAY`, `DMA.WAIT`), and fixed per-operation timing
@@ -77,9 +79,11 @@ For the default hardware configuration, a DMA transfer of `N` bytes takes
 
 ### Spacing instructions with `DELAY`
 
-Units never stall each other. An instruction that issues too early raises a
-conflict or scheduling error (see Structural-Conflict Handling), so software
-spaces dependent instructions with `DELAY`. Three facts determine the spacing.
+In npu_model, units never stall each other. An instruction that issues too early
+raises a conflict or scheduling error (see Structural-Conflict Handling), so
+software spaces dependent instructions with `DELAY`. The RTL interlock applies
+the same rules in hardware, so there `DELAY` is never required. Three facts
+determine the spacing.
 
 **1. `DELAY` arithmetic.** If instruction A issues at cycle T, the next
 instruction B issues at:
@@ -322,8 +326,9 @@ Its latency class and access windows are listed in the Timing Reference.
 
 ## Structural-Conflict Handling
 
-Resource conflicts are software-scheduled. In the current model, an illegal
-overlap raises a conflict or scheduling error; units do not dynamically stall
-or arbitrate to resolve it. `DELAY` provides explicit frontend spacing. While
+In npu_model, resource conflicts are software-scheduled: an illegal overlap
+raises a conflict or scheduling error; units do not dynamically stall or
+arbitrate to resolve it. `DELAY` provides explicit frontend spacing. The RTL
+interlock holds such an instruction in S1 until it can issue. While
 an operation is in flight, each unit commits rows on its scheduled write edges
 and holds its register reservations through the required access window.

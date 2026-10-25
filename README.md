@@ -40,7 +40,8 @@ An execution-driven performance model requires simulating all architectural valu
 Instead of a trace, its frontend fetch decision is dependent on the actual architectural value.
 This is slower and harder to write, and it is easy diverge from realistic execution behaviors.
 
-We choose to do execution driven regardless, because the NPU ISA encodes static delays to avoid dynamic dependency checking.
+We choose to do execution driven regardless, because programs for the model space dependent
+instructions with static delays (npu_spec/04) instead of dynamic dependency checking.
 Hence a functional model for it necessinates simulating timing.
 So writing this model in execution-driven fashion achives both goals in one shot.
 

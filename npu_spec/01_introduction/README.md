@@ -2,8 +2,8 @@
 
 ## Overview
 
-The Tapeout NPU is a statically scheduled accelerator-oriented machine with a scalar
-control path and a tile-oriented tensor datapath.
+The Tapeout NPU is an in-order accelerator-oriented machine with a scalar control
+path and a tile-oriented tensor datapath.
 
 The baseline machine contains:
 
@@ -23,7 +23,8 @@ The baseline machine contains:
 
 The baseline is guided by the following principles:
 
-- static scheduling rather than dynamic dependency checking
+- fixed timing rules that a compiler can schedule statically (section 04); the RTL
+  interlock also checks them in hardware
 - single-issue in-order fetch / decode / issue
 - deterministic on-chip timing for a fixed configuration
 - explicit overlap of long-chime functional units
