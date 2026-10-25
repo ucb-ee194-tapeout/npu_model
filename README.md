@@ -189,7 +189,7 @@ npu_model/
 │   │   └── program.py     # Program class
 │   ├── logging/           # Trace logging
 │   │   └── logger.py      # Perfetto trace logger
-│   ├── isa/               # ISA table (atlas_isa.toml), its loader, generators and the instruction types
+│   ├── isa/               # ISA table (atlas_isa.toml), loader, generators, disassembler, instruction types
 │   └── simulation.py      # Simulation orchestration
 ├── scripts/
 │   └── run.py             # Main simulation runner

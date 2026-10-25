@@ -1,0 +1,51 @@
+"""The disassembler gives assembly that assembles to the same words."""
+import io
+from pathlib import Path
+
+import pytest
+
+import npu_model.configs.programs as programs
+from npu_model.isa import IsaSpec
+from npu_model.isa.disasm import disassemble
+from npu_model.util.converter import input_to_program
+from tests.helpers import words
+
+ASM = sorted((Path(__file__).resolve().parents[1] / "npu_model/configs/programs/asm").glob("*.S"))
+
+
+def assemble(source: str) -> list[int]:
+    return [w & 0xFFFFFFFF for w in input_to_program(io.StringIO(source)).assemble()]
+
+
+@pytest.mark.parametrize("mnemonic", sorted(IsaSpec.operations))
+def test_every_instruction_round_trips(mnemonic: str) -> None:
+    for word in words(IsaSpec.operations[mnemonic]):
+        assert assemble(disassemble([word])) == [word], disassemble([word])
+
+
+@pytest.mark.parametrize("path", ASM, ids=lambda p: p.stem)
+def test_assembly_programs_round_trip(path: Path) -> None:
+    program = assemble(path.read_text())
+    assert assemble(disassemble(program)) == program
+
+
+@pytest.mark.parametrize("name", sorted(programs.__all__))
+def test_python_programs_round_trip(name: str) -> None:
+    program = [w & 0xFFFFFFFF for w in getattr(programs, name)().assemble()]
+    assert assemble(disassemble(program)) == program
+
+
+def test_branch_targets_get_labels() -> None:
+    text = disassemble(assemble("top:\n addi x1, x1, -1\n bne x1, x0, top\n jal x0, end\n nop\nend:\n"))
+    assert text.splitlines() == [
+        "L0:",
+        "    addi x1, x1, -1                          # 0: fff08093",
+        "    bne x1, x0, L0                           # 1: fe009fe3",
+        "    jal x0, L4                               # 2: 0040006f",
+        "    addi x0, x0, 0                           # 3: 00000013",
+        "L4:",
+    ]
+
+
+def test_an_illegal_word_is_shown_as_data() -> None:
+    assert disassemble([0xFFFFFFFF]) == "    .word 0xffffffff                         # 0: ffffffff, illegal\n"
