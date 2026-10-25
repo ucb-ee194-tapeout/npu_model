@@ -22,11 +22,6 @@ class DefaultHardwareConfig(HardwareConfig):
         dram_size=0x10_0000_0000,  # 64 GiB at 0x8000_0000, as EE290SimConfig maps it
         vmem_size=1536 * 1024,
     )
-    mxu0_matmul_latency_cycles: int = 32
-    mxu1_matmul_latency_cycles: int = 32
-    vpu_simple_op_latency_cycles: int = 4
-    vpu_non_pipelineable_op_latency_cycles: int = 16
-    xlu_transform_latency_cycles: int = 4
     offchip_link_width_bits: int = 32
     offchip_link_core_cycles_per_beat: int = 2
     dma_offchip_command_words: int = 2
