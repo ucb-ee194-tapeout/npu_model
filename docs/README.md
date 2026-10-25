@@ -205,27 +205,21 @@ reduction tree.
 sequence: requests T+1 through T+32, last response T+33, then writes T+34
 through T+65. Transpose can run independently of the VPU subject to MREG hazards.
 
-### FP8 scaling and layout differences
+### FP8 conversions and layout
 
-Two superficially similar conversions in RTL have different behavior:
+The VPU pack and unpack and the MXU1 FP8 push and pop use the same Blackwell
+conversions of [`cvt.py`](../npu_model/configs/cvt.py) (ISA v2, section 5.2):
+E4M3_RN_SATFINITE of x * 2^(e − 127) with one rounding, subnormals kept,
+saturation to ±448 (0x7e/0xfe), 0x7f for NaN and 2^128 for e = 255; the push is
+exact and gives 0x7fffffff for NaN. Only the source layout differs:
 
-| Property | VPU pack | MXU accumulator pop to FP8 |
+| Property | VPU pack | MXU1 accumulator pop to FP8 |
 | --- | --- | --- |
-| Unit E8M0 scale | 127 | 127 |
-| Scale direction | Multiply by 2^(scale − 127) | Multiply by 2^(scale − 127) |
-| Scale 255 | 2^128 | 2^127 (clamped) |
-| BF16 source layout | Successive 16-lane rows in the bank stream | Corresponding rows of the two banks form 32 columns |
-| Subnormal results | Kept, rounded to nearest even | Flushed to +0 |
-| Rounded positive FP8 0x7f encoding | Saturate to 0x7e (448) | Can emit 0x7f, following the current RTL |
-| NaN input | 0x7f | +0 |
+| Source | BF16 pair | FP32 accumulator |
+| Layout | Successive 16-lane rows in the bank stream | Row i of the accumulator gives the 32 columns of row i |
 
-VPU pack and unpack are the Blackwell conversions of
-[`cvt.py`](../npu_model/configs/cvt.py) (ISA v2, section 5.2): unpack gives
-BF16 subnormals, +-Inf on overflow and 0x7fff for NaN. The MXU FP8 push flushes
-subnormal and NaN inputs to signed zero. These differences are deliberately
-preserved; the model does not normalize both converters to a common ideal
-quantizer. Column-blocked attention intermediates use an MXU accumulator
-push/pop round trip when a row-major FP8 tile is required.
+Column-blocked attention intermediates use an MXU accumulator push/pop round
+trip when a row-major FP8 tile is required.
 
 ## Cycle conventions and timing reference
 
