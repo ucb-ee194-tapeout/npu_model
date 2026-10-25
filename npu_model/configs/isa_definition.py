@@ -49,7 +49,6 @@ from npu_model.isa_types import (
     Accumulator,
     SBImm12,
     Imm12,
-    EXU,
 )
 
 if TYPE_CHECKING:
@@ -175,291 +174,210 @@ def _write_mrf_bf16_rows(state: ArchState, reg: int, value: torch.Tensor) -> Non
     state.write_mrf_bf16(reg + 1, value[state.cfg.mrf_depth:].contiguous())
 
 
-class LB(ScalarOffsetLoad, IType, exu=EXU.LSU, opcode=0b0000011, funct3=0b000):
+class LB(ScalarOffsetLoad, IType):
     def exec(self, state: ArchState) -> None:
         address, word = _load_word(state, self.rs1, self.imm)
         state.write_xrf(self.rd, _sign_extend(word >> (8 * (address & 3)), 8))
 
 
-class LH(ScalarOffsetLoad, IType, exu=EXU.LSU, opcode=0b0000011, funct3=0b001):
+class LH(ScalarOffsetLoad, IType):
     def exec(self, state: ArchState) -> None:
         address, word = _load_word(state, self.rs1, self.imm)
         state.write_xrf(self.rd, _sign_extend(word >> (8 * (address & 2)), 16))
 
 
-class LW(ScalarOffsetLoad, IType, exu=EXU.LSU, opcode=0b0000011, funct3=0b010):
+class LW(ScalarOffsetLoad, IType):
     def exec(self, state: ArchState) -> None:
         _, word = _load_word(state, self.rs1, self.imm)
         state.write_xrf(self.rd, word)
 
 
-class LBU(ScalarOffsetLoad, IType, exu=EXU.LSU, opcode=0b0000011, funct3=0b100):
+class LBU(ScalarOffsetLoad, IType):
     def exec(self, state: ArchState) -> None:
         address, word = _load_word(state, self.rs1, self.imm)
         state.write_xrf(self.rd, (word >> (8 * (address & 3))) & 0xFF)
 
 
-class LHU(ScalarOffsetLoad, IType, exu=EXU.LSU, opcode=0b0000011, funct3=0b101):
+class LHU(ScalarOffsetLoad, IType):
     def exec(self, state: ArchState) -> None:
         address, word = _load_word(state, self.rs1, self.imm)
         state.write_xrf(self.rd, (word >> (8 * (address & 2))) & 0xFFFF)
 
 
-class SELD(
-    ExponentOffsetLoad, IType[ExponentReg], exu=EXU.LSU, opcode=0b0000011, funct3=0b110
-):
+class SELD(ExponentOffsetLoad, IType[ExponentReg]):
     def exec(self, state: ArchState) -> None:
         # ScalarCore selects memWord[7:0], without byte shifting.
         _, word = _load_word(state, self.rs1, self.imm)
         state.write_erf(self.rd, word & 0xFF)
 
 
-class SELI(
-    ExponentImm, IType[ExponentReg], exu=EXU.SCALAR, opcode=0b0000011, funct3=0b111
-):
+class SELI(ExponentImm, IType[ExponentReg]):
     def exec(self, state: ArchState):
         state.write_erf(self.rd, _sign_extend(self.imm & 0xFFF, 12))
 
 
-class VLOAD(TensorBaseOffset, VLSType, exu=EXU.LSU, opcode=0b0000111, funct2=0b00):
+class VLOAD(TensorBaseOffset, VLSType):
     def exec(self, state: ArchState) -> None:
         address = _vmem_line_address(state, self.rs1, self.imm)
         state.write_mrf_u8(self.vd, state.read_vmem(address, 0, _tensor_register_bytes(state)))
 
 
-class VSTORE(TensorBaseOffset, VLSType, exu=EXU.LSU, opcode=0b0000111, funct2=0b01):
+class VSTORE(TensorBaseOffset, VLSType):
     def exec(self, state: ArchState) -> None:
         address = _vmem_line_address(state, self.rs1, self.imm)
         state.write_vmem(address, 0, state.read_mrf_u8(self.vd))
 
 
-class FENCE(Nullary, IType, exu=EXU.SCALAR, opcode=0b0001111, funct3=0b000):
-    imm: Imm12 = Imm12(0)
+class FENCE(Nullary, IType):
     def exec(self, state: ArchState) -> None:
         pass
 
 
-class ADDI(ScalarComputeImm, IType, exu=EXU.SCALAR, opcode=0b0010011, funct3=0b000):
+class ADDI(ScalarComputeImm, IType):
     def exec(self, state: ArchState) -> None:
         state.write_xrf(
             self.rd, state.xrf[self.rs1] + _sign_extend(self.imm & 0xFFF, 12)
         )
 
 
-class SLLI(ScalarComputeShamt, IType, exu=EXU.SCALAR, opcode=0b0010011, funct3=0b001):
+class SLLI(ScalarComputeShamt, IType):
     def exec(self, state: ArchState) -> None:
         state.write_xrf(self.rd, state.xrf[self.rs1] << (self.imm & 0x1F))
 
 
-class SLTI(ScalarComputeImm, IType, exu=EXU.SCALAR, opcode=0b0010011, funct3=0b010):
+class SLTI(ScalarComputeImm, IType):
     def exec(self, state: ArchState) -> None:
         imm = _sign_extend(self.imm & 0xFFF, 12)
         state.write_xrf(self.rd, 1 if _sign_extend(state.xrf[self.rs1], 32) < imm else 0)
 
 
-class SLTIU(ScalarComputeImm, IType, exu=EXU.SCALAR, opcode=0b0010011, funct3=0b011):
+class SLTIU(ScalarComputeImm, IType):
     def exec(self, state: ArchState) -> None:
         a = state.xrf[self.rs1] & _MASK32
         b = _sign_extend(self.imm & 0xFFF, 12) & _MASK32
         state.write_xrf(self.rd, 1 if a < b else 0)
 
 
-class XORI(ScalarComputeImm, IType, exu=EXU.SCALAR, opcode=0b0010011, funct3=0b100):
+class XORI(ScalarComputeImm, IType):
     def exec(self, state: ArchState) -> None:
         state.write_xrf(
             self.rd, state.xrf[self.rs1] ^ _sign_extend(self.imm & 0xFFF, 12)
         )
 
 
-class SRLI(ScalarComputeShamt, IType, exu=EXU.SCALAR, opcode=0b0010011, funct3=0b101):
+class SRLI(ScalarComputeShamt, IType):
     def exec(self, state: ArchState) -> None:
         state.write_xrf(self.rd, state.xrf[self.rs1] >> (self.imm & 0x1F))
 
 
-class SRAI(ScalarComputeShamt, IType, exu=EXU.SCALAR, opcode=0b0010011, funct3=0b101):
-    UPPER_IMM = 0b0100000
-
+class SRAI(ScalarComputeShamt, IType):
     def exec(self, state: ArchState) -> None:
         src = _sign_extend(state.xrf[self.rs1] & 0xFFFFFFFF, 32)
         state.write_xrf(self.rd, (src >> (self.imm & 0x1F)) & 0xFFFFFFFF)
 
 
-class ORI(ScalarComputeImm, IType, exu=EXU.SCALAR, opcode=0b0010011, funct3=0b110):
+class ORI(ScalarComputeImm, IType):
     def exec(self, state: ArchState) -> None:
         state.write_xrf(
             self.rd, state.xrf[self.rs1] | _sign_extend(self.imm & 0xFFF, 12)
         )
 
 
-class ANDI(ScalarComputeImm, IType, exu=EXU.SCALAR, opcode=0b0010011, funct3=0b111):
+class ANDI(ScalarComputeImm, IType):
     def exec(self, state: ArchState) -> None:
         state.write_xrf(
             self.rd, state.xrf[self.rs1] & _sign_extend(self.imm & 0xFFF, 12)
         )
 
 
-class AUIPC(ScalarImm, UType, exu=EXU.SCALAR, opcode=0b0010111):
+class AUIPC(ScalarImm, UType):
     def exec(self, state: ArchState) -> None:
         state.write_xrf(
             self.rd, ((self.imm << 12) & 0xFFFFFFFF) + state.execute_pc
         )
 
 
-class SB(ScalarBaseOffsetStore, SType, exu=EXU.LSU, opcode=0b0100011, funct3=0b000):
+class SB(ScalarBaseOffsetStore, SType):
     def exec(self, state: ArchState) -> None:
         _store(state, self.rs1, self.rs2, self.imm, 1)
 
 
-class SH(ScalarBaseOffsetStore, SType, exu=EXU.LSU, opcode=0b0100011, funct3=0b001):
+class SH(ScalarBaseOffsetStore, SType):
     def exec(self, state: ArchState) -> None:
         _store(state, self.rs1, self.rs2, self.imm, 2)
 
 
-class SW(ScalarBaseOffsetStore, SType, exu=EXU.LSU, opcode=0b0100011, funct3=0b010):
+class SW(ScalarBaseOffsetStore, SType):
     def exec(self, state: ArchState) -> None:
         _store(state, self.rs1, self.rs2, self.imm, 4)
 
 
-class ADD(
-    ScalarComputeReg,
-    RType,
-    exu=EXU.SCALAR,
-    opcode=0b0110011,
-    funct3=0b000,
-    funct7=0b0000000,
-):
+class ADD(ScalarComputeReg, RType):
     def exec(self, state: ArchState) -> None:
         state.write_xrf(self.rd, state.xrf[self.rs1] + state.xrf[self.rs2])
 
 
-class SUB(
-    ScalarComputeReg,
-    RType,
-    exu=EXU.SCALAR,
-    opcode=0b0110011,
-    funct3=0b000,
-    funct7=0b0100000,
-):
+class SUB(ScalarComputeReg, RType):
     def exec(self, state: ArchState) -> None:
         state.write_xrf(self.rd, state.xrf[self.rs1] - state.xrf[self.rs2])
 
 
-class SLL(
-    ScalarComputeReg,
-    RType,
-    exu=EXU.SCALAR,
-    opcode=0b0110011,
-    funct3=0b001,
-    funct7=0b0000000,
-):
+class SLL(ScalarComputeReg, RType):
     def exec(self, state: ArchState) -> None:
         state.write_xrf(self.rd, state.xrf[self.rs1] << (state.xrf[self.rs2] & 0x1F))
 
 
-class SLT(
-    ScalarComputeReg,
-    RType,
-    exu=EXU.SCALAR,
-    opcode=0b0110011,
-    funct3=0b010,
-    funct7=0b0000000,
-):
+class SLT(ScalarComputeReg, RType):
     def exec(self, state: ArchState) -> None:
         state.write_xrf(self.rd, 1 if _sign_extend(state.xrf[self.rs1], 32) < _sign_extend(state.xrf[self.rs2], 32) else 0)
 
 
-class SLTU(
-    ScalarComputeReg,
-    RType,
-    exu=EXU.SCALAR,
-    opcode=0b0110011,
-    funct3=0b011,
-    funct7=0b0000000,
-):
+class SLTU(ScalarComputeReg, RType):
     def exec(self, state: ArchState) -> None:
         a = state.xrf[self.rs1] & _MASK32
         b = state.xrf[self.rs2] & _MASK32
         state.write_xrf(self.rd, 1 if a < b else 0)
 
 
-class XOR(
-    ScalarComputeReg,
-    RType,
-    exu=EXU.SCALAR,
-    opcode=0b0110011,
-    funct3=0b100,
-    funct7=0b0000000,
-):
+class XOR(ScalarComputeReg, RType):
     def exec(self, state: ArchState) -> None:
         state.write_xrf(self.rd, state.xrf[self.rs1] ^ state.xrf[self.rs2])
 
 
-class SRL(
-    ScalarComputeReg,
-    RType,
-    exu=EXU.SCALAR,
-    opcode=0b0110011,
-    funct3=0b101,
-    funct7=0b0000000,
-):
+class SRL(ScalarComputeReg, RType):
     def exec(self, state: ArchState) -> None:
         state.write_xrf(self.rd, state.xrf[self.rs1] >> (state.xrf[self.rs2] & 0x1F))
 
 
-class SRA(
-    ScalarComputeReg,
-    RType,
-    exu=EXU.SCALAR,
-    opcode=0b0110011,
-    funct3=0b101,
-    funct7=0b0100000,
-):
+class SRA(ScalarComputeReg, RType):
     def exec(self, state: ArchState) -> None:
         src = _sign_extend(state.xrf[self.rs1] & 0xFFFFFFFF, 32)
         state.write_xrf(self.rd, (src >> (state.xrf[self.rs2] & 0x1F)) & 0xFFFFFFFF)
 
 
-class OR(
-    ScalarComputeReg,
-    RType,
-    exu=EXU.SCALAR,
-    opcode=0b0110011,
-    funct3=0b110,
-    funct7=0b0000000,
-):
+class OR(ScalarComputeReg, RType):
     def exec(self, state: ArchState) -> None:
         state.write_xrf(self.rd, state.xrf[self.rs1] | state.xrf[self.rs2])
 
 
-class AND(
-    ScalarComputeReg,
-    RType,
-    exu=EXU.SCALAR,
-    opcode=0b0110011,
-    funct3=0b111,
-    funct7=0b0000000,
-):
+class AND(ScalarComputeReg, RType):
     def exec(self, state: ArchState) -> None:
         state.write_xrf(self.rd, state.xrf[self.rs1] & state.xrf[self.rs2])
 
 
-class LUI(ScalarImm, UType, exu=EXU.SCALAR, opcode=0b0110111):
+class LUI(ScalarImm, UType):
     def exec(self, state: ArchState) -> None:
         state.write_xrf(self.rd, (self.imm << 12) & _MASK32)
 
 
-class VADD_BF16(
-    TensorComputeBinary, VRType, exu=EXU.VECTOR, opcode=0b1010111, funct7=0b0000000
-):
+class VADD_BF16(TensorComputeBinary, VRType):
     def exec(self, state: ArchState) -> None:
         a = _read_mrf_bf16_pair(state, self.vs1)
         b = _read_mrf_bf16_pair(state, self.vs2)
         _write_mrf_bf16_pair(state, self.vd, state.math.add(a, b))
 
 
-class VREDSUM_BF16(
-    TensorComputeUnary, VRType, exu=EXU.VECTOR, opcode=0b1010111, funct7=0b0000001
-):
+class VREDSUM_BF16(TensorComputeUnary, VRType):
     def exec(self, state: ArchState) -> None:
         # Each of the 16 lanes reduces all 64 rows of the pair (both halves of
         # the tile); every row of both registers receives the 16 results.
@@ -467,116 +385,88 @@ class VREDSUM_BF16(
         _write_mrf_bf16_rows(state, self.vd, state.math.column_sum(x).expand_as(x).contiguous())
 
 
-class VSUB_BF16(
-    TensorComputeBinary, VRType, exu=EXU.VECTOR, opcode=0b1010111, funct7=0b0000010
-):
+class VSUB_BF16(TensorComputeBinary, VRType):
     def exec(self, state: ArchState) -> None:
         a = _read_mrf_bf16_pair(state, self.vs1)
         b = _read_mrf_bf16_pair(state, self.vs2)
         _write_mrf_bf16_pair(state, self.vd, state.math.sub(a, b))
 
 
-class VMUL_BF16(
-    TensorComputeBinary, VRType, exu=EXU.VECTOR, opcode=0b1010111, funct7=0b0000011
-):
+class VMUL_BF16(TensorComputeBinary, VRType):
     def exec(self, state: ArchState) -> None:
         a = _read_mrf_bf16_pair(state, self.vs1)
         b = _read_mrf_bf16_pair(state, self.vs2)
         _write_mrf_bf16_pair(state, self.vd, state.math.mul(a, b))
 
 
-class VMINIMUM_BF16(
-    TensorComputeBinary, VRType, exu=EXU.VECTOR, opcode=0b1010111, funct7=0b0000100
-):
+class VMINIMUM_BF16(TensorComputeBinary, VRType):
     def exec(self, state: ArchState) -> None:
         a = _read_mrf_bf16_pair(state, self.vs1)
         b = _read_mrf_bf16_pair(state, self.vs2)
         _write_mrf_bf16_pair(state, self.vd, state.math.minimum(a, b))
 
 
-class VREDMIN_BF16(
-    TensorComputeUnary, VRType, exu=EXU.VECTOR, opcode=0b1010111, funct7=0b0000101
-):
+class VREDMIN_BF16(TensorComputeUnary, VRType):
     def exec(self, state: ArchState) -> None:
         x = _read_mrf_bf16_rows(state, self.vs1)
         _write_mrf_bf16_rows(state, self.vd, state.math.amin(x, 0).expand_as(x).contiguous())
 
 
-class VMAXIMUM_BF16(
-    TensorComputeBinary, VRType, exu=EXU.VECTOR, opcode=0b1010111, funct7=0b0000110
-):
+class VMAXIMUM_BF16(TensorComputeBinary, VRType):
     def exec(self, state: ArchState) -> None:
         a = _read_mrf_bf16_pair(state, self.vs1)
         b = _read_mrf_bf16_pair(state, self.vs2)
         _write_mrf_bf16_pair(state, self.vd, state.math.maximum(a, b))
 
 
-class VREDMAX_BF16(
-    TensorComputeUnary, VRType, exu=EXU.VECTOR, opcode=0b1010111, funct7=0b0000111
-):
+class VREDMAX_BF16(TensorComputeUnary, VRType):
     def exec(self, state: ArchState) -> None:
         x = _read_mrf_bf16_rows(state, self.vs1)
         _write_mrf_bf16_rows(state, self.vd, state.math.amax(x, 0).expand_as(x).contiguous())
 
 
-class VREDSUM_ROW_BF16(
-    TensorComputeUnary, VRType, exu=EXU.VECTOR, opcode=0b1010111, funct7=0b0100001
-):
+class VREDSUM_ROW_BF16(TensorComputeUnary, VRType):
     def exec(self, state: ArchState) -> None:
         x = _read_mrf_bf16_pair(state, self.vs1)
         _write_mrf_bf16_pair(state, self.vd, state.math.row_sum(x).expand_as(x).contiguous())
 
 
-class VREDMIN_ROW_BF16(
-    TensorComputeUnary, VRType, exu=EXU.VECTOR, opcode=0b1010111, funct7=0b0100100
-):
+class VREDMIN_ROW_BF16(TensorComputeUnary, VRType):
     def exec(self, state: ArchState) -> None:
         x = _read_mrf_bf16_pair(state, self.vs1)
         _write_mrf_bf16_pair(state, self.vd, state.math.amin(x, 1).expand_as(x).contiguous())
 
 
-class VREDMAX_ROW_BF16(
-    TensorComputeUnary, VRType, exu=EXU.VECTOR, opcode=0b1010111, funct7=0b0100110
-):
+class VREDMAX_ROW_BF16(TensorComputeUnary, VRType):
     def exec(self, state: ArchState) -> None:
         x = _read_mrf_bf16_pair(state, self.vs1)
         _write_mrf_bf16_pair(state, self.vd, state.math.amax(x, 1).expand_as(x).contiguous())
 
 
-class VMOV(
-    TensorComputeUnary, VRType, exu=EXU.VECTOR, opcode=0b1010111, funct7=0b1000000
-):
+class VMOV(TensorComputeUnary, VRType):
     def exec(self, state: ArchState) -> None:
         _write_mrf_bf16_pair(state, self.vd, _read_mrf_bf16_pair(state, self.vs1))
 
 
-class VRECIP_BF16(
-    TensorComputeUnary, VRType, exu=EXU.VECTOR, opcode=0b1010111, funct7=0b1000001
-):
+class VRECIP_BF16(TensorComputeUnary, VRType):
     def exec(self, state: ArchState) -> None:
         x = _read_mrf_bf16_pair(state, self.vs1)
         _write_mrf_bf16_pair(state, self.vd, state.math.unary("rcp", x))
 
 
-class VEXP_BF16(
-    TensorComputeUnary, VRType, exu=EXU.VECTOR, opcode=0b1010111, funct7=0b1000010
-):
+class VEXP_BF16(TensorComputeUnary, VRType):
     def exec(self, state: ArchState) -> None:
         x = _read_mrf_bf16_pair(state, self.vs1)
         _write_mrf_bf16_pair(state, self.vd, state.math.unary("exp", x))
 
 
-class VEXP2_BF16(
-    TensorComputeUnary, VRType, exu=EXU.VECTOR, opcode=0b1010111, funct7=0b1000011
-):
+class VEXP2_BF16(TensorComputeUnary, VRType):
     def exec(self, state: ArchState) -> None:
         x = _read_mrf_bf16_pair(state, self.vs1)
         _write_mrf_bf16_pair(state, self.vd, state.math.unary("exp2", x))
 
 
-class VPACK_BF16_FP8(
-    TensorComputeMixed, VRType, exu=EXU.VECTOR, opcode=0b1010111, funct7=0b1000100
-):
+class VPACK_BF16_FP8(TensorComputeMixed, VRType):
     def exec(self, state: ArchState) -> None:
         # Converts the pair in register order (FP8 row k holds BF16 rows 2k and
         # 2k + 1), dividing by the ERF scale.
@@ -584,9 +474,7 @@ class VPACK_BF16_FP8(
         state.write_mrf_fp8(self.vd, state.math.to_fp8(x.flatten(), state.read_erf(self.es1)))
 
 
-class VUNPACK_FP8_BF16(
-    TensorComputeMixed, VRType, exu=EXU.VECTOR, opcode=0b1010111, funct7=0b1000101
-):
+class VUNPACK_FP8_BF16(TensorComputeMixed, VRType):
     def exec(self, state: ArchState) -> None:
         # Inverse layout of vpack, multiplying by the ERF scale.
         x = state.read_mrf_fp8(self.vs2).flatten()
@@ -594,85 +482,69 @@ class VUNPACK_FP8_BF16(
         _write_mrf_bf16_rows(state, self.vd, y.reshape(2 * state.cfg.mrf_depth, -1))
 
 
-class VRELU_BF16(
-    TensorComputeUnary, VRType, exu=EXU.VECTOR, opcode=0b1010111, funct7=0b1001000
-):
+class VRELU_BF16(TensorComputeUnary, VRType):
     def exec(self, state: ArchState) -> None:
         x = _read_mrf_bf16_pair(state, self.vs1)
         _write_mrf_bf16_pair(state, self.vd, state.math.unary("relu", x))
 
 
-class VSIN_BF16(
-    TensorComputeUnary, VRType, exu=EXU.VECTOR, opcode=0b1010111, funct7=0b1001001
-):
+class VSIN_BF16(TensorComputeUnary, VRType):
     def exec(self, state: ArchState) -> None:
         x = _read_mrf_bf16_pair(state, self.vs1)
         _write_mrf_bf16_pair(state, self.vd, state.math.unary("sin", x))
 
 
-class VCOS_BF16(
-    TensorComputeUnary, VRType, exu=EXU.VECTOR, opcode=0b1010111, funct7=0b1001010
-):
+class VCOS_BF16(TensorComputeUnary, VRType):
     def exec(self, state: ArchState) -> None:
         x = _read_mrf_bf16_pair(state, self.vs1)
         _write_mrf_bf16_pair(state, self.vd, state.math.unary("cos", x))
 
 
-class VTANH_BF16(
-    TensorComputeUnary, VRType, exu=EXU.VECTOR, opcode=0b1010111, funct7=0b1001011
-):
+class VTANH_BF16(TensorComputeUnary, VRType):
     def exec(self, state: ArchState) -> None:
         x = _read_mrf_bf16_pair(state, self.vs1)
         _write_mrf_bf16_pair(state, self.vd, state.math.unary("tanh", x))
 
 
-class VLOG2_BF16(
-    TensorComputeUnary, VRType, exu=EXU.VECTOR, opcode=0b1010111, funct7=0b1001100
-):
+class VLOG2_BF16(TensorComputeUnary, VRType):
     def exec(self, state: ArchState) -> None:
         x = _read_mrf_bf16_pair(state, self.vs1)
         _write_mrf_bf16_pair(state, self.vd, state.math.unary("log2", x))
 
 
-class VSQRT_BF16(
-    TensorComputeUnary, VRType, exu=EXU.VECTOR, opcode=0b1010111, funct7=0b1001101
-):
+class VSQRT_BF16(TensorComputeUnary, VRType):
     def exec(self, state: ArchState) -> None:
         x = _read_mrf_bf16_pair(state, self.vs1)
         _write_mrf_bf16_pair(state, self.vd, state.math.unary("sqrt", x))
 
 
-class VSQUARE_BF16(
-    TensorComputeUnary, VRType, exu=EXU.VECTOR, opcode=0b1010111, funct7=0b1000110  # Instructions.scala 57/46
-):
+class VSQUARE_BF16(TensorComputeUnary, VRType):
     def exec(self, state: ArchState) -> None:
         x = _read_mrf_bf16_pair(state, self.vs1)
         _write_mrf_bf16_pair(state, self.vd, state.math.unary("square", x))
 
 
-class VCUBE_BF16(
-    TensorComputeUnary, VRType, exu=EXU.VECTOR, opcode=0b1010111, funct7=0b1000111  # Instructions.scala 57/47
-):
+class VCUBE_BF16(TensorComputeUnary, VRType):
     def exec(self, state: ArchState) -> None:
         x = _read_mrf_bf16_pair(state, self.vs1)
         _write_mrf_bf16_pair(state, self.vd, state.math.unary("cube", x))
 
 
-class VLI_ALL(DirectImm, VIType, exu=EXU.VECTOR, opcode=0b1011111, funct3=0b000):
+class VLI_ALL(DirectImm, VIType):
     def exec(self, state: ArchState) -> None:
         # The immediate is raw BF16 bits; vli.all and vli.row write the pair.
         bits = torch.full(_bf16_pair_shape(state), self.imm & 0xFFFF, dtype=torch.uint16)
         _write_mrf_bf16_pair(state, self.vd, bits.view(torch.bfloat16))
 
 
-class VLI_ROW(DirectImm, VIType, exu=EXU.VECTOR, opcode=0b1011111, funct3=0b001):
+class VLI_ROW(DirectImm, VIType):
     def exec(self, state: ArchState) -> None:
         bits = torch.zeros(_bf16_pair_shape(state), dtype=torch.uint16)
         bits[0, :] = self.imm & 0xFFFF
         _write_mrf_bf16_pair(state, self.vd, bits.view(torch.bfloat16))
 
 
-class VLI_COL(DirectImm, VIType, exu=EXU.VECTOR, opcode=0b1011111, funct3=0b010):
+class VLI_COL(DirectImm, VIType):
     def exec(self, state: ArchState) -> None:
         # vli.col and vli.one write m[vd] only.
         bits = torch.zeros(_bf16_register_shape(state), dtype=torch.uint16)
@@ -680,42 +552,42 @@ class VLI_COL(DirectImm, VIType, exu=EXU.VECTOR, opcode=0b1011111, funct3=0b010)
         state.write_mrf_bf16(self.vd, bits.view(torch.bfloat16))
 
 
-class VLI_ONE(DirectImm, VIType, exu=EXU.VECTOR, opcode=0b1011111, funct3=0b011):
+class VLI_ONE(DirectImm, VIType):
     def exec(self, state: ArchState) -> None:
         bits = torch.zeros(_bf16_register_shape(state), dtype=torch.uint16)
         bits[0, 0] = self.imm & 0xFFFF
         state.write_mrf_bf16(self.vd, bits.view(torch.bfloat16))
 
 
-class BEQ(ScalarBranchImm, SBType, exu=EXU.SCALAR, opcode=0b1100011, funct3=0b000):
+class BEQ(ScalarBranchImm, SBType):
     def exec(self, state: ArchState) -> None:
         imm = _sign_extend(self.imm & 0x1FFF, 13)
         if state.xrf[self.rs1] == state.xrf[self.rs2]:
             state.set_npc(state.execute_pc + (imm >> 1))
 
 
-class BNE(ScalarBranchImm, SBType, exu=EXU.SCALAR, opcode=0b1100011, funct3=0b001):
+class BNE(ScalarBranchImm, SBType):
     def exec(self, state: ArchState) -> None:
         imm = _sign_extend(self.imm & 0x1FFF, 13)
         if state.xrf[self.rs1] != state.xrf[self.rs2]:
             state.set_npc(state.execute_pc + (imm >> 1))
 
 
-class BLT(ScalarBranchImm, SBType, exu=EXU.SCALAR, opcode=0b1100011, funct3=0b100):
+class BLT(ScalarBranchImm, SBType):
     def exec(self, state: ArchState) -> None:
         imm = _sign_extend(self.imm & 0x1FFF, 13)
         if _sign_extend(state.xrf[self.rs1], 32) < _sign_extend(state.xrf[self.rs2], 32):
             state.set_npc(state.execute_pc + (imm >> 1))
 
 
-class BGE(ScalarBranchImm, SBType, exu=EXU.SCALAR, opcode=0b1100011, funct3=0b101):
+class BGE(ScalarBranchImm, SBType):
     def exec(self, state: ArchState) -> None:
         imm = _sign_extend(self.imm & 0x1FFF, 13)
         if _sign_extend(state.xrf[self.rs1], 32) >= _sign_extend(state.xrf[self.rs2], 32):
             state.set_npc(state.execute_pc + (imm >> 1))
 
 
-class BLTU(ScalarBranchImm, SBType, exu=EXU.SCALAR, opcode=0b1100011, funct3=0b110):
+class BLTU(ScalarBranchImm, SBType):
     def exec(self, state: ArchState) -> None:
         imm = _sign_extend(self.imm & 0x1FFF, 13)
         a = state.xrf[self.rs1] & _MASK32
@@ -724,7 +596,7 @@ class BLTU(ScalarBranchImm, SBType, exu=EXU.SCALAR, opcode=0b1100011, funct3=0b1
             state.set_npc(state.execute_pc + (imm >> 1))
 
 
-class BGEU(ScalarBranchImm, SBType, exu=EXU.SCALAR, opcode=0b1100011, funct3=0b111):
+class BGEU(ScalarBranchImm, SBType):
     def exec(self, state: ArchState) -> None:
         imm = _sign_extend(self.imm & 0x1FFF, 13)
         a = state.xrf[self.rs1] & _MASK32
@@ -733,13 +605,7 @@ class BGEU(ScalarBranchImm, SBType, exu=EXU.SCALAR, opcode=0b1100011, funct3=0b1
             state.set_npc(state.execute_pc + (imm >> 1))
 
 
-class JALR(
-    JalrPattern,
-    IType[ScalarReg, Imm12],
-    exu=EXU.SCALAR,
-    opcode=0b1100111,
-    funct3=0b000,
-):
+class JALR(JalrPattern, IType[ScalarReg, Imm12]):
     def exec(self, state: ArchState) -> None:
         imm = _sign_extend(self.imm, 12)
         target = state.read_xrf(self.rs1) + imm
@@ -747,33 +613,31 @@ class JALR(
         state.set_npc(target)
 
 
-class DELAY(UnaryImm, IType, exu=EXU.SCALAR, opcode=0b1100111, funct3=0b001):
+class DELAY(UnaryImm, IType):
     def exec(self, state: ArchState) -> None:
         pass
 
 
-class VTRPOSE_XLU(
-    TensorComputeUnary, VRType, exu=EXU.XLU, opcode=0b1101011, funct7=0b0000000
-):
+class VTRPOSE_XLU(TensorComputeUnary, VRType):
     def exec(self, state: ArchState) -> None:
         state.write_mrf_u8(self.vd, state.read_mrf_u8(self.vs1).t().contiguous())
 
 
-class JAL(ScalarImm, UJType, exu=EXU.SCALAR, opcode=0b1101111):
+class JAL(ScalarImm, UJType):
     def exec(self, state: ArchState) -> None:
         imm = _sign_extend(self.imm, 21)
         state.write_xrf(self.rd, state.execute_pc + 1)
         state.set_npc(state.execute_pc + (imm >> 1))
 
 
-class CSRRW(CSRReg, CSRType, exu=EXU.SCALAR, opcode=0b1110011, funct3=0b001):
+class CSRRW(CSRReg, CSRType):
     def exec(self, state: ArchState) -> None:
         old = state.read_csrf(self.imm)
         state.write_csrf(self.imm, state.read_xrf(self.rs1))
         state.write_xrf(self.rd, old)
 
 
-class CSRRS(CSRReg, CSRType, exu=EXU.SCALAR, opcode=0b1110011, funct3=0b010):
+class CSRRS(CSRReg, CSRType):
     def exec(self, state: ArchState) -> None:
         old = state.read_csrf(self.imm)
         if self.writes:
@@ -781,7 +645,7 @@ class CSRRS(CSRReg, CSRType, exu=EXU.SCALAR, opcode=0b1110011, funct3=0b010):
         state.write_xrf(self.rd, old)
 
 
-class CSRRC(CSRReg, CSRType, exu=EXU.SCALAR, opcode=0b1110011, funct3=0b011):
+class CSRRC(CSRReg, CSRType):
     def exec(self, state: ArchState) -> None:
         old = state.read_csrf(self.imm)
         if self.writes:
@@ -789,14 +653,14 @@ class CSRRC(CSRReg, CSRType, exu=EXU.SCALAR, opcode=0b1110011, funct3=0b011):
         state.write_xrf(self.rd, old)
 
 
-class CSRRWI(CSRImm, CSRType, exu=EXU.SCALAR, opcode=0b1110011, funct3=0b101):
+class CSRRWI(CSRImm, CSRType):
     def exec(self, state: ArchState) -> None:
         old = state.read_csrf(self.imm)
         state.write_csrf(self.imm, self.rs1 & 0b11111)
         state.write_xrf(self.rd, old)
 
 
-class CSRRSI(CSRImm, CSRType, exu=EXU.SCALAR, opcode=0b1110011, funct3=0b110):
+class CSRRSI(CSRImm, CSRType):
     def exec(self, state: ArchState) -> None:
         old = state.read_csrf(self.imm)
         if self.writes:
@@ -804,7 +668,7 @@ class CSRRSI(CSRImm, CSRType, exu=EXU.SCALAR, opcode=0b1110011, funct3=0b110):
         state.write_xrf(self.rd, old)
 
 
-class CSRRCI(CSRImm, CSRType, exu=EXU.SCALAR, opcode=0b1110011, funct3=0b111):
+class CSRRCI(CSRImm, CSRType):
     def exec(self, state: ArchState) -> None:
         old = state.read_csrf(self.imm)
         if self.writes:
@@ -812,99 +676,53 @@ class CSRRCI(CSRImm, CSRType, exu=EXU.SCALAR, opcode=0b1110011, funct3=0b111):
         state.write_xrf(self.rd, old)
 
 
-class ECALL(Nullary, IType, exu=EXU.SCALAR, opcode=0b1110011, funct3=0b000):
-    imm: Imm12 = Imm12(0)
-
+class ECALL(Nullary, IType):
     def exec(self, state: ArchState) -> None:
         state.halted = True
         state.halt_reason = "ecall"
 
 
-class EBREAK(Nullary, IType, exu=EXU.SCALAR, opcode=0b1110011, funct3=0b000):
-    imm: Imm12 = Imm12(1)
-
+class EBREAK(Nullary, IType):
     def exec(self, state: ArchState) -> None:
         state.halted = True
         state.halt_reason = "ebreak"
 
 
-class VMATPUSH_WEIGHT_MXU0(
-    MXUWeightPush,
-    VRType[WeightBuffer, MatrixReg],
-    exu=EXU.MATRIX_SYSTOLIC,
-    opcode=0b1110111,
-    funct7=0b0000000,
-):
+class VMATPUSH_WEIGHT_MXU0(MXUWeightPush, VRType[WeightBuffer, MatrixReg]):
     def exec(self, state: ArchState) -> None:
         state.write_wb_u8("mxu0", self.vd, state.mrf[self.vs1].view(torch.uint8))
 
 
-class VMATPUSH_WEIGHT_MXU1(
-    MXUWeightPush,
-    VRType[WeightBuffer, MatrixReg],
-    exu=EXU.MATRIX_INNER,
-    opcode=0b1110111,
-    funct7=0b0000001,
-):
+class VMATPUSH_WEIGHT_MXU1(MXUWeightPush, VRType[WeightBuffer, MatrixReg]):
     def exec(self, state: ArchState) -> None:
         state.write_wb_u8("mxu1", self.vd, state.mrf[self.vs1].view(torch.uint8))
 
 
-class VMATPUSH_ACC_FP8_MXU0(
-    MXUAccumulatorPush,
-    VRType[Accumulator, MatrixReg],
-    exu=EXU.MATRIX_SYSTOLIC,
-    opcode=0b1110111,
-    funct7=0b0000010,
-):
+class VMATPUSH_ACC_FP8_MXU0(MXUAccumulatorPush, VRType[Accumulator, MatrixReg]):
     def exec(self, state: ArchState) -> None:
         # FP8Unpack at unit scale (2**0).
         x = state.read_mrf_fp8(self.vs1)
         state.write_acc_bf16("mxu0", self.vd, state.math.from_fp8(x, 127))
 
 
-class VMATPUSH_ACC_FP8_MXU1(
-    MXUAccumulatorPush,
-    VRType[Accumulator, MatrixReg],
-    exu=EXU.MATRIX_INNER,
-    opcode=0b1110111,
-    funct7=0b0000011,
-):
+class VMATPUSH_ACC_FP8_MXU1(MXUAccumulatorPush, VRType[Accumulator, MatrixReg]):
     def exec(self, state: ArchState) -> None:
         # FP8Unpack at unit scale (2**0).
         x = state.read_mrf_fp8(self.vs1)
         state.write_acc_bf16("mxu1", self.vd, state.math.from_fp8(x, 127))
 
 
-class VMATPUSH_ACC_BF16_MXU0(
-    MXUAccumulatorPush,
-    VRType[Accumulator, MatrixReg],
-    exu=EXU.MATRIX_SYSTOLIC,
-    opcode=0b1110111,
-    funct7=0b0000100,
-):
+class VMATPUSH_ACC_BF16_MXU0(MXUAccumulatorPush, VRType[Accumulator, MatrixReg]):
     def exec(self, state: ArchState) -> None:
         state.write_acc_bf16("mxu0", self.vd, state.read_mrf_bf16_tile(self.vs1))
 
 
-class VMATPUSH_ACC_BF16_MXU1(
-    MXUAccumulatorPush,
-    VRType[Accumulator, MatrixReg],
-    exu=EXU.MATRIX_INNER,
-    opcode=0b1110111,
-    funct7=0b0000101,
-):
+class VMATPUSH_ACC_BF16_MXU1(MXUAccumulatorPush, VRType[Accumulator, MatrixReg]):
     def exec(self, state: ArchState) -> None:
         state.write_acc_bf16("mxu1", self.vd, state.read_mrf_bf16_tile(self.vs1))
 
 
-class VMATPOP_FP8_ACC_MXU0(
-    MXUAccumulatorPopE1,
-    VRType[MatrixReg, Accumulator],
-    exu=EXU.MATRIX_SYSTOLIC,
-    opcode=0b1110111,
-    funct7=0b0000110,
-):
+class VMATPOP_FP8_ACC_MXU0(MXUAccumulatorPopE1, VRType[MatrixReg, Accumulator]):
     def exec(self, state: ArchState) -> None:
         # Multiplies by the ERF scale, unlike vpack.
         acc = state.read_acc_bf16("mxu0", self.vs2)
@@ -912,13 +730,7 @@ class VMATPOP_FP8_ACC_MXU0(
         state.write_mrf_u8(self.vd, fp8.view(torch.uint8))
 
 
-class VMATPOP_FP8_ACC_MXU1(
-    MXUAccumulatorPopE1,
-    VRType[MatrixReg, Accumulator],
-    exu=EXU.MATRIX_INNER,
-    opcode=0b1110111,
-    funct7=0b0000111,
-):
+class VMATPOP_FP8_ACC_MXU1(MXUAccumulatorPopE1, VRType[MatrixReg, Accumulator]):
     def exec(self, state: ArchState) -> None:
         # Multiplies by the ERF scale, unlike vpack.
         acc = state.read_acc_bf16("mxu1", self.vs2)
@@ -926,68 +738,32 @@ class VMATPOP_FP8_ACC_MXU1(
         state.write_mrf_u8(self.vd, fp8.view(torch.uint8))
 
 
-class VMATPOP_BF16_ACC_MXU0(
-    MXUAccumulatorPop,
-    VRType[MatrixReg, Accumulator],
-    exu=EXU.MATRIX_SYSTOLIC,
-    opcode=0b1110111,
-    funct7=0b0001000,
-):
+class VMATPOP_BF16_ACC_MXU0(MXUAccumulatorPop, VRType[MatrixReg, Accumulator]):
     def exec(self, state: ArchState) -> None:
         state.write_mrf_bf16_tile(self.vd, state.read_acc_bf16("mxu0", self.vs2))
 
 
-class VMATPOP_BF16_ACC_MXU1(
-    MXUAccumulatorPop,
-    VRType[MatrixReg, Accumulator],
-    exu=EXU.MATRIX_INNER,
-    opcode=0b1110111,
-    funct7=0b0001001,
-):
+class VMATPOP_BF16_ACC_MXU1(MXUAccumulatorPop, VRType[MatrixReg, Accumulator]):
     def exec(self, state: ArchState) -> None:
         state.write_mrf_bf16_tile(self.vd, state.read_acc_bf16("mxu1", self.vs2))
 
 
-class VMATMUL_MXU0(
-    MXUMatMul,
-    VRType[Accumulator, WeightBuffer],
-    exu=EXU.MATRIX_SYSTOLIC,
-    opcode=0b1110111,
-    funct7=0b0001010,
-):
+class VMATMUL_MXU0(MXUMatMul, VRType[Accumulator, WeightBuffer]):
     def exec(self, state: ArchState) -> None:
         _vmatmul(state, "mxu0", self.vd, self.vs1, self.vs2, accumulate=False)
 
 
-class VMATMUL_MXU1(
-    MXUMatMul,
-    VRType[Accumulator, WeightBuffer],
-    exu=EXU.MATRIX_INNER,
-    opcode=0b1110111,
-    funct7=0b0001011,
-):
+class VMATMUL_MXU1(MXUMatMul, VRType[Accumulator, WeightBuffer]):
     def exec(self, state: ArchState) -> None:
         _vmatmul(state, "mxu1", self.vd, self.vs1, self.vs2, accumulate=False)
 
 
-class VMATMUL_ACC_MXU0(
-    MXUMatMul,
-    VRType[Accumulator, WeightBuffer],
-    exu=EXU.MATRIX_SYSTOLIC,
-    opcode=0b1110111,
-    funct7=0b0001100,
-):
+class VMATMUL_ACC_MXU0(MXUMatMul, VRType[Accumulator, WeightBuffer]):
     def exec(self, state: ArchState) -> None:
         _vmatmul(state, "mxu0", self.vd, self.vs1, self.vs2, accumulate=True)
 
 
-class VMATMUL_ACC_MXU1(
-    MXUMatMul,
-    VRType[Accumulator, WeightBuffer],
-    exu=EXU.MATRIX_INNER,
-    opcode=0b1110111,
-    funct7=0b0001101,
-):
+class VMATMUL_ACC_MXU1(MXUMatMul, VRType[Accumulator, WeightBuffer]):
     def exec(self, state: ArchState) -> None:
         _vmatmul(state, "mxu1", self.vd, self.vs1, self.vs2, accumulate=True)
 
@@ -1024,26 +800,14 @@ def _nv_matmul(state: ArchState, vd: int, vs1: int, ws: int, accumulate: bool) -
     state.acc_nv[vd] = nvfp4.matmul(a, sa, w, sw, c)
 
 
-class VMATPUSH_WEIGHT_NV(
-    MXUWeightPush,
-    VRType[WeightBuffer, MatrixReg],
-    exu=EXU.MATRIX_NVFP4,
-    opcode=0b1110111,
-    funct7=0b0001110,
-):
+class VMATPUSH_WEIGHT_NV(MXUWeightPush, VRType[WeightBuffer, MatrixReg]):
     """``vmatpush.weight.nv w(vd), m(vs1)``: weight slot = m[vs1] and its scales (row j = output column j)."""
     def exec(self, state: ArchState) -> None:
         state.wb_nv[self.vd & 1][:] = state.mrf[self.vs1].view(torch.uint8)
         state.wb_nv_scale[self.vd & 1][:] = state.mrf_scale[self.vs1]
 
 
-class VMATPUSH_ACC_BF16_NV(
-    MXUAccumulatorPush,
-    VRType[Accumulator, MatrixReg],
-    exu=EXU.MATRIX_NVFP4,
-    opcode=0b1110111,
-    funct7=0b0001111,
-):
+class VMATPUSH_ACC_BF16_NV(MXUAccumulatorPush, VRType[Accumulator, MatrixReg]):
     """``vmatpush.acc.bf16.nv acc(vd), m(vs1)``: acc = {m[vs1], m[vs1+1]} (BF16, exact in FP32)."""
     def exec(self, state: ArchState) -> None:
         halves = (_nv_mreg_words(state, self.vs1), _nv_mreg_words(state, self.vs1 + 1))
@@ -1055,26 +819,14 @@ class VMATPUSH_ACC_BF16_NV(
         state.acc_nv[self.vd & 1] = [[bf16(r, j) << 16 for j in range(32)] for r in range(len(halves[0]))]
 
 
-class VMATPUSH_ACC_FP32_NV(
-    MXUAccumulatorPush,
-    VRType[Accumulator, MatrixReg],
-    exu=EXU.MATRIX_NVFP4,
-    opcode=0b1110111,
-    funct7=0b0010000,
-):
+class VMATPUSH_ACC_FP32_NV(MXUAccumulatorPush, VRType[Accumulator, MatrixReg]):
     """``vmatpush.acc.fp32.nv acc(vd), m(vs1)``: acc = m[vs1..vs1+3], register q holding columns 8q..8q+7."""
     def exec(self, state: ArchState) -> None:
         regs = [_nv_mreg_words(state, self.vs1 + q) for q in range(4)]
         state.acc_nv[self.vd & 1] = [[regs[j // 8][r][j % 8] for j in range(32)] for r in range(len(regs[0]))]
 
 
-class VMATPOP_BF16_ACC_NV(
-    MXUAccumulatorPop,
-    VRType[MatrixReg, Accumulator],
-    exu=EXU.MATRIX_NVFP4,
-    opcode=0b1110111,
-    funct7=0b0010001,
-):
+class VMATPOP_BF16_ACC_NV(MXUAccumulatorPop, VRType[MatrixReg, Accumulator]):
     """``vmatpop.bf16.acc.nv m(vd), acc(vs2)``: {m[vd], m[vd+1]} = BF16(acc), round to nearest even."""
     def exec(self, state: ArchState) -> None:
         from npu_model.configs import nvfp4
@@ -1086,13 +838,7 @@ class VMATPOP_BF16_ACC_NV(
             _nv_write_mreg_words(state, self.vd + half, rows)
 
 
-class VMATPOP_FP32_ACC_NV(
-    MXUAccumulatorPop,
-    VRType[MatrixReg, Accumulator],
-    exu=EXU.MATRIX_NVFP4,
-    opcode=0b1110111,
-    funct7=0b0010010,
-):
+class VMATPOP_FP32_ACC_NV(MXUAccumulatorPop, VRType[MatrixReg, Accumulator]):
     """``vmatpop.fp32.acc.nv m(vd), acc(vs2)``: m[vd..vd+3] = acc, register q holding columns 8q..8q+7."""
     def exec(self, state: ArchState) -> None:
         acc = state.acc_nv[self.vs2 & 1]
@@ -1100,45 +846,33 @@ class VMATPOP_FP32_ACC_NV(
             _nv_write_mreg_words(state, self.vd + q, [row[8 * q:8 * q + 8] for row in acc])
 
 
-class VMATMUL_NV(
-    MXUMatMul,
-    VRType[Accumulator, WeightBuffer],
-    exu=EXU.MATRIX_NVFP4,
-    opcode=0b1110111,
-    funct7=0b0010011,
-):
+class VMATMUL_NV(MXUMatMul, VRType[Accumulator, WeightBuffer]):
     """``vmatmul.nv acc(vd), m(vs1), w(vs2)``: acc = A @ W^T over 64 NVFP4 elements (FP32)."""
     def exec(self, state: ArchState) -> None:
         _nv_matmul(state, self.vd & 1, self.vs1, self.vs2 & 1, accumulate=False)
 
 
-class VMATMUL_ACC_NV(
-    MXUMatMul,
-    VRType[Accumulator, WeightBuffer],
-    exu=EXU.MATRIX_NVFP4,
-    opcode=0b1110111,
-    funct7=0b0010100,
-):
+class VMATMUL_ACC_NV(MXUMatMul, VRType[Accumulator, WeightBuffer]):
     """``vmatmul.acc.nv acc(vd), m(vs1), w(vs2)``: acc += A @ W^T (one NVIDIA m16n8k64 step per element)."""
     def exec(self, state: ArchState) -> None:
         _nv_matmul(state, self.vd & 1, self.vs1, self.vs2 & 1, accumulate=True)
 
 
-class VLOAD_SCALE(TensorBaseOffset, VLSType, exu=EXU.LSU, opcode=0b0000111, funct2=0b10):
+class VLOAD_SCALE(TensorBaseOffset, VLSType):
     """``vload.scale m(vd), imm(x(rs1))``: m[vd]'s scale sidecar = 128 B of VMEM (128 B aligned)."""
     def exec(self, state: ArchState) -> None:
         address = _vmem_line_address(state, self.rs1, self.imm)
         state.mrf_scale[self.vd][:] = state.read_vmem(address, 0, state.mrf_scale[self.vd].numel())
 
 
-class VSTORE_SCALE(TensorBaseOffset, VLSType, exu=EXU.LSU, opcode=0b0000111, funct2=0b11):
+class VSTORE_SCALE(TensorBaseOffset, VLSType):
     """``vstore.scale m(vd), imm(x(rs1))``: 128 B of VMEM = m[vd]'s scale sidecar."""
     def exec(self, state: ArchState) -> None:
         address = _vmem_line_address(state, self.rs1, self.imm)
         state.write_vmem(address, 0, state.mrf_scale[self.vd].clone())
 
 
-class DMA_LOAD(DMATransfer, RType, exu=EXU.DMA, opcode=0b1111011, funct3=None, funct7=0b0000000):
+class DMA_LOAD(DMATransfer, RType):
     """``dma.load x(rd), x(rs1), x(rs2), ch<N>``: DRAM ``{base, x[rs1]}`` -> VMEM word ``x[rd]``, ``x[rs2]`` bytes."""
 
     def exec(self, state: ArchState) -> None:
@@ -1147,7 +881,7 @@ class DMA_LOAD(DMATransfer, RType, exu=EXU.DMA, opcode=0b1111011, funct3=None, f
         state.write_vmem(state.dma_vmem_byte_address(state.read_xrf(self.rd)), 0, data)
 
 
-class DMA_STORE(DMATransfer, RType, exu=EXU.DMA, opcode=0b1111011, funct3=None, funct7=0b0000001):
+class DMA_STORE(DMATransfer, RType):
     """``dma.store x(rd), x(rs1), x(rs2), ch<N>``: VMEM word ``x[rs1]`` -> DRAM ``{base, x[rd]}``, ``x[rs2]`` bytes."""
 
     def exec(self, state: ArchState) -> None:
@@ -1156,14 +890,14 @@ class DMA_STORE(DMATransfer, RType, exu=EXU.DMA, opcode=0b1111011, funct3=None, 
         state.write_dram(state.dma_dram_address(state.read_xrf(self.rd)), data)
 
 
-class DMA_CONFIG(DMAConfig, RType, exu=EXU.DMA, opcode=0b1111111, funct3=None, funct7=0b0000000):
+class DMA_CONFIG(DMAConfig, RType):
     """``dma.config x(rs1), ch<N>``: ``dma.base = x[rs1]``."""
 
     def exec(self, state: ArchState) -> None:
         state.base = state.read_xrf(self.rs1)
 
 
-class DMA_WAIT(DMAWait, RType, exu=EXU.DMA, opcode=0b1111111, funct3=None, funct7=0b0000001):
+class DMA_WAIT(DMAWait, RType):
     """``dma.wait ch<N>``: frontend fence until channel ``N`` is idle."""
 
     def exec(self, state: ArchState) -> None:

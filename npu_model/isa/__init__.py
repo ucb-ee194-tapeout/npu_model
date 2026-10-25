@@ -1,12 +1,19 @@
-from typing import TYPE_CHECKING, TypeIs, Any, cast
+from typing import TYPE_CHECKING, TypeIs, Any, ClassVar, cast
 from abc import ABC, abstractmethod
 from npu_model.isa_types import *
+from npu_model.isa.table import load
 if TYPE_CHECKING:
     from npu_model.hardware.arch_state import ArchState
 
-ISA_VERSION = (1, 0)
-"""Atlas ISA (major, minor): bits 31:24 and 23:16 of CSR 0xCC0 (ScalarISA.ISA_MAJOR / ISA_MINOR in
-the RTL). A change of instruction encoding or semantics increments it."""
+TABLE = load()
+"""The ISA table (atlas_isa.toml). Each instruction class below takes its encoding from it."""
+
+ISA_VERSION = TABLE.version
+"""Atlas ISA (major, minor): bits 31:24 and 23:16 of CSR 0xCC0 (Instructions.ISA_MAJOR / ISA_MINOR in
+the RTL), the highest `ver` of the table. A change of instruction encoding or semantics increments it."""
+
+EXU_OF_UNIT = {"scalar": EXU.SCALAR, "lsu": EXU.LSU, "vpu": EXU.VECTOR, "xlu": EXU.XLU,
+               "mxu0": EXU.MATRIX_SYSTOLIC, "mxu1": EXU.MATRIX_INNER, "nv": EXU.MATRIX_NVFP4, "dma": EXU.DMA}
 
 # Utility functions for assembly
 def _mask(val: int, bits: int):
@@ -30,6 +37,10 @@ class Instruction(ABC):
     mnemonic: str  = NotImplemented
     opcode: Opcode = NotImplemented
     exu: EXU       = NotImplemented
+    fmt: ClassVar[str]
+    """The instruction type's format in the ISA table."""
+    registry: ClassVar[dict[str, type["Instruction"]]]
+    """The instruction type's dictionary in IsaSpec."""
 
     def __str__(self):
         values = [str(v) for v in self.__dict__.values()]
@@ -45,21 +56,25 @@ class Instruction(ABC):
     ) -> None:
         raise NotImplementedError()
 
-    def __init_subclass__(cls, exu: EXU | None = None, mnemonic: str | None = None, opcode: OpcodeL | None = None, instr: bool = True) -> None:
-        if exu:
-            cls.exu = exu
-        
-        if opcode:
-            cls.opcode = Opcode(opcode)
-
-        if mnemonic:
-            cls.mnemonic = mnemonic
-        
-        if instr:
-            IsaSpec.operations[cls.mnemonic] = cls
-        return super().__init_subclass__()
+    def __init_subclass__(cls, instr: bool = True) -> None:
+        """An instruction class takes its mnemonic from its name (VREDSUM_ROW_BF16 gives
+        vredsum.row.bf16), and its opcode, selector fields and unit from the mnemonic's table entry."""
+        super().__init_subclass__()
+        if not instr:
+            return
+        cls.mnemonic = cls.__name__.lower().replace("_", ".")
+        entry = TABLE.entries[cls.mnemonic]
+        assert entry.format == cls.fmt, f"{cls.mnemonic}: the table has format {entry.format}, the class {cls.fmt}"
+        cls.opcode = Opcode(entry.opcode)
+        cls.exu = EXU_OF_UNIT[entry.unit]
+        for field, value in entry.select.items():
+            setattr(cls, field, value)
+        IsaSpec.operations[cls.mnemonic] = cls
+        cls.registry[cls.mnemonic] = cls
 
 class RType(Instruction, instr=False):
+    fmt = "R"
+    registry = IsaSpec.R
     funct3: Funct3 = NotImplemented
     funct7: Funct7 = NotImplemented
     rd: ScalarReg  = ScalarReg(0)
@@ -84,15 +99,9 @@ class RType(Instruction, instr=False):
             | opcode_b
         )
 
-    def __init_subclass__(cls, exu: EXU, opcode: OpcodeL, funct3: Funct3L | None, funct7: Funct7L, mnemonic: str | None = None) -> None:
-        mnemonic = mnemonic if mnemonic != None else cls.__name__.lower().replace("_",".")
-        if funct3 is not None:  # None: funct3 is an operand (the DMA channel), see isa_patterns
-            cls.funct3 = Funct3(funct3)
-        cls.funct7 = Funct7(funct7)
-        IsaSpec.R[mnemonic] = cls
-        return super().__init_subclass__(exu, mnemonic, opcode, instr=True)
-
 class IType[RD: (ScalarReg, ExponentReg) = ScalarReg, IMM: (Imm12, SBImm12) = Imm12](Instruction, instr=False):
+    fmt = "I"
+    registry = IsaSpec.I
     funct3: Funct3         = NotImplemented
     rd: RD
     rs1: ScalarReg         = ScalarReg(0)
@@ -100,21 +109,18 @@ class IType[RD: (ScalarReg, ExponentReg) = ScalarReg, IMM: (Imm12, SBImm12) = Im
 
     def to_bytecode(self):
         rd = self.rd if hasattr(self, 'rd') else 0
+        imm = self.imm if hasattr(self, 'imm') else 0
         rd_b = _mask(rd, 5)
         rs1_b = _mask(self.rs1, 5)
         opcode_b = _mask(self.opcode, 7)
-        imm_b = _mask(self.imm, 12)
+        imm_b = _mask(imm, 12)
         funct3_b = _mask(self.funct3, 3)
 
         return (imm_b << 20) | (rs1_b << 15) | (funct3_b << 12) | (rd_b << 7) | opcode_b
-    
-    def __init_subclass__(cls, exu: EXU, opcode: OpcodeL, funct3: Funct3L, mnemonic: str | None = None) -> None:
-        mnemonic = mnemonic if mnemonic != None else cls.__name__.lower().replace("_",".")
-        cls.funct3 = Funct3(funct3)
-        IsaSpec.I[mnemonic] = cls
-        return super().__init_subclass__(exu, mnemonic, opcode, instr=True)
 
 class SType(Instruction, instr=False):
+    fmt = "S"
+    registry = IsaSpec.S
     funct3: Funct3    = NotImplemented
     rs1: ScalarReg    = ScalarReg(0)
     rs2: ScalarReg    = ScalarReg(0)
@@ -143,13 +149,9 @@ class SType(Instruction, instr=False):
             | opcode_b
         )
 
-    def __init_subclass__(cls, exu: EXU, opcode: OpcodeL, funct3: Funct3L, mnemonic: str | None = None) -> None:
-        mnemonic = mnemonic if mnemonic != None else cls.__name__.lower().replace("_",".")
-        cls.funct3 = Funct3(funct3)
-        IsaSpec.S[mnemonic] = cls
-        return super().__init_subclass__(exu, mnemonic, opcode, instr=True)
-
 class SBType(Instruction, instr=False):
+    fmt = "B"
+    registry = IsaSpec.SB
     funct3: Funct3    = NotImplemented
     rs1: ScalarReg    = ScalarReg(0)
     rs2: ScalarReg    = ScalarReg(0)
@@ -180,14 +182,10 @@ class SBType(Instruction, instr=False):
             (imm11 << 7)     | # bit 11 goes to bit 7
             opcode_b
         )
-    
-    def __init_subclass__(cls, exu: EXU, opcode: OpcodeL, funct3: Funct3L, mnemonic: str | None = None) -> None:
-        mnemonic = mnemonic if mnemonic != None else cls.__name__.lower().replace("_",".")
-        cls.funct3 = Funct3(funct3)
-        IsaSpec.SB[mnemonic] = cls
-        return super().__init_subclass__(exu, mnemonic, opcode, instr=True)
 
 class UType(Instruction, instr=False):
+    fmt = "U"
+    registry = IsaSpec.U
     rd: ScalarReg = ScalarReg(0)
     imm: Imm20    = Imm20(0)
 
@@ -198,12 +196,9 @@ class UType(Instruction, instr=False):
 
         return (imm_b << 12) | (rd_b << 7) | opcode_b
 
-    def __init_subclass__(cls, exu: EXU, opcode: OpcodeL, mnemonic: str | None = None) -> None:
-        mnemonic = mnemonic if mnemonic != None else cls.__name__.lower().replace("_",".")
-        IsaSpec.U[mnemonic] = cls
-        return super().__init_subclass__(exu, mnemonic, opcode, instr=True)
-
 class UJType(Instruction, instr=False):
+    fmt = "J"
+    registry = IsaSpec.UJ
     rd: ScalarReg = ScalarReg(0)
     imm: Imm21    = Imm21(0)
 
@@ -224,13 +219,10 @@ class UJType(Instruction, instr=False):
             | (rd_b << 7)
             | opcode_b
         )
-    
-    def __init_subclass__(cls, exu: EXU, opcode: OpcodeL, mnemonic: str | None = None) -> None:
-        mnemonic = mnemonic if mnemonic != None else cls.__name__.lower().replace("_",".")
-        IsaSpec.UJ[mnemonic] = cls
-        return super().__init_subclass__(exu, mnemonic, opcode, instr=True)
 
 class VLSType(Instruction, instr=False):
+    fmt = "VLS"
+    registry = IsaSpec.VLS
     funct2: Funct2 = NotImplemented
     vd: MatrixReg  = MatrixReg(0)
     rs1: ScalarReg = ScalarReg(0)
@@ -244,14 +236,10 @@ class VLSType(Instruction, instr=False):
         opcode_b = _mask(self.opcode, 7)
 
         return (imm_b << 20) | (rs1_b << 15) | (funct2_b << 13) | (vd_b << 7) | opcode_b
-    
-    def __init_subclass__(cls, exu: EXU, opcode: OpcodeL, funct2: Funct2L, mnemonic: str | None = None) -> None:
-        mnemonic = mnemonic if mnemonic != None else cls.__name__.lower().replace("_",".")
-        cls.funct2 = Funct2(funct2)
-        IsaSpec.VLS[mnemonic] = cls
-        return super().__init_subclass__(exu, mnemonic, opcode, instr=True)
 
 class VRType[VD: (MatrixReg,Accumulator,WeightBuffer) = MatrixReg, VS2: (MatrixReg,Accumulator,WeightBuffer) = MatrixReg](Instruction, instr=False):
+    fmt = "VR"
+    registry = IsaSpec.VR
     funct7: Funct7    = NotImplemented
     vs1: MatrixReg
     es1: ExponentReg
@@ -277,13 +265,10 @@ class VRType[VD: (MatrixReg,Accumulator,WeightBuffer) = MatrixReg, VS2: (MatrixR
             opcode_b
         )
         
-    def __init_subclass__(cls, exu: EXU, opcode: OpcodeL, funct7: Funct7L, mnemonic: str | None = None) -> None:
-        mnemonic = mnemonic if mnemonic != None else cls.__name__.lower().replace("_",".")
-        cls.funct7 = Funct7(funct7)
-        IsaSpec.VR[mnemonic] = cls
-        return super().__init_subclass__(exu, mnemonic, opcode, instr=True)
 
 class VIType(Instruction, instr=False):
+    fmt = "VI"
+    registry = IsaSpec.VI
     funct3: Funct3 = NotImplemented
     vd: MatrixReg  = MatrixReg(0)
     imm: Imm16     = Imm16(0)
@@ -296,13 +281,9 @@ class VIType(Instruction, instr=False):
 
         return (imm_b << 16) | (funct3_b << 13) | (vd_b << 7) | opcode_b
 
-    def __init_subclass__(cls, exu: EXU, opcode: OpcodeL, funct3: Funct3L, mnemonic: str | None = None) -> None:
-        mnemonic = mnemonic if mnemonic != None else cls.__name__.lower().replace("_",".")
-        cls.funct3 = Funct3(funct3)
-        IsaSpec.VI[mnemonic] = cls
-        return super().__init_subclass__(exu, mnemonic, opcode, instr=True)
-
 class CSRType(Instruction, instr=False):
+    fmt = "I"
+    registry = IsaSpec.CSR
     funct3: Funct3 = NotImplemented
     rs1: ScalarReg = ScalarReg(0)
     rd: ScalarReg  = ScalarReg(0)
@@ -321,12 +302,6 @@ class CSRType(Instruction, instr=False):
     def writes(self) -> bool:
         """csrrw and csrrwi write the CSR; the set and clear forms only when rs1 (or uimm) is not 0."""
         return self.funct3 & 0b11 == 0b01 or self.rs1 != 0
-
-    def __init_subclass__(cls, exu: EXU, opcode: OpcodeL, funct3: Funct3L, mnemonic: str | None = None) -> None:
-        mnemonic = mnemonic if mnemonic != None else cls.__name__.lower().replace("_",".")
-        cls.funct3 = Funct3(funct3)
-        IsaSpec.CSR[cls.mnemonic] = cls
-        return super().__init_subclass__(exu, mnemonic, opcode, instr=True)
 
 
 def is_scalar_reg(obj: Any) -> TypeIs[ScalarReg]:

@@ -189,7 +189,7 @@ npu_model/
 │   │   └── program.py     # Program class
 │   ├── logging/           # Trace logging
 │   │   └── logger.py      # Perfetto trace logger
-│   ├── isa.py             # ISA framework
+│   ├── isa/               # ISA table (atlas_isa.toml), its loader and the instruction types
 │   └── simulation.py      # Simulation orchestration
 ├── scripts/
 │   └── run.py             # Main simulation runner
@@ -243,16 +243,23 @@ uv run pre-commit run --all-files
 
 ### Adding New Instructions
 
-1. Define instruction effect in `npu_model/configs/isa_definition.py`:
+1. Add an entry to `npu_model/isa/atlas_isa.toml`. Its header gives the keys. The table is the
+   only source of the encodings.
+
+2. Define the instruction in `npu_model/configs/isa_definition.py`. The class name is the mnemonic
+   in upper case, with `_` for `.`. Its bases are an operand pattern (`npu_model/isa_patterns.py`)
+   and the type of its format (`npu_model/isa/__init__.py`). The class takes its opcode, selector
+   fields and unit from the table entry:
 
 ```python
-@instr("my_instr", instruction_type=InstructionType.SCALAR)
-def my_instr(state: ArchState, args: dict[str, int]) -> None:
-    # Implement instruction behavior
-    state.set_xrf(args["rd"], ...)
+class VADD_BF16(TensorComputeBinary, VRType):
+    def exec(self, state: ArchState) -> None:
+        a = _read_mrf_bf16_pair(state, self.vs1)
+        b = _read_mrf_bf16_pair(state, self.vs2)
+        _write_mrf_bf16_pair(state, self.vd, state.math.add(a, b))
 ```
 
-2. Use in programs:
+3. Use in programs:
 
 ```python
 Instruction(mnemonic="my_instr", args={"rd": 1, ...})

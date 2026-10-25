@@ -405,7 +405,7 @@ class ScalarComputeShamt(InstructionPattern):
         rs1: The source scalar register.
         shamt: A 5-bit immediate value.
     """
-    UPPER_IMM: int = 0b0000000
+    funct7: ClassVar[int]
     rd: ScalarReg
     rs1: ScalarReg
     imm: Imm12
@@ -414,8 +414,8 @@ class ScalarComputeShamt(InstructionPattern):
     def __init__(self, rd: ScalarReg, rs1: ScalarReg, imm: int):
         self.rd = rd
         self.rs1 = rs1
-        # Done like this on purpose so it doesn't need custom isa types.
-        self.imm = Imm12((self.UPPER_IMM << 5) | Shamt(imm))
+        # funct7 (from the ISA table) is imm[11:5].
+        self.imm = Imm12((self.funct7 << 5) | Shamt(imm))
 
 @dataclass(init=False)
 class ScalarBranchImm(InstructionPattern):
