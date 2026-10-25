@@ -59,5 +59,15 @@ def test_branch_targets_get_labels() -> None:
     ]
 
 
-def test_an_illegal_word_is_shown_as_data() -> None:
-    assert disassemble([0xFFFFFFFF]) == "    .word 0xffffffff                         # 0: ffffffff, illegal\n"
+def test_an_illegal_word_is_shown_as_data_and_assembles_again() -> None:
+    program = [0x13, 0xFFFFFFFF, 0x0000_0057]
+    text = disassemble(program)
+    assert text.splitlines()[1] == "    .word 0xffffffff                         # 4: ffffffff, illegal"
+    assert assemble(text) == program
+
+
+@pytest.mark.parametrize("word, error", [("0x00000013", "addi instruction"), ("0x100000000", "32-bit"),
+                                         ("-1", "32-bit")])
+def test_word_takes_only_a_32_bit_word_that_is_no_instruction(word: str, error: str) -> None:
+    with pytest.raises(ValueError, match=error):
+        assemble(f".word {word}\n")

@@ -41,6 +41,7 @@ are relative to this README.
 | Halt | ECALL/EBREAK detection takes priority over frontend stalls and does not count as ordinary retirement. | Matched halt priority and counter behavior. |
 | RV32 arithmetic | Scalar writes wrap to 32 bits; signed comparisons/arithmetic shifts use signed RV32 values and shifts mask the count. | Corrected Python integer handling rather than allowing unbounded integers or unsigned comparisons to change control flow. |
 | Assembly | Atlas assembly branch/JAL offsets are byte offsets, as in RV32I. | Byte offsets in assembly and in typed Python constructors. Label resolution accounts for LI expansion. Fixed I-type encoding so the destination register is independent of the immediate. |
+| Illegal words | A word that is no instruction (no `IDecode` row: an ISA 1.0 word, a reserved bit set) halts the core in S1 as illegal. | `.word W` assembles such a word ([`isa.Word`](../npu_model/isa/__init__.py)); S1 halts at it as illegal. `.word` of an instruction's word is an assembly error. |
 
 See [`test_assembler.py`](../tests/test_assembler.py) for range, label, JALR,
 and odd-offset checks.

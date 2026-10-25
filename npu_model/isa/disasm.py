@@ -1,8 +1,7 @@
 """Disassembler: Atlas instruction words to assembly that npu_model's assembler reads back.
 
 A branch or jump to an address in the program gets a label, L<address>. Addresses are byte
-addresses. A word that is no instruction (illegal) prints as `.word`, which the assembler does not
-read.
+addresses. A word that is no instruction (illegal) prints as `.word`.
 """
 from npu_model.isa import TABLE
 from npu_model.isa.table import KINDS, PLACEHOLDER, Entry, Table, take, width

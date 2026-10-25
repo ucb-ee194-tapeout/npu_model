@@ -5,7 +5,7 @@ from npu_model.software.program import Program
 from npu_model.software.instruction import Uop
 from npu_model.logging.logger import Logger, LaneType
 from npu_model.hardware.arch_state import ArchState
-from npu_model.isa import TABLE, CSRType, Instruction, RType
+from npu_model.isa import TABLE, CSRType, Instruction, RType, Word
 from npu_model.isa_types import EXU
 
 from .hardware import Module
@@ -189,6 +189,8 @@ class Core(Module):
         if self.s1_uop is not None:
             insn = self.s1_uop.insn
             mnemonic = insn.mnemonic
+            if isinstance(insn, Word):
+                self._illegal(f"Illegal instruction word {insn.word:#010x}")
             if isinstance(insn, CSRType) and state.csr_illegal(insn.imm, insn.writes):
                 self._illegal(f"Illegal CSR access '{mnemonic}' to CSR {insn.imm:#x}")
             if mnemonic in {"ecall", "ebreak"}:

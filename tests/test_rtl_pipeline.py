@@ -13,7 +13,7 @@ from npu_model.configs.isa_definition import (
     ECALL, EBREAK, SLL, SLT, SRLI, CSRRW, CSRRS, CSRRC, CSRRSI, CSRRCI,
 )
 from npu_model.hardware.core import Core
-from npu_model.isa import ISA_VERSION
+from npu_model.isa import ISA_VERSION, Word
 from npu_model.logging import Logger, LoggerConfig
 from npu_model.software import x
 from npu_model.software.program import InstantiableProgram
@@ -87,6 +87,16 @@ def test_jump_to_a_target_with_bit_1_set_is_illegal(make_core, jump, target):
     assert core.arch_state.halt_reason == "illegal"
     assert core.arch_state.execute_pc == 1
     assert core.arch_state.xrf[2:4] == [0, 0]
+
+
+def test_a_word_that_is_no_instruction_is_illegal(make_core):
+    core = make_core([ADDI(x(1), x(0), 1), Word(0x0000_0057), ADDI(x(2), x(0), 2)])
+    step(core, 2)
+    with pytest.raises(RuntimeError, match="Illegal instruction word 0x00000057"):
+        step(core)
+    assert core.arch_state.halt_reason == "illegal"
+    assert core.arch_state.execute_pc == 1
+    assert core.arch_state.xrf[1:3] == [1, 0]
 
 
 def test_not_taken_branch_to_a_target_with_bit_1_set_is_legal(make_core):

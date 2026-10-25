@@ -4,7 +4,7 @@ from pathlib import Path
 
 from ..software.instruction import Instruction, x
 from ..software.program import InstantiableProgram
-from ..isa import IsaSpec
+from ..isa import IsaSpec, Word
 from ..isa_patterns import InstructionPattern
 from ..configs.isa_definition import ADDI, LUI
 from ..isa_types import ScalarReg
@@ -103,6 +103,9 @@ def stream_to_instrs(source: TextIO) -> list[Instruction]:
             e = expand_li(parse_reg(tokens[1]), int(tokens[2], 0))
             instructions.extend(e)
             pc += len(e)
+        elif mnemonic == ".word" and len(tokens) == 2:
+            instructions.append(Word(int(tokens[1], 0)))
+            pc += 1
         else:
             try:
                 # mnemonic should be lowercase

@@ -77,6 +77,25 @@ class Instruction(ABC):
         IsaSpec.operations[cls.mnemonic] = cls
         cls.registry[cls.mnemonic] = cls
 
+class Word(Instruction, instr=False):
+    """A word that is no instruction (`.word` in assembly), for example a v1 word or a word with a
+    reserved bit set. The core halts at it: it is illegal."""
+    mnemonic = ".word"
+    exu = EXU.SCALAR
+
+    def __init__(self, word: int) -> None:
+        if not 0 <= word < 1 << 32:
+            raise ValueError(f".word {word:#x} is not a 32-bit word")
+        if (entry := TABLE.decode(word)) is not None:
+            raise ValueError(f".word {word:#010x} is a {entry.mnemonic} instruction: write the instruction")
+        self.word = word
+
+    def to_bytecode(self) -> int:
+        return self.word
+
+    def exec(self, state: ArchState) -> None:
+        raise RuntimeError(f"Illegal instruction word {self.word:#010x}")
+
 class RType(Instruction, instr=False):
     fmt = "R"
     registry = IsaSpec.R
