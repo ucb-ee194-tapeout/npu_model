@@ -286,7 +286,7 @@ class VIType(Instruction, instr=False):
 
     def to_bytecode(self):
         imm_b = _mask(self.imm, 16)
-        funct3_b = _mask(self.funct3, 2)
+        funct3_b = _mask(self.funct3, 3)
         vd_b = _mask(self.vd, 6)
         opcode_b = _mask(self.opcode, 7)
 
