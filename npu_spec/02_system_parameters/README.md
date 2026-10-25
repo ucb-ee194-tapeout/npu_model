@@ -17,7 +17,7 @@
 | `WEIGHT_SLOTS_PER_MXU` | `2` | Weight slots per MXU |
 | `WEIGHT_SLOT_BYTES` | `1024` bytes | Bytes per MXU weight slot |
 | `ACCUM_BUFFER_ROWS` | `32` | Rows per MXU accumulation buffer |
-| `ACCUM_BUFFER_COLS_BF16` | `32` | Columns per MXU accumulation buffer |
+| `ACCUM_BUFFER_COLS_FP32` | `32` | FP32 columns per MXU accumulation buffer |
 | `ACCUM_BUFFER_BYTES` | `4096` bytes | Bytes per MXU accumulation buffer (FP32) |
 | `MXU1_ARRAY_ROWS` | `32` | Rows in the `mxu1` reduction-tree fabric |
 | `MXU1_ARRAY_COLS` | `32` | Columns in the `mxu1` reduction-tree fabric |
