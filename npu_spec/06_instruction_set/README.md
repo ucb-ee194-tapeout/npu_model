@@ -71,8 +71,8 @@ for `m`, `e`, or MXU-local state; this card uses the conservative convention
 | `e0-e31` | `-` | Whole-tensor scale register file, one `FP8_E8M0` exponent per register | Caller |
 | `mxu1.w0` | `-` | MXU1 FP8 weight slot 0 | Caller |
 | `mxu1.w1` | `-` | MXU1 FP8 weight slot 1 | Caller |
-| `mxu1.acc0` | `-` | MXU1 local `32 x 32 BF16` accumulation buffer 0 | Caller |
-| `mxu1.acc1` | `-` | MXU1 local `32 x 32 BF16` accumulation buffer 1 | Caller |
+| `mxu1.acc0` | `-` | MXU1 local `32 x 32 FP32` accumulation buffer 0 | Caller |
+| `mxu1.acc1` | `-` | MXU1 local `32 x 32 FP32` accumulation buffer 1 | Caller |
 | `dma.base` | `-` | DMA base address | Caller |
 
 ## 2. Core Instruction Formats
@@ -414,7 +414,7 @@ take a 5-bit immediate in place of `rs1`.
 | Tensor register storage | `32 rows x 32 bytes = 1024 bytes` |
 | FP8 MXU count | `1` |
 | MXU weight slots per MXU | `2` |
-| MXU accumulator storage | `32 x 32 BF16` (`mxu0`), `32 x 32 FP32` (`mxu1`) |
+| MXU accumulator storage | `32 x 32 FP32` |
 | DMA channels | `8` |
 | `IMEM` | `0x0002_0000` ~ `0x0004_0000` |
 | `VMEM` | `0x2000_0000` ~ `0x2004_0000` |

@@ -77,7 +77,7 @@ The frozen tensor-register views are:
 The frozen MXU-local views are:
 
 - one `32 x 32 FP8` weight tile per weight slot
-- one `32 x 32` accumulation tile per accumulation buffer: `BF16` in `mxu0`, `FP32` in `mxu1`
+- one `32 x 32 FP32` accumulation tile per accumulation buffer
 
 ## Derived Throughput Roofs
 
