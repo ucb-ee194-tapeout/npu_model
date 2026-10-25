@@ -11,9 +11,10 @@ The baseline memory system keeps the asynchronous boundary narrow:
 
 ## On-Chip Transfers
 
-The RTL uses software-scheduled, independently progressing scalar, VLOAD, and
-VSTORE paths. These operations do not block the frontend. Scheduling violations
-assert. For an S1 issue at cycle T, scalar stores write at T+1, scalar loads write
+The RTL has independently progressing scalar, VLOAD, and VSTORE paths. These
+operations do not block the frontend. The RTL interlock holds an instruction
+that needs a busy path or VMEM bank; npu_model raises a scheduling error
+instead. For an S1 issue at cycle T, scalar stores write at T+1, scalar loads write
 back at T+3, and vector transfers write rows at T+3 through T+34.
 
 Scalar LSU addresses are bytes. VLOAD/VSTORE bases are word addresses and their

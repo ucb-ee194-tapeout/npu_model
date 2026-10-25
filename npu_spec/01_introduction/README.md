@@ -43,8 +43,7 @@ Execution is overlap-oriented rather than superscalar:
 
 - long-chime tensor instructions may remain active for multiple cycles after issue
 - younger instructions may still issue to other available units
-- issue stalls only on structural conflicts and architecturally defined blocking
-  conditions
+- issue stalls only on hazards and architecturally defined blocking conditions
 - architectural state updates become visible when the producing instruction completes
 
 Control flow follows RV32I:
