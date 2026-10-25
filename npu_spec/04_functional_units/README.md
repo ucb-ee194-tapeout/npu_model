@@ -37,9 +37,10 @@ Requirements:
 
 - `mxu1`, `vpu`, `xlu`, and DMA transfers may be active concurrently
 - only one new instruction may issue in a cycle
-- in npu_model, a resource conflict raises an error and only DELAY and DMA.WAIT
-  stall the frontend; the RTL interlock holds the instruction in S1 until it can
-  issue (Atlas `docs/interlock.md`)
+- in npu_model, a resource conflict raises an error, and only DELAY, DMA.WAIT
+  and a pending scalar load (`docs/rtl-timing.md`) stall the frontend; the RTL
+  interlock holds the instruction in S1 until it can issue (Atlas
+  `docs/interlock.md`)
 - issue does not perform dynamic reordering to bypass stalled older instructions
 - execution timing is determined by frontend ordering, the two blocking
   instructions (`DELAY`, `DMA.WAIT`), and fixed per-operation timing
