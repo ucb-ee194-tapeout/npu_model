@@ -107,7 +107,7 @@ For a scalar load issued at T, the registered command accesses VMEM at T+1,
 the response is captured at T+2, and the destination register is written at T+3.
 A scalar instruction reading that destination during T+3 still sees the old
 value. A store writes at T+1. Store address/data are latched when issued.
-Byte/halfword selection, signed loads, and SELD's low-byte extraction follow the
+Byte/halfword selection (SELD selects a byte like LBU) and signed loads follow the
 RTL. Conflicting scalar writeback is rejected instead of silently choosing a
 Python execution order.
 

@@ -88,7 +88,7 @@ class LoadStoreUnit(ExecutionUnit):
         insn = uop.insn
         mnemonic = insn.mnemonic
         vector = mnemonic in {"vload", "vstore"}
-        imm = int(insn.imm) & 0xFFF
+        imm = int(getattr(insn, "imm", 0)) & 0xFFF   # seld has no offset
         imm = imm - 0x1000 if imm & 0x800 else imm
         # The RTL connects only the VMEM-local address bits to LSU.
         addr_mask = (1 << (self.arch_state.cfg.vmem_size - 1).bit_length()) - 1

@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Callable, ClassVar, Self, Any, get_type_hints
 
 from .isa import UJType, SBType
-from .isa_types import Named, Bundled, AsmError, BoundedInt, ScalarReg, ExponentReg, MatrixReg, WeightBuffer, Accumulator, Channel, Funct3, Shamt, Imm12, SBImm12, Imm16, Imm20, Imm21
+from .isa_types import Named, Bundled, AsmError, BoundedInt, ScalarReg, ExponentReg, MatrixReg, MatrixPair, MatrixQuad, WeightBuffer, Accumulator, Channel, Funct3, Shamt, Imm12, SBImm12, Imm16, Imm20, Imm21, UImm8, UImm12
 
 # - Named Args ----------------------------------------------
 # Used to significantly clean up linting and assembling code
@@ -17,12 +17,20 @@ x_rd     = Named(ScalarReg, "rd")
 
 # Exponent
 e_rd     = Named(ExponentReg, "rd")
+e_vd     = Named(ExponentReg, "vd")
 e_es1    = Named(ExponentReg, "es1")
 
 # Matrix
 m_vd     = Named(MatrixReg, "vd")
 m_vs1    = Named(MatrixReg, "vs1")
 m_vs2    = Named(MatrixReg, "vs2")
+
+# BF16 tile {m[r], m[r+1]} (r even) and FP32 tile m[r..r+3] (r a multiple of 4)
+mp_vd    = Named(MatrixPair, "vd")
+mp_vs1   = Named(MatrixPair, "vs1")
+mp_vs2   = Named(MatrixPair, "vs2")
+mq_vd    = Named(MatrixQuad, "vd")
+mq_vs1   = Named(MatrixQuad, "vs1")
 
 # Weight Buffer
 w_vd     = Named(WeightBuffer, "vd")
@@ -40,6 +48,8 @@ shamt    = Named(Shamt, "shift amount", "imm")
 imm12    = Named(Imm12, "12-bit immediate", "imm")
 sbimm12  = Named(SBImm12, "12-bit SB immediate or label", "imm", True)
 imm16    = Named(Imm16, "16-bit immediate", "imm")
+uimm8    = Named(UImm8, "8-bit unsigned immediate", "imm")
+uimm12   = Named(UImm12, "12-bit unsigned immediate", "imm")
 imm20    = Named(Imm20, "20-bit immediate", "imm")
 imm20_lb = Named(Imm20, "20-bit immediate or label", "imm", True)
 uimm5    = Named(Shamt, "5-bit immediate", "rs1")   # CSR immediate forms carry it in rs1
@@ -238,28 +248,21 @@ class ScalarOffsetLoad(InstructionPattern):
         self.imm = Imm12(imm)
         self.rs1 = rs1
 
-@dataclass(init=False)
-class ExponentOffsetLoad(InstructionPattern):
+@dataclass()
+class ExponentLoad(InstructionPattern):
     """
-    Instruction pattern for instructions with a exponent destination register and base-offset operand.
+    Instruction pattern for instructions with an exponent destination register and an address register.
 
-    Matches assembly patterns of the form `instr e(rd), imm(x(rs1))`.
+    Matches assembly patterns of the form `instr e(rd), x(rs1)`.
     This pattern is used for the following instructions: `seld`
 
     Attributes:
-        rd: The destination scalar register.
-        imm: A 12-bit immediate value representing the offset.
-        rs1: The base scalar register.
+        rd: The destination exponent register.
+        rs1: The scalar register that holds the byte address.
     """
     rd: ExponentReg
-    imm: Imm12
     rs1: ScalarReg
-    params = [e_rd, x_rs1_imm12]
-
-    def __init__(self, rd: ExponentReg, imm: int, rs1: ScalarReg):
-        self.rd = rd
-        self.imm = Imm12(imm)
-        self.rs1 = rs1
+    params = [e_rd, x_rs1]
 
 @dataclass(init=False)
 class ScalarBaseOffsetStore(InstructionPattern):
@@ -332,20 +335,20 @@ class ExponentImm(InstructionPattern):
     """
     Instruction pattern for instructions with a exponent destination register and immediate operand.
 
-    Matches assembly patterns of the form `instr e(rd), imm`. This pattern is used for the following
+    Matches assembly patterns of the form `instr e(vd), imm`. This pattern is used for the following
     instructions: `seli`.
 
     Attributes:
-        rd: The destination exponent register.
-        imm: A 12-bit immediate value.
+        vd: The destination exponent register.
+        imm: An 8-bit unsigned immediate value.
     """
-    rd: ExponentReg
-    imm: Imm12
-    params = [e_rd, imm12]
+    vd: ExponentReg
+    imm: UImm8
+    params = [e_vd, uimm8]
 
-    def __init__(self, rd: ExponentReg, imm: int):
-        self.rd = rd
-        self.imm = Imm12(imm)
+    def __init__(self, vd: ExponentReg, imm: int):
+        self.vd = vd
+        self.imm = UImm8(imm)
 
 @dataclass(init=False)
 class ScalarComputeImm(InstructionPattern):
@@ -445,8 +448,8 @@ class DirectImm(InstructionPattern):
     """
     Instruction pattern for instructions with a register and immediate operand.
 
-    Matches assembly patterns of the form `instr m(vd), imm`. This pattern is
-    used for VI instructions: `vli.all`, `vli.row`, `vli.col`, and `vli.one`.
+    Matches assembly patterns of the form `instr m(vd), imm`, vd a BF16 tile. This pattern is
+    used for VI instructions: `vli.all`, `vli.row`, `vli.col`, and `vli.one` (one register).
 
     Attributes:
         reg: The register operand.
@@ -454,7 +457,7 @@ class DirectImm(InstructionPattern):
     """
     vd: MatrixReg
     imm: Imm16
-    params = [m_vd, imm16]
+    params = [mp_vd, imm16]
 
     def __init__(self, vd: MatrixReg, imm: int):
         self.vd = vd
@@ -484,7 +487,8 @@ class TensorComputeUnary(InstructionPattern):
     Instruction pattern for tensor instructions with two tensor register operands.
 
     Matches assembly patterns of the form `instr m(vd), m(vs1)`. This pattern is
-    used for unary tensor operations with one destination and one source tensor register.
+    used for unary tensor operations with one destination and one source BF16 tile, and for
+    `vtrpose.xlu` (one register each).
 
     Attributes:
         vd: The destination tensor register.
@@ -492,7 +496,7 @@ class TensorComputeUnary(InstructionPattern):
     """
     vd: MatrixReg
     vs1: MatrixReg
-    params = [m_vd, m_vs1]
+    params = [mp_vd, mp_vs1]
 
 @dataclass()
 class TensorComputeBinary(InstructionPattern):
@@ -500,7 +504,7 @@ class TensorComputeBinary(InstructionPattern):
     Instruction pattern for tensor instructions with three tensor register operands.
 
     Matches assembly patterns of the form `instr m(vd), m(vs1), m(vs2)`. This pattern is
-    used for binary tensor operations with one destination and two source tensor registers.
+    used for binary tensor operations with one destination and two source BF16 tiles.
 
     Attributes:
         vd: The destination tensor register.
@@ -510,16 +514,15 @@ class TensorComputeBinary(InstructionPattern):
     vd: MatrixReg
     vs1: MatrixReg
     vs2: MatrixReg
-    params = [m_vd, m_vs1, m_vs2]
+    params = [mp_vd, mp_vs1, mp_vs2]
 
 @dataclass()
 class TensorComputeMixed(InstructionPattern):
     """
     Instruction pattern for tensor instructions with mixed tensor and exponent register operands.
 
-    Matches assembly patterns of the form `instr m(vd), m(vs1), e(es1)`. This pattern is
-    used for tensor operations with one destination tensor register, one source tensor register,
-    and one source exponent register.
+    Matches assembly patterns of the form `instr m(vd), m(vs2), e(es1)`. This pattern is
+    used for `vpack.bf16.fp8` (a BF16 tile to one register) and `vunpack.fp8.bf16` (the reverse).
 
     Attributes:
         vd: The destination tensor register.
@@ -529,7 +532,7 @@ class TensorComputeMixed(InstructionPattern):
     vd: MatrixReg
     vs2: MatrixReg
     es1: ExponentReg
-    params = [m_vd, m_vs2, e_es1]
+    params = [m_vd, mp_vs2, e_es1]
 
 @dataclass()
 class MXUWeightPush(InstructionPattern):
@@ -553,7 +556,8 @@ class MXUAccumulatorPush(InstructionPattern):
     Instruction pattern for MXU data push instructions with two tensor register operands.
 
     Matches assembly patterns of the form `instr a(vd), m(vs1)`. This pattern is
-    used for MXU data push operations with one destination and one source tensor register.
+    used for MXU accumulator pushes from a BF16 tile (and, with other params, an FP32 tile or one
+    FP8 register).
 
     Attributes:
         vd: The destination tensor register.
@@ -561,7 +565,7 @@ class MXUAccumulatorPush(InstructionPattern):
     """
     vd: Accumulator
     vs1: MatrixReg
-    params = [acc_vd, m_vs1]
+    params = [acc_vd, mp_vs1]
 
 @dataclass()
 class MXUAccumulatorPopE1(InstructionPattern):
@@ -586,7 +590,7 @@ class MXUAccumulatorPop(InstructionPattern):
     Instruction pattern for MXU data pop instructions with two tensor register operands.
 
     Matches assembly patterns of the form `instr m(vd), a(vs2)`. This pattern is
-    used for MXU data push operations with one destination and one source tensor register.
+    used for MXU accumulator pops to a BF16 tile (and, with other params, an FP32 tile).
 
     Attributes:
         vd: The destination tensor register.
@@ -595,7 +599,7 @@ class MXUAccumulatorPop(InstructionPattern):
 
     vd: MatrixReg
     vs2: Accumulator
-    params = [m_vd, acc_vs2]
+    params = [mp_vd, acc_vs2]
 
 @dataclass()
 class MXUMatMul(InstructionPattern):
@@ -733,10 +737,10 @@ class UnaryImm(InstructionPattern):
     used for `delay`.
 
     Attributes:
-        imm: A 12-bit immediate
+        imm: A 12-bit unsigned immediate
     """
-    imm: Imm12
-    params = [imm12]
+    imm: UImm12
+    params = [uimm12]
     
     def __init__(self, imm: int):
-        self.imm = Imm12(imm)
+        self.imm = UImm12(imm)

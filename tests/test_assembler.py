@@ -39,6 +39,10 @@ def _jalr(rd: int, rs1: int, imm: int) -> int:
     return _i_type(0b1100111, 0b000, rd, rs1, imm)
 
 
+def _vi_type(funct3: int, vd: int, imm: int) -> int:
+    return (imm << 16) | (funct3 << 13) | (vd << 7) | 0b0101011
+
+
 def test_li_expands_to_valid_addi_and_lui_addi_sequences() -> None:
     program = input_to_program(
         io.StringIO(
@@ -86,7 +90,7 @@ def test_offset_addressing_and_vi_immediates_parse_correctly() -> None:
             lw x1, 16(x2)
             sw x3, 20(x4)
             vload m5, 7(x6)
-            vli.all m7, -3
+            vli.all m6, -3
             """
         )
     )
@@ -108,7 +112,7 @@ def test_offset_addressing_and_vi_immediates_parse_correctly() -> None:
     assert vload.imm == 7
     vli = program.instructions[3]
     assert isinstance(vli, VLI_ALL)
-    assert vli.vd == 7
+    assert vli.vd == 6
     assert vli.imm == -3
 
 
@@ -229,8 +233,27 @@ def test_instruction_constructors_retain_raw_encoded_immediate_convention() -> N
     ("addi x3, x1, 17", _i_type(0b0010011, 0b000, 3, 1, 17)),
     ("lw x7, 16(x2)", _i_type(0b0000011, 0b010, 7, 2, 16)),
     ("jalr x3, x2, 5", _jalr(3, 2, 5)),
-    ("delay 7", _i_type(0b1100111, 0b001, 0, 0, 7)),
-    ("seli e3, 127", _i_type(0b0000011, 0b111, 3, 0, 127)),
 ])
 def test_i_type_encoding_keeps_destination_separate_from_immediate(source: str, expected: int) -> None:
     assert input_to_program(io.StringIO(source)).assemble() == [expected]
+
+
+@pytest.mark.parametrize("source, expected", [
+    ("delay 4095", _vi_type(0b101, 0, 4095)),
+    ("seli e3, 255", _vi_type(0b100, 3, 255)),
+    ("seld e3, x5", 0b0000100 << 25 | 5 << 15 | 3 << 7 | 0b1111011),
+])
+def test_scale_register_and_delay_encodings(source: str, expected: int) -> None:
+    assert input_to_program(io.StringIO(source)).assemble() == [expected]
+
+
+@pytest.mark.parametrize("source, error", [
+    ("vadd.bf16 m2, m3, m4", "not a multiple of 2"),
+    ("vmatpop.fp32.acc.nv m2, acc0", "not a multiple of 4"),
+    ("seli e1, 256", "out of range"),
+    ("delay 4096", "out of range"),
+])
+def test_operands_that_the_isa_reserves_are_rejected(source: str, error: str) -> None:
+    assert any(error in diagnostic.message for diagnostic in lint_text(source))
+    with pytest.raises(ExceptionGroup):
+        input_to_program(io.StringIO(source))

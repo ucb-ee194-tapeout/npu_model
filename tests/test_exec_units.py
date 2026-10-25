@@ -103,7 +103,7 @@ MEMORY_CASES = [
     ("LSU", insn) for insn in (
         LB(rd=x(10), rs1=x(1), imm=0), LBU(rd=x(10), rs1=x(1), imm=0),
         LH(rd=x(10), rs1=x(1), imm=0), LHU(rd=x(10), rs1=x(1), imm=0),
-        LW(rd=x(10), rs1=x(1), imm=1), SELD(rd=e(1), rs1=x(1), imm=0),
+        LW(rd=x(10), rs1=x(1), imm=1), SELD(rd=e(1), rs1=x(1)),
         SB(rs1=x(1), rs2=x(3), imm=0), SH(rs1=x(1), rs2=x(3), imm=0), SW(rs1=x(1), rs2=x(3), imm=0),
         VLOAD(vd=m(20), rs1=x(2), imm=0), VSTORE(vd=m(0), rs1=x(2), imm=8),
     )

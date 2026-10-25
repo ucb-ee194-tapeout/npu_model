@@ -64,7 +64,7 @@ def test_scale_warnings(case: str) -> None:
 
 def operand(named) -> int:
     """Distinct m-registers, slot and buffer 0, and 1 for every other operand."""
-    if named.inner is MatrixReg:
+    if issubclass(named.inner, MatrixReg):
         return {"vd": 4, "vs1": 8, "vs2": 12}[named.repr]
     return 0 if named.inner in (Accumulator, WeightBuffer) else 1
 

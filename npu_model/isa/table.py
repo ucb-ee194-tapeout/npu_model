@@ -11,9 +11,25 @@ from pathlib import Path
 
 PATH = Path(__file__).with_name("atlas_isa.toml")
 
-# Operand kinds: the register prefix of a register kind, or None.
-KINDS = {"x": "x", "e": "e", "m": "m", "mp": "m", "mq": "m", "acc": "acc", "w": "w", "ch": None,
-         "imm": None, "uimm": None, "hex": None, "label": None}
+
+@dataclass(frozen=True)
+class Kind:
+    """An operand kind. Its values are the multiples of `align` below `values`: the field bits above
+    and below them are fixed to zero in the match and the mask."""
+    prefix: str | None
+    """The register prefix in assembly, or None."""
+    values: int | None = None
+    """The number of values (a power of two), or None for every value of the field."""
+    align: int = 1
+    """A power of two."""
+
+
+KINDS = {"x": Kind("x", 32), "e": Kind("e", 32), "m": Kind("m", 64), "mp": Kind("m", 64, 2),
+         "mq": Kind("m", 64, 4), "acc": Kind("acc", 2), "w": Kind("w", 2), "ch": Kind(None, 8),
+         "imm": Kind(None), "uimm": Kind(None), "uimm8": Kind(None, 1 << 8), "uimm12": Kind(None, 1 << 12),
+         "hex": Kind(None), "label": Kind(None)}
+RV32I_OPCODES = {0x03, 0x0F, 0x13, 0x17, 0x23, 0x33, 0x37, 0x63, 0x67, 0x6F, 0x73}
+CUSTOM_OPCODES = {0x0B, 0x2B, 0x5B, 0x7B}
 UNITS = ("scalar", "lsu", "vpu", "xlu", "mxu1", "nv", "dma")
 ROWS = ("rows", "all")
 KEYS = {"mnemonic", "format", "opcode", "select", "fixed", "operands", "syntax", "unit", "configs", "m",
@@ -106,7 +122,7 @@ def _entry(raw: dict, formats: dict[str, dict[str, Pieces]], configurations: tup
     check(KEYS - OPTIONAL <= raw.keys() <= KEYS, f"keys {sorted(raw)}")
     check(raw["format"] in formats, f"format {raw['format']}")
     fields = formats[raw["format"]]
-    check(raw["opcode"] & 3 == 3 and raw["opcode"] < 128, "opcode")
+    check(raw["opcode"] in RV32I_OPCODES | CUSTOM_OPCODES, "opcode: not RV32I or custom")
     select, fixed, operands = raw.get("select", {}), raw.get("fixed", {}), raw["operands"]
     names = ["opcode", *select, *fixed, *operands]
     check(len(names) == len(set(names)), "a field is used twice")
@@ -117,9 +133,17 @@ def _entry(raw: dict, formats: dict[str, dict[str, Pieces]], configurations: tup
         field_bits = place(fields[field], -1)
         check(not bits & field_bits, f"field {field} overlaps another field")
         bits |= field_bits
+    check(raw["opcode"] in RV32I_OPCODES or bits == 0xFFFFFFFF, "a bit of a custom opcode is in no field")
     for field, value in used.items():
         check(0 <= value < 1 << width(fields[field]), f"{field} = {value}")
     check(all(kind in KINDS for kind in operands.values()), f"operand kinds {operands}")
+    reserved = 0
+    for field, kind in operands.items():
+        n = width(fields[field])
+        k = KINDS[kind]
+        values = k.values or 1 << n
+        check(values <= 1 << n, f"{field}: {kind} does not fit")
+        reserved |= place(fields[field], ((1 << n) - values) | (k.align - 1))
 
     syntax = raw["syntax"]
     check(syntax.split()[0] == mn, "syntax does not start with the mnemonic")
@@ -127,7 +151,7 @@ def _entry(raw: dict, formats: dict[str, dict[str, Pieces]], configurations: tup
     for prefix, reg_field, field in PLACEHOLDER.findall(syntax.removeprefix(mn)):
         named[reg_field or field] = prefix or None
     check(named.keys() == operands.keys(), f"syntax operands {sorted(named)}")
-    check(all(KINDS[operands[f]] == p for f, p in named.items()), "syntax register prefixes")
+    check(all(KINDS[operands[f]].prefix == p for f, p in named.items()), "syntax register prefixes")
 
     check(raw["unit"] in UNITS, f"unit {raw['unit']}")
     configs = tuple(raw.get("configs", configurations))
@@ -136,7 +160,7 @@ def _entry(raw: dict, formats: dict[str, dict[str, Pieces]], configurations: tup
     check(re.fullmatch(r"\d+\.\d+", raw["ver"]) is not None, f"ver {raw['ver']}")
     major, minor = map(int, raw["ver"].split("."))
     match = sum(place(fields[f], v) for f, v in used.items())
-    mask = sum(place(fields[f], -1) for f in used)
+    mask = sum(place(fields[f], -1) for f in used) | reserved
     return Entry(mn, raw["format"], raw["opcode"], select, fixed, operands, syntax, raw["unit"], configs,
                  raw.get("m"), raw["operation"], (major, minor), match, mask)
 

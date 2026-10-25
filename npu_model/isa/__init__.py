@@ -58,7 +58,8 @@ class Instruction(ABC):
 
     def __init_subclass__(cls, instr: bool = True) -> None:
         """An instruction class takes its mnemonic from its name (VREDSUM_ROW_BF16 gives
-        vredsum.row.bf16), and its opcode, selector fields and unit from the mnemonic's table entry."""
+        vredsum.row.bf16), and its opcode, selector and fixed fields and unit from the mnemonic's table
+        entry."""
         super().__init_subclass__()
         if not instr:
             return
@@ -67,7 +68,7 @@ class Instruction(ABC):
         assert entry.format == cls.fmt, f"{cls.mnemonic}: the table has format {entry.format}, the class {cls.fmt}"
         cls.opcode = Opcode(entry.opcode)
         cls.exu = EXU_OF_UNIT[entry.unit]
-        for field, value in entry.select.items():
+        for field, value in (entry.select | entry.fixed).items():
             setattr(cls, field, value)
         IsaSpec.operations[cls.mnemonic] = cls
         cls.registry[cls.mnemonic] = cls

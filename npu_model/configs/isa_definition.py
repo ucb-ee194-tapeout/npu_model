@@ -20,7 +20,7 @@ from npu_model.isa_patterns import (
     DMATransfer,
     DMAWait,
     ExponentImm,
-    ExponentOffsetLoad,
+    ExponentLoad,
     Nullary,
     ScalarBaseOffsetStore,
     ScalarComputeImm,
@@ -40,10 +40,19 @@ from npu_model.isa_patterns import (
     MXUAccumulatorPop,
     MXUMatMul,
     UnaryImm,
+    acc_vd,
+    acc_vs2,
+    e_es1,
+    imm16,
+    m_vd,
+    m_vs1,
+    m_vs2,
+    mp_vd,
+    mq_vd,
+    mq_vs1,
 )
 from npu_model.isa_types import (
     ScalarReg,
-    ExponentReg,
     MatrixReg,
     WeightBuffer,
     Accumulator,
@@ -201,16 +210,15 @@ class LHU(ScalarOffsetLoad, IType):
         state.write_xrf(self.rd, (word >> (8 * (address & 2))) & 0xFFFF)
 
 
-class SELD(ExponentOffsetLoad, IType[ExponentReg]):
+class SELD(ExponentLoad, RType):
     def exec(self, state: ArchState) -> None:
-        # ScalarCore selects memWord[7:0], without byte shifting.
-        _, word = _load_word(state, self.rs1, self.imm)
-        state.write_erf(self.rd, word & 0xFF)
+        address, word = _load_word(state, self.rs1, 0)
+        state.write_erf(self.rd, (word >> (8 * (address & 3))) & 0xFF)
 
 
-class SELI(ExponentImm, IType[ExponentReg]):
+class SELI(ExponentImm, VIType):
     def exec(self, state: ArchState):
-        state.write_erf(self.rd, _sign_extend(self.imm & 0xFFF, 12))
+        state.write_erf(self.vd, self.imm)
 
 
 class VLOAD(TensorBaseOffset, VLSType):
@@ -472,6 +480,8 @@ class VPACK_BF16_FP8(TensorComputeMixed, VRType):
 
 
 class VUNPACK_FP8_BF16(TensorComputeMixed, VRType):
+    params = [mp_vd, m_vs2, e_es1]
+
     def exec(self, state: ArchState) -> None:
         # Inverse layout of vpack, multiplying by the ERF scale.
         x = state.read_mrf_fp8(self.vs2).flatten()
@@ -542,6 +552,8 @@ class VLI_ROW(DirectImm, VIType):
 
 
 class VLI_COL(DirectImm, VIType):
+    params = [m_vd, imm16]
+
     def exec(self, state: ArchState) -> None:
         # vli.col and vli.one write m[vd] only.
         bits = torch.zeros(_bf16_register_shape(state), dtype=torch.uint16)
@@ -550,6 +562,8 @@ class VLI_COL(DirectImm, VIType):
 
 
 class VLI_ONE(DirectImm, VIType):
+    params = [m_vd, imm16]
+
     def exec(self, state: ArchState) -> None:
         bits = torch.zeros(_bf16_register_shape(state), dtype=torch.uint16)
         bits[0, 0] = self.imm & 0xFFFF
@@ -610,12 +624,14 @@ class JALR(JalrPattern, IType[ScalarReg, Imm12]):
         state.set_npc(target)
 
 
-class DELAY(UnaryImm, IType):
+class DELAY(UnaryImm, VIType):
     def exec(self, state: ArchState) -> None:
         pass
 
 
 class VTRPOSE_XLU(TensorComputeUnary, VRType):
+    params = [m_vd, m_vs1]
+
     def exec(self, state: ArchState) -> None:
         state.write_mrf_u8(self.vd, state.read_mrf_u8(self.vs1).t().contiguous())
 
@@ -691,6 +707,8 @@ class VMATPUSH_WEIGHT_MXU1(MXUWeightPush, VRType[WeightBuffer, MatrixReg]):
 
 
 class VMATPUSH_ACC_FP8_MXU1(MXUAccumulatorPush, VRType[Accumulator, MatrixReg]):
+    params = [acc_vd, m_vs1]
+
     def exec(self, state: ArchState) -> None:
         # FP8Unpack at unit scale (2**0).
         x = state.read_mrf_fp8(self.vs1)
@@ -778,6 +796,8 @@ class VMATPUSH_ACC_BF16_NV(MXUAccumulatorPush, VRType[Accumulator, MatrixReg]):
 
 class VMATPUSH_ACC_FP32_NV(MXUAccumulatorPush, VRType[Accumulator, MatrixReg]):
     """``vmatpush.acc.fp32.nv acc(vd), m(vs1)``: acc = m[vs1..vs1+3], register q holding columns 8q..8q+7."""
+    params = [acc_vd, mq_vs1]
+
     def exec(self, state: ArchState) -> None:
         regs = [_nv_mreg_words(state, self.vs1 + q) for q in range(4)]
         state.acc_nv[self.vd & 1] = [[regs[j // 8][r][j % 8] for j in range(32)] for r in range(len(regs[0]))]
@@ -797,6 +817,8 @@ class VMATPOP_BF16_ACC_NV(MXUAccumulatorPop, VRType[MatrixReg, Accumulator]):
 
 class VMATPOP_FP32_ACC_NV(MXUAccumulatorPop, VRType[MatrixReg, Accumulator]):
     """``vmatpop.fp32.acc.nv m(vd), acc(vs2)``: m[vd..vd+3] = acc, register q holding columns 8q..8q+7."""
+    params = [mq_vd, acc_vs2]
+
     def exec(self, state: ArchState) -> None:
         acc = state.acc_nv[self.vs2 & 1]
         for q in range(4):

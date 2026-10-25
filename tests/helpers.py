@@ -92,8 +92,10 @@ def operands(cls) -> list[tuple[str, type]]:
 
 
 def corners(kind: type) -> list[int]:
-    """Zero, both ends of the operand range, and the largest even value (branch immediates)."""
-    return sorted({v for v in (0, kind.lower_bound, kind.upper_bound - 1, kind.upper_bound - 2) if not kind.lint(v)})
+    """Zero, both ends of the operand range, and the largest even value (branch immediates, BF16 tile
+    registers) and multiple of 4 (FP32 tile registers)."""
+    top = kind.upper_bound
+    return sorted({v for v in (0, kind.lower_bound, top - 1, top - 2, top - 4) if not kind.lint(v)})
 
 
 def words(cls) -> list[int]:

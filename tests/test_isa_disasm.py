@@ -1,12 +1,14 @@
 """The disassembler gives assembly that assembles to the same words."""
 import io
+import random
 from pathlib import Path
 
 import pytest
 
 import npu_model.configs.programs as programs
-from npu_model.isa import IsaSpec
+from npu_model.isa import TABLE, IsaSpec
 from npu_model.isa.disasm import disassemble
+from npu_model.isa.table import place
 from npu_model.util.converter import input_to_program
 from tests.helpers import words
 
@@ -20,6 +22,16 @@ def assemble(source: str) -> list[int]:
 @pytest.mark.parametrize("mnemonic", sorted(IsaSpec.operations))
 def test_every_instruction_round_trips(mnemonic: str) -> None:
     for word in words(IsaSpec.operations[mnemonic]):
+        assert assemble(disassemble([word])) == [word], disassemble([word])
+
+
+@pytest.mark.parametrize("mnemonic", sorted(TABLE.entries))
+def test_words_with_random_operands_round_trip(mnemonic: str) -> None:
+    entry, rng = TABLE.entries[mnemonic], random.Random(mnemonic)
+    fields = TABLE.formats[entry.format]
+    operand_bits = sum(place(fields[f], -1) for f in entry.operands) & ~entry.mask
+    for _ in range(64):
+        word = entry.match | rng.getrandbits(32) & operand_bits
         assert assemble(disassemble([word])) == [word], disassemble([word])
 
 

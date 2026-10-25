@@ -16,9 +16,9 @@
     "source": "addi x1, x0, 7\ndelay 3\nbeq x1, x1, target\ndelay 2\necall\ntarget:\ncsrrw x0, 0xc10, x1\necall\n",
     "words": [
       "00700093",
-      "00301067",
+      "0003a02b",
       "00108363",
-      "00201067",
+      "0002a02b",
       "00000073",
       "c1009073",
       "00000073"
@@ -62,7 +62,7 @@
     ],
     "words": [
       "00900093",
-      "0200007f",
+      "0600007b",
       "c1009073",
       "00000073"
     ]
@@ -70,7 +70,7 @@
   "halt_during_delay": {
     "source": "delay 10\necall\n",
     "words": [
-      "00a01067",
+      "000aa02b",
       "00000073"
     ]
   },

@@ -97,7 +97,7 @@ def test_load_reissues_during_previous_writeback(lsu):
     assert lsu.arch_state.read_xrf(x(2)) == 7
 
 
-@pytest.mark.parametrize("scalar", [ADDI(rd=x(2), rs1=x(0), imm=1), SELI(rd=e(2), imm=1)])
+@pytest.mark.parametrize("scalar", [ADDI(rd=x(2), rs1=x(0), imm=1), SELI(vd=e(2), imm=1)])
 def test_scalar_load_writeback_collisions_assert(lsu, scalar):
     tick(lsu, LW(rd=x(1), rs1=x(0), imm=0))
     tick(lsu)
@@ -120,12 +120,13 @@ def test_scalar_lane_selection_matches_rtl(lsu, insn, value):
     assert lsu.arch_state.read_xrf(x(1)) == value
 
 
-def test_seld_uses_low_byte_of_selected_word(lsu):
+def test_seld_loads_the_byte_at_its_address(lsu):
     word(lsu.arch_state, 0, 0x88776655)
-    tick(lsu, SELD(rd=e(1), rs1=x(0), imm=3))
+    lsu.arch_state.write_xrf(x(1), 3)
+    tick(lsu, SELD(rd=e(1), rs1=x(1)))
     for _ in range(3):
         tick(lsu)
-    assert lsu.arch_state.read_erf(e(1)) == 0x55
+    assert lsu.arch_state.read_erf(e(1)) == 0x88
 
 
 @pytest.mark.parametrize("load", [True, False])

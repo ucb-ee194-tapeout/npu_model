@@ -10,13 +10,17 @@ Conventions used in the opcode tables:
 - `Hex` is the opcode, then funct3 or funct2, then funct7 or the 12-bit
   immediate, in hex, when the instruction has these selector fields.
 - A word `w` is the instruction if `(w & mask) == match`. The bits that are not
-  in the mask are not decoded.
+  in the mask are not decoded. In the custom opcodes, the mask holds every bit
+  of the word: the operand bits that an operand does not use must be 0.
 - `Configs` gives the configurations that have the unit (`all`: `default` and
   `ipt-nvfp4`). In the other configurations the instruction is illegal.
 - Verilog-style descriptions use architectural state names such as `x[...]`,
   `m[...]`, `e[...]`, `pc`, `VMEM[...]`, and `mxu1.acc`.
 - whenever an instruction semantic uses `{m[r], m[r+1]}`, the encoded register
-  field names the low register of the pair, and encoding `r = 63` is illegal.
+  field names the low register of the pair, and `r` is even. For
+  `m[r..r+3]`, `r` is a multiple of 4. Another `r` makes the word illegal, and
+  so do an `e`-register above `e31` and an accumulator or weight slot above 1 in
+  a 6-bit field.
 
 ## 1. Register Set
 
@@ -273,8 +277,9 @@ format (branches), and `UJ` corresponds to the RISC-V `J` format (jumps).
   </tbody>
 </table>
 
-Software may rely on the mnemonic repertoire and architectural semantics of
-those instruction families, but not yet on a frozen bit-exact subformat.
+Each format has its own custom major opcode: VR is custom-0 (`0x0B`), VI is
+custom-1 (`0x2B`) and VLS is custom-2 (`0x5B`). The R-format Atlas instructions
+(`dma.*` and `seld`) are in custom-3 (`0x7B`).
 
 ## 3. Instructions
 
@@ -288,12 +293,46 @@ Rows are ordered by hex value.
 | `lw x(rd), imm(x(rs1))` | I | `03/2` | `00002003` / `0000707f` | lsu | all | `x[rd] = VMEM[x[rs1] + imm]` |
 | `lbu x(rd), imm(x(rs1))` | I | `03/4` | `00004003` / `0000707f` | lsu | all | `x[rd] = {24'b0, VMEM[x[rs1] + imm]}` |
 | `lhu x(rd), imm(x(rs1))` | I | `03/5` | `00005003` / `0000707f` | lsu | all | `x[rd] = {16'b0, VMEM[x[rs1] + imm]}` |
-| `seld e(rd), imm(x(rs1))` | I | `03/6` | `00006003` / `0000707f` | lsu | all | `e[rd] = byte 0 of the VMEM word that holds byte x[rs1] + imm` |
-| `seli e(rd), imm` | I | `03/7` | `00007003` / `0000707f` | scalar | all | `e[rd] = imm[7:0]` |
-| `vload m(vd), imm(x(rs1))` | VLS | `07/0` | `00000007` / `0000607f` | lsu | all | `m[vd] = VMEM[x[rs1] + (imm << 5)]` |
-| `vstore m(vd), imm(x(rs1))` | VLS | `07/1` | `00002007` / `0000607f` | lsu | all | `VMEM[x[rs1] + (imm << 5)] = m[vd]` |
-| `vload.scale m(vd), imm(x(rs1))` | VLS | `07/2` | `00004007` / `0000607f` | lsu | ipt-nvfp4 | `scales of m[vd] = 128 B of VMEM at x[rs1] + (imm << 5)` |
-| `vstore.scale m(vd), imm(x(rs1))` | VLS | `07/3` | `00006007` / `0000607f` | lsu | ipt-nvfp4 | `128 B of VMEM at x[rs1] + (imm << 5) = scales of m[vd]` |
+| `vadd.bf16 m(vd), m(vs1), m(vs2)` | VR | `0B/00` | `0000000b` / `fe0820ff` | vpu | all | `{m[vd], m[vd+1]} = {m[vs1], m[vs1+1]} + {m[vs2], m[vs2+1]}` |
+| `vredsum.bf16 m(vd), m(vs1)` | VR | `0B/01` | `0200000b` / `fff820ff` | vpu | all | `lane j: sum of column j of m[vs1] and m[vs1+1], in every row of m[vd] and m[vd+1]` |
+| `vsub.bf16 m(vd), m(vs1), m(vs2)` | VR | `0B/02` | `0400000b` / `fe0820ff` | vpu | all | `{m[vd], m[vd+1]} = {m[vs1], m[vs1+1]} - {m[vs2], m[vs2+1]}` |
+| `vmul.bf16 m(vd), m(vs1), m(vs2)` | VR | `0B/03` | `0600000b` / `fe0820ff` | vpu | all | `{m[vd], m[vd+1]} = {m[vs1], m[vs1+1]} * {m[vs2], m[vs2+1]}` |
+| `vminimum.bf16 m(vd), m(vs1), m(vs2)` | VR | `0B/04` | `0800000b` / `fe0820ff` | vpu | all | `{m[vd], m[vd+1]} = min({m[vs1], m[vs1+1]}, {m[vs2], m[vs2+1]})` |
+| `vredmin.bf16 m(vd), m(vs1)` | VR | `0B/05` | `0a00000b` / `fff820ff` | vpu | all | `lane j: min of column j of m[vs1] and m[vs1+1], in every row of m[vd] and m[vd+1]` |
+| `vmaximum.bf16 m(vd), m(vs1), m(vs2)` | VR | `0B/06` | `0c00000b` / `fe0820ff` | vpu | all | `{m[vd], m[vd+1]} = max({m[vs1], m[vs1+1]}, {m[vs2], m[vs2+1]})` |
+| `vredmax.bf16 m(vd), m(vs1)` | VR | `0B/07` | `0e00000b` / `fff820ff` | vpu | all | `lane j: max of column j of m[vs1] and m[vs1+1], in every row of m[vd] and m[vd+1]` |
+| `vredsum.row.bf16 m(vd), m(vs1)` | VR | `0B/21` | `4200000b` / `fff820ff` | vpu | all | `{m[vd], m[vd+1]}[i, j] = sum({m[vs1], m[vs1+1]}[i, :])` |
+| `vredmin.row.bf16 m(vd), m(vs1)` | VR | `0B/24` | `4800000b` / `fff820ff` | vpu | all | `{m[vd], m[vd+1]}[i, j] = min({m[vs1], m[vs1+1]}[i, :])` |
+| `vredmax.row.bf16 m(vd), m(vs1)` | VR | `0B/26` | `4c00000b` / `fff820ff` | vpu | all | `{m[vd], m[vd+1]}[i, j] = max({m[vs1], m[vs1+1]}[i, :])` |
+| `vmov m(vd), m(vs1)` | VR | `0B/40` | `8000000b` / `fff820ff` | vpu | all | `{m[vd], m[vd+1]} = {m[vs1], m[vs1+1]}` |
+| `vrecip.bf16 m(vd), m(vs1)` | VR | `0B/41` | `8200000b` / `fff820ff` | vpu | all | `{m[vd], m[vd+1]} = 1 / {m[vs1], m[vs1+1]}` |
+| `vexp.bf16 m(vd), m(vs1)` | VR | `0B/42` | `8400000b` / `fff820ff` | vpu | all | `{m[vd], m[vd+1]} = exp({m[vs1], m[vs1+1]})` |
+| `vexp2.bf16 m(vd), m(vs1)` | VR | `0B/43` | `8600000b` / `fff820ff` | vpu | all | `{m[vd], m[vd+1]} = 2^{m[vs1], m[vs1+1]}` |
+| `vpack.bf16.fp8 m(vd), m(vs2), e(vs1)` | VR | `0B/44` | `8800000b` / `fe0c007f` | vpu | all | `m[vd] = E4M3({m[vs2], m[vs2+1]} / 2^(e[vs1] - 127)) (FP8 row k = BF16 rows 2k, 2k+1)` |
+| `vunpack.fp8.bf16 m(vd), m(vs2), e(vs1)` | VR | `0B/45` | `8a00000b` / `fe0400ff` | vpu | all | `{m[vd], m[vd+1]} = BF16(m[vs2] * 2^(e[vs1] - 127)) (vpack's row layout)` |
+| `vsquare.bf16 m(vd), m(vs1)` | VR | `0B/46` | `8c00000b` / `fff820ff` | vpu | all | `{m[vd], m[vd+1]} = {m[vs1], m[vs1+1]}^2` |
+| `vcube.bf16 m(vd), m(vs1)` | VR | `0B/47` | `8e00000b` / `fff820ff` | vpu | all | `{m[vd], m[vd+1]} = {m[vs1], m[vs1+1]}^3` |
+| `vrelu.bf16 m(vd), m(vs1)` | VR | `0B/48` | `9000000b` / `fff820ff` | vpu | all | `{m[vd], m[vd+1]} = max({m[vs1], m[vs1+1]}, 0)` |
+| `vsin.bf16 m(vd), m(vs1)` | VR | `0B/49` | `9200000b` / `fff820ff` | vpu | all | `{m[vd], m[vd+1]} = sin({m[vs1], m[vs1+1]})` |
+| `vcos.bf16 m(vd), m(vs1)` | VR | `0B/4A` | `9400000b` / `fff820ff` | vpu | all | `{m[vd], m[vd+1]} = cos({m[vs1], m[vs1+1]})` |
+| `vtanh.bf16 m(vd), m(vs1)` | VR | `0B/4B` | `9600000b` / `fff820ff` | vpu | all | `{m[vd], m[vd+1]} = tanh({m[vs1], m[vs1+1]})` |
+| `vlog2.bf16 m(vd), m(vs1)` | VR | `0B/4C` | `9800000b` / `fff820ff` | vpu | all | `{m[vd], m[vd+1]} = log2({m[vs1], m[vs1+1]})` |
+| `vsqrt.bf16 m(vd), m(vs1)` | VR | `0B/4D` | `9a00000b` / `fff820ff` | vpu | all | `{m[vd], m[vd+1]} = sqrt({m[vs1], m[vs1+1]})` |
+| `vtrpose.xlu m(vd), m(vs1)` | VR | `0B/50` | `a000000b` / `fff8007f` | xlu | all | `m[vd] = m[vs1]^T (32 x 32 bytes)` |
+| `vmatpush.weight.nv w(vd), m(vs1)` | VR | `0B/60` | `c000000b` / `fff81f7f` | nv | ipt-nvfp4 | `nv.w[vd] = m[vs1] and its scales (row j = output column j)` |
+| `vmatpush.acc.bf16.nv acc(vd), m(vs1)` | VR | `0B/61` | `c200000b` / `fff83f7f` | nv | ipt-nvfp4 | `nv.acc[vd] = {m[vs1], m[vs1+1]} (BF16, exact in FP32)` |
+| `vmatpush.acc.fp32.nv acc(vd), m(vs1)` | VR | `0B/62` | `c400000b` / `fff87f7f` | nv | ipt-nvfp4 | `nv.acc[vd] = m[vs1..vs1+3] (register q holds columns 8q..8q+7)` |
+| `vmatpop.bf16.acc.nv m(vd), acc(vs2)` | VR | `0B/64` | `c800000b` / `fff7e0ff` | nv | ipt-nvfp4 | `{m[vd], m[vd+1]} = BF16(nv.acc[vs2]) (round to nearest even)` |
+| `vmatpop.fp32.acc.nv m(vd), acc(vs2)` | VR | `0B/66` | `cc00000b` / `fff7e1ff` | nv | ipt-nvfp4 | `m[vd..vd+3] = nv.acc[vs2] (register q holds columns 8q..8q+7)` |
+| `vmatmul.nv acc(vd), m(vs1), w(vs2)` | VR | `0B/68` | `d000000b` / `fff01f7f` | nv | ipt-nvfp4 | `nv.acc[vd] = m[vs1] @ nv.w[vs2]^T (64 NVFP4 elements, FP32)` |
+| `vmatmul.acc.nv acc(vd), m(vs1), w(vs2)` | VR | `0B/69` | `d200000b` / `fff01f7f` | nv | ipt-nvfp4 | `nv.acc[vd] = nv.acc[vd] + m[vs1] @ nv.w[vs2]^T (one NVIDIA m16n8k64 step)` |
+| `vmatpush.weight.mxu1 w(vd), m(vs1)` | VR | `0B/70` | `e000000b` / `fff81f7f` | mxu1 | all | `mxu1.w[vd] = m[vs1] (E4M3; row j = output column j)` |
+| `vmatpush.acc.bf16.mxu1 acc(vd), m(vs1)` | VR | `0B/71` | `e200000b` / `fff83f7f` | mxu1 | all | `mxu1.acc[vd] = {m[vs1], m[vs1+1]}` |
+| `vmatpush.acc.fp8.mxu1 acc(vd), m(vs1)` | VR | `0B/73` | `e600000b` / `fff81f7f` | mxu1 | all | `mxu1.acc[vd] = BF16(m[vs1]) (E4M3)` |
+| `vmatpop.bf16.acc.mxu1 m(vd), acc(vs2)` | VR | `0B/74` | `e800000b` / `fff7e0ff` | mxu1 | all | `{m[vd], m[vd+1]} = mxu1.acc[vs2]` |
+| `vmatpop.fp8.acc.mxu1 m(vd), acc(vs2), e(vs1)` | VR | `0B/77` | `ee00000b` / `fff4007f` | mxu1 | all | `m[vd] = E4M3(mxu1.acc[vs2] * 2^(e[vs1] - 127))` |
+| `vmatmul.mxu1 acc(vd), m(vs1), w(vs2)` | VR | `0B/78` | `f000000b` / `fff01f7f` | mxu1 | all | `mxu1.acc[vd] = m[vs1] @ mxu1.w[vs2]^T` |
+| `vmatmul.acc.mxu1 acc(vd), m(vs1), w(vs2)` | VR | `0B/79` | `f200000b` / `fff01f7f` | mxu1 | all | `mxu1.acc[vd] = mxu1.acc[vd] + m[vs1] @ mxu1.w[vs2]^T` |
 | `fence` | I | `0F/0` | `0000000f` / `0000707f` | scalar | all | `no operation` |
 | `addi x(rd), x(rs1), imm` | I | `13/0` | `00000013` / `0000707f` | scalar | all | `x[rd] = x[rs1] + imm` |
 | `slli x(rd), x(rs1), shamt` | I | `13/1/00` | `00001013` / `fe00707f` | scalar | all | `x[rd] = x[rs1] << shamt` |
@@ -308,6 +347,12 @@ Rows are ordered by hex value.
 | `sb x(rs2), imm(x(rs1))` | S | `23/0` | `00000023` / `0000707f` | lsu | all | `VMEM[x[rs1] + imm] = x[rs2][7:0]` |
 | `sh x(rs2), imm(x(rs1))` | S | `23/1` | `00001023` / `0000707f` | lsu | all | `VMEM[x[rs1] + imm] = x[rs2][15:0]` |
 | `sw x(rs2), imm(x(rs1))` | S | `23/2` | `00002023` / `0000707f` | lsu | all | `VMEM[x[rs1] + imm] = x[rs2]` |
+| `vli.all m(vd), imm` | VI | `2B/0` | `0000002b` / `0000e0ff` | vpu | all | `{m[vd], m[vd+1]}[i, j] = imm` |
+| `vli.row m(vd), imm` | VI | `2B/1` | `0000202b` / `0000e0ff` | vpu | all | `{m[vd], m[vd+1]}[0, j] = imm; the other rows = 0` |
+| `vli.col m(vd), imm` | VI | `2B/2` | `0000402b` / `0000e07f` | vpu | all | `m[vd][i, 0] = imm; the other elements = 0` |
+| `vli.one m(vd), imm` | VI | `2B/3` | `0000602b` / `0000e07f` | vpu | all | `m[vd][0, 0] = imm; the other elements = 0` |
+| `seli e(vd), imm` | VI | `2B/4` | `0000802b` / `ff00f07f` | scalar | all | `e[vd] = imm` |
+| `delay imm` | VI | `2B/5` | `0000a02b` / `f000ffff` | scalar | all | `hold decode issue for imm cycles` |
 | `add x(rd), x(rs1), x(rs2)` | R | `33/0/00` | `00000033` / `fe00707f` | scalar | all | `x[rd] = x[rs1] + x[rs2]` |
 | `sub x(rd), x(rs1), x(rs2)` | R | `33/0/20` | `40000033` / `fe00707f` | scalar | all | `x[rd] = x[rs1] - x[rs2]` |
 | `sll x(rd), x(rs1), x(rs2)` | R | `33/1/00` | `00001033` / `fe00707f` | scalar | all | `x[rd] = x[rs1] << x[rs2][4:0]` |
@@ -319,35 +364,10 @@ Rows are ordered by hex value.
 | `or x(rd), x(rs1), x(rs2)` | R | `33/6/00` | `00006033` / `fe00707f` | scalar | all | `x[rd] = x[rs1] \| x[rs2]` |
 | `and x(rd), x(rs1), x(rs2)` | R | `33/7/00` | `00007033` / `fe00707f` | scalar | all | `x[rd] = x[rs1] & x[rs2]` |
 | `lui x(rd), imm` | U | `37` | `00000037` / `0000007f` | scalar | all | `x[rd] = {imm, 12'b0}` |
-| `vadd.bf16 m(vd), m(vs1), m(vs2)` | VR | `57/00` | `00000057` / `fe00007f` | vpu | all | `{m[vd], m[vd+1]} = {m[vs1], m[vs1+1]} + {m[vs2], m[vs2+1]}` |
-| `vredsum.bf16 m(vd), m(vs1)` | VR | `57/01` | `02000057` / `fe00007f` | vpu | all | `lane j: sum of column j of m[vs1] and m[vs1+1], in every row of m[vd] and m[vd+1]` |
-| `vsub.bf16 m(vd), m(vs1), m(vs2)` | VR | `57/02` | `04000057` / `fe00007f` | vpu | all | `{m[vd], m[vd+1]} = {m[vs1], m[vs1+1]} - {m[vs2], m[vs2+1]}` |
-| `vmul.bf16 m(vd), m(vs1), m(vs2)` | VR | `57/03` | `06000057` / `fe00007f` | vpu | all | `{m[vd], m[vd+1]} = {m[vs1], m[vs1+1]} * {m[vs2], m[vs2+1]}` |
-| `vminimum.bf16 m(vd), m(vs1), m(vs2)` | VR | `57/04` | `08000057` / `fe00007f` | vpu | all | `{m[vd], m[vd+1]} = min({m[vs1], m[vs1+1]}, {m[vs2], m[vs2+1]})` |
-| `vredmin.bf16 m(vd), m(vs1)` | VR | `57/05` | `0a000057` / `fe00007f` | vpu | all | `lane j: min of column j of m[vs1] and m[vs1+1], in every row of m[vd] and m[vd+1]` |
-| `vmaximum.bf16 m(vd), m(vs1), m(vs2)` | VR | `57/06` | `0c000057` / `fe00007f` | vpu | all | `{m[vd], m[vd+1]} = max({m[vs1], m[vs1+1]}, {m[vs2], m[vs2+1]})` |
-| `vredmax.bf16 m(vd), m(vs1)` | VR | `57/07` | `0e000057` / `fe00007f` | vpu | all | `lane j: max of column j of m[vs1] and m[vs1+1], in every row of m[vd] and m[vd+1]` |
-| `vredsum.row.bf16 m(vd), m(vs1)` | VR | `57/21` | `42000057` / `fe00007f` | vpu | all | `{m[vd], m[vd+1]}[i, j] = sum({m[vs1], m[vs1+1]}[i, :])` |
-| `vredmin.row.bf16 m(vd), m(vs1)` | VR | `57/24` | `48000057` / `fe00007f` | vpu | all | `{m[vd], m[vd+1]}[i, j] = min({m[vs1], m[vs1+1]}[i, :])` |
-| `vredmax.row.bf16 m(vd), m(vs1)` | VR | `57/26` | `4c000057` / `fe00007f` | vpu | all | `{m[vd], m[vd+1]}[i, j] = max({m[vs1], m[vs1+1]}[i, :])` |
-| `vmov m(vd), m(vs1)` | VR | `57/40` | `80000057` / `fe00007f` | vpu | all | `{m[vd], m[vd+1]} = {m[vs1], m[vs1+1]}` |
-| `vrecip.bf16 m(vd), m(vs1)` | VR | `57/41` | `82000057` / `fe00007f` | vpu | all | `{m[vd], m[vd+1]} = 1 / {m[vs1], m[vs1+1]}` |
-| `vexp.bf16 m(vd), m(vs1)` | VR | `57/42` | `84000057` / `fe00007f` | vpu | all | `{m[vd], m[vd+1]} = exp({m[vs1], m[vs1+1]})` |
-| `vexp2.bf16 m(vd), m(vs1)` | VR | `57/43` | `86000057` / `fe00007f` | vpu | all | `{m[vd], m[vd+1]} = 2^{m[vs1], m[vs1+1]}` |
-| `vpack.bf16.fp8 m(vd), m(vs2), e(vs1)` | VR | `57/44` | `88000057` / `fe00007f` | vpu | all | `m[vd] = E4M3({m[vs2], m[vs2+1]} / 2^(e[vs1] - 127)) (FP8 row k = BF16 rows 2k, 2k+1)` |
-| `vunpack.fp8.bf16 m(vd), m(vs2), e(vs1)` | VR | `57/45` | `8a000057` / `fe00007f` | vpu | all | `{m[vd], m[vd+1]} = BF16(m[vs2] * 2^(e[vs1] - 127)) (vpack's row layout)` |
-| `vsquare.bf16 m(vd), m(vs1)` | VR | `57/46` | `8c000057` / `fe00007f` | vpu | all | `{m[vd], m[vd+1]} = {m[vs1], m[vs1+1]}^2` |
-| `vcube.bf16 m(vd), m(vs1)` | VR | `57/47` | `8e000057` / `fe00007f` | vpu | all | `{m[vd], m[vd+1]} = {m[vs1], m[vs1+1]}^3` |
-| `vrelu.bf16 m(vd), m(vs1)` | VR | `57/48` | `90000057` / `fe00007f` | vpu | all | `{m[vd], m[vd+1]} = max({m[vs1], m[vs1+1]}, 0)` |
-| `vsin.bf16 m(vd), m(vs1)` | VR | `57/49` | `92000057` / `fe00007f` | vpu | all | `{m[vd], m[vd+1]} = sin({m[vs1], m[vs1+1]})` |
-| `vcos.bf16 m(vd), m(vs1)` | VR | `57/4A` | `94000057` / `fe00007f` | vpu | all | `{m[vd], m[vd+1]} = cos({m[vs1], m[vs1+1]})` |
-| `vtanh.bf16 m(vd), m(vs1)` | VR | `57/4B` | `96000057` / `fe00007f` | vpu | all | `{m[vd], m[vd+1]} = tanh({m[vs1], m[vs1+1]})` |
-| `vlog2.bf16 m(vd), m(vs1)` | VR | `57/4C` | `98000057` / `fe00007f` | vpu | all | `{m[vd], m[vd+1]} = log2({m[vs1], m[vs1+1]})` |
-| `vsqrt.bf16 m(vd), m(vs1)` | VR | `57/4D` | `9a000057` / `fe00007f` | vpu | all | `{m[vd], m[vd+1]} = sqrt({m[vs1], m[vs1+1]})` |
-| `vli.all m(vd), imm` | VI | `5F/0` | `0000005f` / `0000e07f` | vpu | all | `{m[vd], m[vd+1]}[i, j] = imm` |
-| `vli.row m(vd), imm` | VI | `5F/1` | `0000205f` / `0000e07f` | vpu | all | `{m[vd], m[vd+1]}[0, j] = imm; the other rows = 0` |
-| `vli.col m(vd), imm` | VI | `5F/2` | `0000405f` / `0000e07f` | vpu | all | `m[vd][i, 0] = imm; the other elements = 0` |
-| `vli.one m(vd), imm` | VI | `5F/3` | `0000605f` / `0000e07f` | vpu | all | `m[vd][0, 0] = imm; the other elements = 0` |
+| `vload m(vd), imm(x(rs1))` | VLS | `5B/0` | `0000005b` / `0000607f` | lsu | all | `m[vd] = VMEM[x[rs1] + (imm << 5)]` |
+| `vstore m(vd), imm(x(rs1))` | VLS | `5B/1` | `0000205b` / `0000607f` | lsu | all | `VMEM[x[rs1] + (imm << 5)] = m[vd]` |
+| `vload.scale m(vd), imm(x(rs1))` | VLS | `5B/2` | `0000405b` / `0000607f` | lsu | ipt-nvfp4 | `scales of m[vd] = 128 B of VMEM at x[rs1] + (imm << 5)` |
+| `vstore.scale m(vd), imm(x(rs1))` | VLS | `5B/3` | `0000605b` / `0000607f` | lsu | ipt-nvfp4 | `128 B of VMEM at x[rs1] + (imm << 5) = scales of m[vd]` |
 | `beq x(rs1), x(rs2), offset` | B | `63/0` | `00000063` / `0000707f` | scalar | all | `if (x[rs1] == x[rs2]) pc = pc + offset after 1 delay slot` |
 | `bne x(rs1), x(rs2), offset` | B | `63/1` | `00001063` / `0000707f` | scalar | all | `if (x[rs1] != x[rs2]) pc = pc + offset after 1 delay slot` |
 | `blt x(rs1), x(rs2), offset` | B | `63/4` | `00004063` / `0000707f` | scalar | all | `if ($signed(x[rs1]) < $signed(x[rs2])) pc = pc + offset after 1 delay slot` |
@@ -355,8 +375,6 @@ Rows are ordered by hex value.
 | `bltu x(rs1), x(rs2), offset` | B | `63/6` | `00006063` / `0000707f` | scalar | all | `if (x[rs1] < x[rs2]) pc = pc + offset after 1 delay slot` |
 | `bgeu x(rs1), x(rs2), offset` | B | `63/7` | `00007063` / `0000707f` | scalar | all | `if (x[rs1] >= x[rs2]) pc = pc + offset after 1 delay slot` |
 | `jalr x(rd), x(rs1), imm` | I | `67/0` | `00000067` / `0000707f` | scalar | all | `next_pc = x[rs1] + imm; x[rd] = pc + 1; pc = next_pc after 1 delay slot` |
-| `delay imm` | I | `67/1` | `00001067` / `0000707f` | scalar | all | `hold decode issue for imm cycles` |
-| `vtrpose.xlu m(vd), m(vs1)` | VR | `6B/00` | `0000006b` / `fe00007f` | xlu | all | `m[vd] = m[vs1]^T (32 x 32 bytes)` |
 | `jal x(rd), offset` | J | `6F` | `0000006f` / `0000007f` | scalar | all | `x[rd] = pc + 1; pc = pc + offset after 1 delay slot` |
 | `ecall` | I | `73/0/000` | `00000073` / `ffffffff` | scalar | all | `halt_reason = ECALL; halt = 1'b1` |
 | `ebreak` | I | `73/0/001` | `00100073` / `ffffffff` | scalar | all | `halt_reason = EBREAK; halt = 1'b1` |
@@ -366,24 +384,11 @@ Rows are ordered by hex value.
 | `csrrwi x(rd), csr, uimm` | I | `73/5` | `00005073` / `0000707f` | scalar | all | `x[rd] = CSR[csr]; CSR[csr] = uimm` |
 | `csrrsi x(rd), csr, uimm` | I | `73/6` | `00006073` / `0000707f` | scalar | all | `x[rd] = CSR[csr]; if (uimm != 0) CSR[csr] = CSR[csr] \| uimm` |
 | `csrrci x(rd), csr, uimm` | I | `73/7` | `00007073` / `0000707f` | scalar | all | `x[rd] = CSR[csr]; if (uimm != 0) CSR[csr] = CSR[csr] & ~uimm` |
-| `vmatpush.weight.mxu1 w(vd), m(vs1)` | VR | `77/01` | `02000077` / `fe00007f` | mxu1 | all | `mxu1.w[vd] = m[vs1] (E4M3; row j = output column j)` |
-| `vmatpush.acc.fp8.mxu1 acc(vd), m(vs1)` | VR | `77/03` | `06000077` / `fe00007f` | mxu1 | all | `mxu1.acc[vd] = BF16(m[vs1]) (E4M3)` |
-| `vmatpush.acc.bf16.mxu1 acc(vd), m(vs1)` | VR | `77/05` | `0a000077` / `fe00007f` | mxu1 | all | `mxu1.acc[vd] = {m[vs1], m[vs1+1]}` |
-| `vmatpop.fp8.acc.mxu1 m(vd), acc(vs2), e(vs1)` | VR | `77/07` | `0e000077` / `fe00007f` | mxu1 | all | `m[vd] = E4M3(mxu1.acc[vs2] * 2^(e[vs1] - 127))` |
-| `vmatpop.bf16.acc.mxu1 m(vd), acc(vs2)` | VR | `77/09` | `12000077` / `fe00007f` | mxu1 | all | `{m[vd], m[vd+1]} = mxu1.acc[vs2]` |
-| `vmatmul.mxu1 acc(vd), m(vs1), w(vs2)` | VR | `77/0B` | `16000077` / `fe00007f` | mxu1 | all | `mxu1.acc[vd] = m[vs1] @ mxu1.w[vs2]^T` |
-| `vmatmul.acc.mxu1 acc(vd), m(vs1), w(vs2)` | VR | `77/0D` | `1a000077` / `fe00007f` | mxu1 | all | `mxu1.acc[vd] = mxu1.acc[vd] + m[vs1] @ mxu1.w[vs2]^T` |
-| `vmatpush.weight.nv w(vd), m(vs1)` | VR | `77/0E` | `1c000077` / `fe00007f` | nv | ipt-nvfp4 | `nv.w[vd] = m[vs1] and its scales (row j = output column j)` |
-| `vmatpush.acc.bf16.nv acc(vd), m(vs1)` | VR | `77/0F` | `1e000077` / `fe00007f` | nv | ipt-nvfp4 | `nv.acc[vd] = {m[vs1], m[vs1+1]} (BF16, exact in FP32)` |
-| `vmatpush.acc.fp32.nv acc(vd), m(vs1)` | VR | `77/10` | `20000077` / `fe00007f` | nv | ipt-nvfp4 | `nv.acc[vd] = m[vs1..vs1+3] (register q holds columns 8q..8q+7)` |
-| `vmatpop.bf16.acc.nv m(vd), acc(vs2)` | VR | `77/11` | `22000077` / `fe00007f` | nv | ipt-nvfp4 | `{m[vd], m[vd+1]} = BF16(nv.acc[vs2]) (round to nearest even)` |
-| `vmatpop.fp32.acc.nv m(vd), acc(vs2)` | VR | `77/12` | `24000077` / `fe00007f` | nv | ipt-nvfp4 | `m[vd..vd+3] = nv.acc[vs2] (register q holds columns 8q..8q+7)` |
-| `vmatmul.nv acc(vd), m(vs1), w(vs2)` | VR | `77/13` | `26000077` / `fe00007f` | nv | ipt-nvfp4 | `nv.acc[vd] = m[vs1] @ nv.w[vs2]^T (64 NVFP4 elements, FP32)` |
-| `vmatmul.acc.nv acc(vd), m(vs1), w(vs2)` | VR | `77/14` | `28000077` / `fe00007f` | nv | ipt-nvfp4 | `nv.acc[vd] = nv.acc[vd] + m[vs1] @ nv.w[vs2]^T (one NVIDIA m16n8k64 step)` |
 | `dma.load x(rd), x(rs1), x(rs2), ch` | R | `7B/00` | `0000007b` / `fe00007f` | dma | all | `channel ch: VMEM[x[rd]] = DRAM[{dma.base, x[rs1]}], x[rs2] bytes` |
 | `dma.store x(rd), x(rs1), x(rs2), ch` | R | `7B/01` | `0200007b` / `fe00007f` | dma | all | `channel ch: DRAM[{dma.base, x[rd]}] = VMEM[x[rs1]], x[rs2] bytes` |
-| `dma.config x(rs1), ch` | R | `7F/00` | `0000007f` / `fff00fff` | dma | all | `dma.base = x[rs1]` |
-| `dma.wait ch` | R | `7F/01` | `0200007f` / `ffff8fff` | dma | all | `hold issue until channel ch is idle` |
+| `dma.config x(rs1), ch` | R | `7B/02` | `0400007b` / `fff00fff` | dma | all | `dma.base = x[rs1]` |
+| `dma.wait ch` | R | `7B/03` | `0600007b` / `ffff8fff` | dma | all | `hold issue until channel ch is idle` |
+| `seld e(rd), x(rs1)` | R | `7B/04` | `0800007b` / `fff0707f` | lsu | all | `e[rd] = VMEM[x[rs1]]` |
 <!-- END generated -->
 
 

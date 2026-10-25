@@ -1,7 +1,8 @@
 """Disassembler: Atlas instruction words to assembly that npu_model's assembler reads back.
 
 A branch or jump to an address in the program gets a label, L<address>. Addresses count words or
-bytes, as the table's `pc` says.
+bytes, as the table's `pc` says. A word that is no instruction (illegal) prints as `.word`, which
+the assembler does not read.
 """
 from npu_model.isa import TABLE
 from npu_model.isa.table import KINDS, PLACEHOLDER, Entry, Table, take, width
@@ -40,8 +41,8 @@ def _instruction(t: Table, e: Entry, address: int, word: int, end: int) -> str:
 
     def show(field: str) -> str:
         kind, value = e.operands[field], take(fields[field], word)
-        if KINDS[kind]:
-            return f"{KINDS[kind]}{value}"
+        if KINDS[kind].prefix:
+            return f"{KINDS[kind].prefix}{value}"
         if kind == "ch":
             return f"ch{value}"
         if kind == "imm":

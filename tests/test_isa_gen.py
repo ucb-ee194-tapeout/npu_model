@@ -19,6 +19,8 @@ def test_scala_bitpats_and_version() -> None:
     assert {name: mask_match(bits) for name, bits in pats.items()} == \
         {e.name: (e.mask, e.match) for e in TABLE.entries.values()}
     assert f"val ISA_MAJOR = {TABLE.version[0]}\n  val ISA_MINOR = {TABLE.version[1]}\n" in text
+    assert re.findall(r'^    \("(\w+)", (\w+), "(\w+)"\)', text, re.M) == \
+        [(e.name, e.name, e.unit) for e in TABLE.entries.values()]
 
 
 def test_card_is_generated() -> None:

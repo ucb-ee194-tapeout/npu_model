@@ -177,10 +177,12 @@ class Funct7(BoundedInt):
 
 class RegBase(BoundedInt):
     reg_name: str = "base"
+    align: int = 1
+    """The register number is a multiple of align."""
 
     @classmethod
     def autocomplete(cls) -> list[str]:
-        return [f"{cls.fmt}{i}" for i in range(cls.lower_bound, cls.upper_bound)]
+        return [f"{cls.fmt}{i}" for i in range(cls.lower_bound, cls.upper_bound, cls.align)]
 
     @classmethod
     def format_arg(cls, role: str):
@@ -208,6 +210,9 @@ class RegBase(BoundedInt):
                     token_index=tok_idx,
                 )
             ]
+
+        if cls.lower_bound <= val < cls.upper_bound and val % cls.align:
+            return [AsmError(f"{cls.reg_name.capitalize()} '{val}' is not a multiple of {cls.align}", token_index=tok_idx)]
 
         if cls.lower_bound <= val < cls.upper_bound:
             return []
@@ -313,6 +318,20 @@ class MatrixReg(RegBase):
     upper_bound = 64
     fmt = "m"
     reg_name = "matrix register"
+
+
+class MatrixPair(MatrixReg):
+    """The first register of a BF16 tile {m[r], m[r+1]}: an even matrix register."""
+
+    align = 2
+    reg_name = "BF16 tile register"
+
+
+class MatrixQuad(MatrixReg):
+    """The first register of an FP32 tile m[r..r+3]: a matrix register that is a multiple of 4."""
+
+    align = 4
+    reg_name = "FP32 tile register"
 
 
 type AccumulatorL = Literal[0, 1]
@@ -425,6 +444,22 @@ class SBImm12(BoundedInt):
         return [
             AsmError(f"Branch offset must be even (got {val})", token_index=tok_idx)
         ]
+
+
+class UImm8(BoundedInt):
+    """An unsigned 8-bit immediate (0-255)."""
+
+    lower_bound = 0
+    upper_bound = 256
+    fmt = "uimm8"
+
+
+class UImm12(BoundedInt):
+    """An unsigned 12-bit immediate (0-4095)."""
+
+    lower_bound = 0
+    upper_bound = 4096
+    fmt = "uimm12"
 
 
 # Imm16
