@@ -22,8 +22,8 @@ The standalone Python checkout checks artifact hashes without requiring RTL.
 
 | Fixture | Real RTL instantiated | Signals compared / coverage |
 | --- | --- | --- |
-| `scalar_cases.json`, `scalar_traces.json` | `ScalarCore` | Fetch/S1 PCs, issue, halt, illegal, CSR write data; 15 branch, jump, delay, load and DMA-wait scenarios |
-| `vector_traces.json` | `VectorEngineTop` | Every MREG read/write cycle, address and output bit; 29 operations, special encodings, overlap, mirrored reads, in-place move and last-write handoff |
+| `scalar_cases.json`, `scalar_traces.json` | `ScalarCore` | Fetch/S1 PCs, issue, halt, illegal, CSR write data; 16 branch, jump, delay, load and DMA-wait scenarios |
+| `vector_traces.json` | `VectorEngineTop` | Every MREG read/write cycle, address and output bit; 29 operations, special encodings, overlap, mirrored reads, in-place move and last-write handoff; `.vx` and `.vr` forms; issue-busy of each form |
 | `ipt_traces.json` | `InnerProductTreesTop` | Every MREG read/write cycle/address/data; all ten commands, accumulator chaining and overlapping weight push/compute |
 | `memory_traces.json` | `LSU`, `XluEngine` | Concurrent scalar/VLOAD/VSTORE and transpose requests, write data, scalar writeback; VMEM and MREG accesses |
 | `dma_traces.json` | `DmaEngine`, `Vmem` | Per-cycle TileLink A/D fires, VMEM read/write requests and grants, channel busy; six interleaved load/store commands, out-of-order responses, A-channel backpressure, LSU bank denials |

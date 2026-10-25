@@ -106,6 +106,15 @@
       "00000073"
     ]
   },
+  "load_then_vx": {
+    "source": "lw x5, 0(x0)\nvadd.bf16.vx m0, m2, x5\ncsrrw x0, 0x800, x5\necall\n",
+    "words": [
+      "00002283",
+      "1050400b",
+      "80029073",
+      "00000073"
+    ]
+  },
   "backward_branch_loop": {
     "source": "li x1, 3\nli x2, 0\nloop:\naddi x2, x2, 1\naddi x1, x1, -1\nbne x1, x0, loop\naddi x2, x2, 10\ncsrrw x0, 0x800, x2\necall\n",
     "words": [

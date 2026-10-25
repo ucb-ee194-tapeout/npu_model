@@ -16,9 +16,9 @@
     "tests/rtl/ipt_traces.json": "6e82297d9f5f0a3ddf47d8c2a18baed60b7f1b5255aac06e80ba02d4080af2c7",
     "tests/rtl/memory_traces.json": "9eba3202f2f3b79e6f539aac9a3a816c7dd08fd9e4e17b4c6369d72b412d9c9c",
     "tests/rtl/sa_traces.json": "62252fd1312d7e31013b6c4a310be0e5f567eee8055218d376a06731aca60573",
-    "tests/rtl/scalar_cases.json": "7e730966c5c491a1cf30bb890228d21cd3fb280ae211f3b90cdf38361e0498dc",
-    "tests/rtl/scalar_traces.json": "809c2b4e309feef8998473e10e0931c839d01b97fa0a855ee357b02279da881d",
-    "tests/rtl/vector_traces.json": "f505e276c9993ecd86893a2a1193f1e43fbe0b278999ca64c567fe58f95f3be4"
+    "tests/rtl/scalar_cases.json": "52a7129fbd562ea1460eff001d0575d4d78b7ffc3a54ef5afbb8015f68eb3f6a",
+    "tests/rtl/scalar_traces.json": "bc071cc13e832e8f6691717cc2ce860e755091fc2beb4e1daf11a5173fe6ec4b",
+    "tests/rtl/vector_traces.json": "684aa9b8912777af181f433b91e0e50457ebdd1864d54e6d34160e9efdacd0cc"
   },
   "description": "SHA256 of RTL/harness sources and their generated artifacts.",
   "sources": {
@@ -89,7 +89,7 @@
     "npu-model/tests/rtl/scala/mxu/NpuModelArithmeticTraceTest.scala": "c757a22ca9cdc5f959a2eabfdc595776a6171bd3d3b2d7735fe8a69321a8ce2c",
     "npu-model/tests/rtl/scala/mxu/NpuModelMatrixTraceTest.scala": "2f04b6210af7d08a8a35ce9ae72dc2d8ab4cae70fa8017700eb2155764512b4c",
     "npu-model/tests/rtl/scala/scalar/NpuModelScalarTraceTest.scala": "3100bc7a00ab0fb766bf0e3683a3186d8c324dcb70c5c4a0b6b6a4750305a5f3",
-    "npu-model/tests/rtl/scala/vector/NpuModelVectorTraceTest.scala": "cdd6833171e045abc3cc47a6e094049aa5f9829a99fd991a456ddafa6f47f955",
+    "npu-model/tests/rtl/scala/vector/NpuModelVectorTraceTest.scala": "0c18faa4b869b3cd4eb7e312a19d43d6180bdb7aecc829d721ce0cf301e3e26b",
     "src/main/scala/atlas/common/AtlasParams.scala": "b819cb7068ff9fc67af9689ebacf9c0095738dec408f27b2cfdd813027854c58",
     "src/main/scala/atlas/common/Cvt.scala": "a3c3e18b811a0380c994082c01ebad247a4b1ed488a3d171db283b1a5db6496f",
     "src/main/scala/atlas/common/DmaParams.scala": "7d335eff289859e6d5a114c76593aa47bbcf24b521645f98268f981c9136d4ad",

@@ -31,6 +31,11 @@ def test_vector_rtl_port_trace(vpu, name):
             'm4, m0, m2' if name in {'add','sub','mul','pairmax','pairmin'} else 'm4, m0')
     if case == 'add_mirrored': args = 'm4, m0, m0'
     if case == 'mov_inplace': args = 'm0, m0'
+    if '_vx' in case:   # the harness gives the scalar as the command's imm
+        mnemonic, args = mnemonic + '.vx', 'm4, m0, x5'
+        state.write_xrf(5, (0xff80 if case == 'mul_vx_special' else 0x3f80) << 16)
+    if '_vr' in case:
+        mnemonic, args = mnemonic + '.vr', 'm2, m0, m2' if case == 'add_vr_inplace' else 'm4, m0, m2'
     insn = stream_to_instrs(StringIO(mnemonic + ' ' + args))[0]
     accesses = []
     original = state.conflict_checker.access_mreg
@@ -41,10 +46,13 @@ def test_vector_rtl_port_trace(vpu, name):
     for expected in TRACES[case]:
         accesses.clear()
         assert vpu.has_in_flight == expected['busy'], (case, expected['cycle'], 'busy')
-        assert vpu.issue_busy_mask() == expected['issue_busy'], (case, expected['cycle'], 'issue_busy')
+        for form, key in (('', 'issue_busy'), ('.vx', 'issue_busy_vx'), ('.vr', 'issue_busy_vr')):
+            assert vpu.issue_busy_mask(form) == expected[key], (case, expected['cycle'], key)
         command = insn if expected['cycle'] == 1 else None
-        if case == 'mov_overlap' and expected['cycle'] == 2:
+        if case in ('mov_overlap', 'add_vx_overlap') and expected['cycle'] == 2:
             command = stream_to_instrs(StringIO('vrecip.bf16 m10, m8'))[0]
+        if case == 'mov_row0' and expected['cycle'] == 65:
+            command = stream_to_instrs(StringIO('vmul.bf16.vr m10, m8, m12'))[0]
         if case == 'mov_handoff' and expected['cycle'] == 66:
             command = stream_to_instrs(StringIO('vmov m10, m8'))[0]
         tick(vpu, command)

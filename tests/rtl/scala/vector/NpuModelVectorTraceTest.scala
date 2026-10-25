@@ -17,7 +17,7 @@ class NpuModelVectorTraceHarness extends Module {
     val reads = Vec(2, Valid(new MregReadReq(p)))
     val writes = Vec(2, Valid(new MregWriteReq(p)))
     val busy = Output(Bool())
-    val issueBusy = Output(UInt(31.W))
+    val issueBusy = Output(Vec(3, UInt(31.W)))
   })
   val vpu = Module(new VectorEngineTop(VpuParams(), p))
   vpu.io.cmd <> io.cmd
@@ -42,7 +42,9 @@ class NpuModelVectorTraceTest extends AnyFlatSpec {
     simulate(new NpuModelVectorTraceHarness) { dut =>
       val scenarios = names.zipWithIndex.filter(_._1 != "fp8") ++
         names.zipWithIndex.filter(x => Set("add", "sub", "mul", "rsum", "csum", "rmax", "rmin", "cmax", "cmin", "pairmax", "pairmin", "fp8pack", "fp8unpack").contains(x._1)).map { case (n,c) => (n + "_special",c) } ++
-        Seq("mov_overlap" -> 25, "add_mirrored" -> 0, "mov_inplace" -> 25, "mov_handoff" -> 25)
+        Seq("mov_overlap" -> 25, "add_mirrored" -> 0, "mov_inplace" -> 25, "mov_handoff" -> 25) ++
+        Seq("add_vx" -> 0, "mul_vx_special" -> 2, "pairmin_vx" -> 24, "sub_vr" -> 1, "pairmax_vr_special" -> 23,
+          "add_vr_inplace" -> 0, "add_vx_overlap" -> 0, "mov_row0" -> 25)
       for ((name, code) <- scenarios) {
         val mem = Array.tabulate(64, 32) { (bank, row) =>
           (0 until 16).foldLeft(BigInt(0)) { (bits, lane) =>
@@ -52,24 +54,30 @@ class NpuModelVectorTraceTest extends AnyFlatSpec {
           }
         }
         dut.io.cmd.valid.poke(false.B)
+        // .vx: the scalar is imm; .vr: row 0 of T(vs2)
+        val src = if (name.contains("_vx")) 1 else if (name.contains("_vr")) 2 else 0
         dut.io.cmd.bits.op.poke((code + 1).U)
+        dut.io.cmd.bits.src.poke(src.U)
         dut.io.cmd.bits.vs1.poke(0.U)
         dut.io.cmd.bits.vs2.poke((if(name == "add_mirrored") 0 else 2).U)
-        dut.io.cmd.bits.vd.poke((if(name == "mov_inplace") 0 else 4).U)
+        dut.io.cmd.bits.vd.poke((if(name == "mov_inplace") 0 else if(name == "add_vr_inplace") 2 else 4).U)
         dut.io.cmd.bits.scaleE8M0.poke(127.U)
-        dut.io.cmd.bits.imm.poke(0x3f80.U)
+        dut.io.cmd.bits.imm.poke((if(name == "mul_vx_special") 0xff80 else 0x3f80).U)
         dut.io.readData.foreach(_.poke(0.U))
         dut.reset.poke(true.B)
         dut.clock.step(2)
         dut.reset.poke(false.B)
         val events = ujson.Arr()
         for (cycle <- 1 to 135) {
-          val overlap = name == "mov_overlap" && cycle == 2
+          val overlap = (name == "mov_overlap" || name == "add_vx_overlap") && cycle == 2
           val handoff = name == "mov_handoff" && cycle == 66
-          dut.io.cmd.valid.poke((cycle == 1 || overlap || handoff).B)
-          if(overlap || handoff) {
-            dut.io.cmd.bits.op.poke((if(overlap) 4 else 26).U)
+          val row0 = name == "mov_row0" && cycle == 65
+          dut.io.cmd.valid.poke((cycle == 1 || overlap || handoff || row0).B)
+          if(overlap || handoff || row0) {
+            dut.io.cmd.bits.op.poke((if(overlap) 4 else if(handoff) 26 else 3).U)
+            dut.io.cmd.bits.src.poke((if(row0) 2 else 0).U)
             dut.io.cmd.bits.vs1.poke(8.U)
+            dut.io.cmd.bits.vs2.poke(12.U)
             dut.io.cmd.bits.vd.poke(10.U)
           }
           val reads = ujson.Arr()
@@ -95,7 +103,9 @@ class NpuModelVectorTraceTest extends AnyFlatSpec {
           }
           events.value += ujson.Obj("cycle" -> cycle, "reads" -> reads, "writes" -> writes,
             "busy" -> dut.io.busy.peek().litToBoolean,
-            "issue_busy" -> dut.io.issueBusy.peek().litValue.toDouble)
+            "issue_busy" -> dut.io.issueBusy(0).peek().litValue.toDouble,
+            "issue_busy_vx" -> dut.io.issueBusy(1).peek().litValue.toDouble,
+            "issue_busy_vr" -> dut.io.issueBusy(2).peek().litValue.toDouble)
           dut.clock.step()
         }
         traces(name) = events
@@ -119,6 +129,7 @@ class NpuModelUnaryTableTest extends AnyFlatSpec {
     simulate(new NpuModelVectorTraceHarness) { dut =>
       dut.io.cmd.valid.poke(false.B)
       dut.io.cmd.bits.op.poke(0.U)
+      dut.io.cmd.bits.src.poke(0.U)
       dut.io.cmd.bits.vs1.poke(0.U)
       dut.io.cmd.bits.vs2.poke(2.U)
       dut.io.cmd.bits.vd.poke(4.U)
