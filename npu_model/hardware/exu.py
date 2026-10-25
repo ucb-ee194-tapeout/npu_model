@@ -18,8 +18,8 @@ a whole byte memory, ("vmem",) or ("dram",)."""
 
 _MEMORIES = ("vmem", "dram")
 # Control state only S1 and the scalar unit change; staged exec must not.
-_FIXED = ("pc", "npc", "redirect_requested", "halted", "halt_reason", "in_delay_slot",
-          "flags", "csrf", "_csr_values")
+_FIXED = ("pc", "npc", "redirect_requested", "halted", "halt_reason", "flags", "csrf",
+          "_csr_values")
 
 
 def _tiles(state: ArchState) -> dict[Location, torch.Tensor]:

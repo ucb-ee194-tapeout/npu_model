@@ -86,8 +86,6 @@ addi x18, x18, 1024
 add x19, x19, x7
 addi x22, x22, 1
 blt x22, x12, loop_1
-addi x0, x0, 0
-addi x0, x0, 0
 vmatpop.bf16.acc.mxu1 m2, acc0
 delay 32
 addi x31, x3, 0  # DMA and VLS bases both count words
@@ -102,18 +100,12 @@ addi x16, x16, 1024
 add x17, x17, x6
 addi x21, x21, 1
 blt x21, x11, loop_2
-addi x0, x0, 0
-addi x0, x0, 0
 add x15, x15, x8
 add x14, x14, x9
 addi x20, x20, 1
 blt x20, x10, loop_3
-addi x0, x0, 0
-addi x0, x0, 0
 add x28, x28, x25
 add x29, x29, x26
 add x30, x30, x27
 addi x24, x24, 1
 blt x24, x23, loop_4
-addi x0, x0, 0
-addi x0, x0, 0

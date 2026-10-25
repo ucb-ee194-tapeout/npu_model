@@ -74,12 +74,8 @@ add x16, x16, x6
 add x17, x17, x6
 addi x19, x19, 1
 blt x19, x10, loop_1
-addi x0, x0, 0
-addi x0, x0, 0
 addi x14, x14, 1024
 add x12, x12, x20
 add x13, x13, x20
 addi x18, x18, 1
 blt x18, x9, loop_2
-addi x0, x0, 0
-addi x0, x0, 0

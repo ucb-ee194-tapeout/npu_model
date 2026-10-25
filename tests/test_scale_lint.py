@@ -24,31 +24,31 @@ CASES = {
         vload.scale m0, 4(x1)
         vload m0, 0(x1)
         vmatmul.nv acc0, m0, w0
-    """, [(2, STALE.format(0, 1))]),
+    """, [(8, STALE.format(0, 4))]),
     "never loaded": ("""
         vload m0, 0(x1)
         vmatpush.weight.nv w0, m0
-    """, [(1, UNLOADED.format(0))]),
+    """, [(4, UNLOADED.format(0))]),
     "an FP32 pop writes four registers": ("""
         vload.scale m7, 4(x1)
         vload.scale m8, 8(x1)
         vmatpop.fp32.acc.nv m4, acc0
         vmatmul.nv acc0, m7, w0
         vmatmul.nv acc0, m8, w0
-    """, [(3, STALE.format(7, 2))]),
-    "a loop reloads the data in the delay slot": ("""
+    """, [(12, STALE.format(7, 8))]),
+    "a loop reloads the data before its branch": ("""
         vload m0, 0(x1)
         vload.scale m0, 4(x1)
     loop:
         vmatmul.acc.nv acc0, m0, w0
-        bne x2, x0, loop
         vload m0, 0(x3)
+        bne x2, x0, loop
         ecall
-    """, [(2, STALE.format(0, 4))]),
-    "a jump runs its delay slot and skips the code after it": ("""
+    """, [(8, STALE.format(0, 12))]),
+    "a jump skips the code after it": ("""
         vload m0, 0(x1)
-        jal x0, done
         vload.scale m0, 4(x1)
+        jal x0, done
         vload m0, 0(x3)
     done:
         vmatmul.nv acc0, m0, w0

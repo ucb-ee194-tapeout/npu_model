@@ -56,6 +56,10 @@ class Instruction(ABC):
     ) -> None:
         raise NotImplementedError()
 
+    def jump_target(self, state: ArchState) -> int | None:
+        """The byte address that the instruction jumps to, or None if it does not jump."""
+        return None
+
     def __init_subclass__(cls, instr: bool = True) -> None:
         """An instruction class takes its mnemonic from its name (VREDSUM_ROW_BF16 gives
         vredsum.row.bf16), and its opcode, selector and fixed fields and unit from the mnemonic's table

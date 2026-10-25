@@ -56,34 +56,43 @@ def test_fetch_then_combined_decode_execute_writeback(make_core):
     assert core.total_completed == 2
 
 
-def test_one_delay_slot_and_word_relative_target(make_core):
+def test_taken_branch_drops_the_next_instruction_and_jumps_by_bytes(make_core):
     core = make_core([
-        BEQ(x(0), x(0), 8),  # decoded imm 8 -> target word 4
+        BEQ(x(0), x(0), 16),  # byte offset 16 -> word 4
         ADDI(x(1), x(0), 11),
         ADDI(x(2), x(0), 22),
         ADDI(x(3), x(0), 33),
         ADDI(x(4), x(0), 44),
     ])
     trace = step(core, 4)
-    assert [t['s1_pc'] for t in trace] == [None, 0, 1, 4]
-    assert core.arch_state.xrf[1:5] == [11, 0, 0, 44]
+    assert [t['s1_pc'] for t in trace] == [None, 0, None, 4]
+    assert core.arch_state.xrf[1:5] == [0, 0, 0, 44]
     assert trace[1]['redirect']
 
 
-def test_not_taken_branch_allows_immediately_following_branch(make_core):
-    core = make_core([BNE(x(0), x(0), 4), JAL(x(1), 4), DELAY(0), ADDI(x(2), x(0), 9)])
+def test_not_taken_branch_then_jump_links_the_byte_address(make_core):
+    core = make_core([BNE(x(0), x(0), 8), JAL(x(1), 8), DELAY(0), ADDI(x(2), x(0), 9)])
     trace = step(core, 5)
-    assert [t['s1_pc'] for t in trace] == [None, 0, 1, 2, 3]
-    assert core.arch_state.read_xrf(1) == 2
+    assert [t['s1_pc'] for t in trace] == [None, 0, 1, None, 3]
+    assert core.arch_state.read_xrf(1) == 8
     assert core.arch_state.read_xrf(2) == 9
 
 
-def test_taken_branch_rejects_branch_in_only_delay_slot(make_core):
-    core = make_core([BEQ(x(0), x(0), 6), JAL(x(0), 4), DELAY(0), DELAY(0)])
+@pytest.mark.parametrize('jump, target', [(BEQ(x(0), x(0), 6), 10), (JAL(x(2), -2), 2), (JALR(x(2), x(1), 0), 6)])
+def test_jump_to_a_target_with_bit_1_set_is_illegal(make_core, jump, target):
+    core = make_core([ADDI(x(1), x(0), 6), jump, ADDI(x(3), x(0), 3)])
     step(core, 2)
-    with pytest.raises(RuntimeError, match='delay-slot'):
+    with pytest.raises(RuntimeError, match=f"Illegal jump target {target:#x} of '{jump.mnemonic}'"):
         step(core)
-    assert core.arch_state.halted
+    assert core.arch_state.halt_reason == "illegal"
+    assert core.arch_state.execute_pc == 1
+    assert core.arch_state.xrf[2:4] == [0, 0]
+
+
+def test_not_taken_branch_to_a_target_with_bit_1_set_is_legal(make_core):
+    core = make_core([BNE(x(0), x(0), 6), ADDI(x(1), x(0), 1)])
+    step(core, 3)
+    assert core.arch_state.read_xrf(1) == 1
 
 
 @pytest.mark.parametrize('delay', [0, 1, 4, 4095])
@@ -104,25 +113,25 @@ def test_delay_retires_then_stalls_following_instruction(make_core, delay):
 
 
 def test_pc_relative_instruction_after_stall_uses_held_pc(make_core):
-    core = make_core([DELAY(3), JAL(x(1), 6), ADDI(x(2), x(0), 2), ADDI(x(3), x(0), 3), AUIPC(x(4), 1)])
+    core = make_core([DELAY(3), JAL(x(1), 12), ADDI(x(2), x(0), 2), ADDI(x(3), x(0), 3), AUIPC(x(4), 1)])
     trace = step(core, 8)
-    assert [t['s1_pc'] for t in trace if t['s1_fire']] == [0, 1, 2, 4]
-    assert core.arch_state.xrf[1:5] == [2, 2, 0, 4100]
+    assert [t['s1_pc'] for t in trace if t['s1_fire']] == [0, 1, 4]
+    assert core.arch_state.xrf[1:5] == [8, 0, 0, 4112]
 
 
-def test_delay_in_branch_slot_holds_target(make_core):
-    core = make_core([JAL(x(1), 6), DELAY(2), ADDI(x(2), x(0), 2), ADDI(x(3), x(0), 3)])
-    trace = step(core, 6)
-    assert [t['s1_pc'] for t in trace if t['s1_fire']] == [0, 1, 3]
+def test_dropped_delay_after_jump_does_not_stall(make_core):
+    core = make_core([JAL(x(1), 12), DELAY(2), ADDI(x(2), x(0), 2), ADDI(x(3), x(0), 3)])
+    trace = step(core, 4)
+    assert [t['s1_pc'] for t in trace if t['s1_fire']] == [0, 3]
     assert core.arch_state.read_xrf(2) == 0
     assert core.arch_state.read_xrf(3) == 3
 
 
-def test_jalr_same_source_destination_uses_old_source_and_word_link(make_core):
-    core = make_core([ADDI(x(1), x(0), 3), JALR(x(1), x(1), 1), DELAY(0), ADDI(x(2), x(0), 2), ADDI(x(3), x(0), 3)])
+def test_jalr_same_source_destination_uses_old_source_and_byte_link(make_core):
+    core = make_core([ADDI(x(1), x(0), 15), JALR(x(1), x(1), 2), DELAY(0), ADDI(x(2), x(0), 2), ADDI(x(3), x(0), 3)])
     trace = step(core, 5)
-    assert [t['s1_pc'] for t in trace] == [None, 0, 1, 2, 4]
-    assert core.arch_state.read_xrf(1) == 2
+    assert [t['s1_pc'] for t in trace] == [None, 0, 1, None, 4]  # (15 + 2) & ~1 = byte 16
+    assert core.arch_state.read_xrf(1) == 8
     assert core.arch_state.xrf[2:4] == [0, 3]
 
 

@@ -52,10 +52,10 @@ def test_branch_targets_get_labels() -> None:
     assert text.splitlines() == [
         "L0:",
         "    addi x1, x1, -1                          # 0: fff08093",
-        "    bne x1, x0, L0                           # 1: fe009fe3",
-        "    jal x0, L4                               # 2: 0040006f",
-        "    addi x0, x0, 0                           # 3: 00000013",
-        "L4:",
+        "    bne x1, x0, L0                           # 4: fe009ee3",
+        "    jal x0, L16                              # 8: 0080006f",
+        "    addi x0, x0, 0                           # 12: 00000013",
+        "L16:",
     ]
 
 

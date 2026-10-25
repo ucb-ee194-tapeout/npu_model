@@ -140,17 +140,19 @@ class InstructionPattern(ABC, metaclass=InstructionPatternMeta):
         return len(cls.params) + 1
 
     @classmethod
-    def _word_offset_errors(cls, token: str, labels: list[str], index: int) -> list[AsmError]:
+    def _offset_errors(cls, token: str, labels: list[str], index: int) -> list[AsmError]:
         if Named.is_label.fullmatch(token):
             return [] if token in labels else [AsmError(f"Undefined label '{token}'", token_index=index)]
         try:
             offset = int(token, 0)
         except ValueError:
-            return [AsmError(f"Expected instruction-word offset or label, got '{token}'", token_index=index)]
-        limit = 2048 if issubclass(cls, SBType) else 524288
-        if -limit <= offset < limit:
-            return []
-        return [AsmError(f"Instruction-word offset {offset} is out of range [{-limit}, {limit})", token_index=index)]
+            return [AsmError(f"Expected byte offset or label, got '{token}'", token_index=index)]
+        limit = 4096 if issubclass(cls, SBType) else 1048576
+        if not -limit <= offset < limit:
+            return [AsmError(f"Byte offset {offset} is out of range [{-limit}, {limit})", token_index=index)]
+        if offset % 2:
+            return [AsmError(f"Byte offset {offset} is odd", token_index=index)]
+        return []
 
     @classmethod
     def from_asm(
@@ -179,11 +181,10 @@ class InstructionPattern(ABC, metaclass=InstructionPatternMeta):
         for i, param in enumerate(cls.params):
             token = tokens[i + 1]
             if issubclass(cls, (SBType, UJType)) and param.repr == "imm":
-                word_offset = resolve(token) if Named.is_label.fullmatch(token) else int(token, 0)
-                if errors := cls._word_offset_errors(str(word_offset), [], i + 1):
+                offset = resolve(token) if Named.is_label.fullmatch(token) else int(token, 0)
+                if errors := cls._offset_errors(str(offset), [], i + 1):
                     raise ExceptionGroup("Invalid control-flow offset", errors)
-                immediate_type = SBImm12 if issubclass(cls, SBType) else Imm21
-                kwargs["imm"] = immediate_type(word_offset * 2)
+                kwargs["imm"] = (SBImm12 if issubclass(cls, SBType) else Imm21)(offset)
             else:
                 kwargs = kwargs | param.parse_token(token, resolve)
         return cls(**kwargs)
@@ -219,7 +220,7 @@ class InstructionPattern(ABC, metaclass=InstructionPatternMeta):
         for i in range(1, min(len(tokens),cls.num_toks())):
             param = cls.params[i-1]
             if issubclass(cls, (SBType, UJType)) and param.repr == "imm":
-                exceptions.extend(cls._word_offset_errors(tokens[i], labels, i))
+                exceptions.extend(cls._offset_errors(tokens[i], labels, i))
             else:
                 exceptions.extend(param.lint(tokens[i], labels, tok_idx=i, allow_label=issubclass(cls, (UJType, SBType))))
 
@@ -379,7 +380,7 @@ class JalrPattern(InstructionPattern):
     Instruction pattern for JALR.
 
     Matches assembly patterns of the form `jalr x(rd), x(rs1), imm`.
-    The signed immediate is an instruction-word offset, including odd offsets.
+    The signed immediate is a byte offset; the jump clears bit 0 of x(rs1) + imm.
 
     Attributes:
         rd: The destination scalar register (return address).
@@ -430,7 +431,7 @@ class ScalarBranchImm(InstructionPattern):
     Attributes:
         rs1: A source scalar register.
         rs2: A source scalar register.
-        imm: A 12-bit immediate value.
+        imm: The byte offset of the target, or a label.
     """
 
     rs1: ScalarReg

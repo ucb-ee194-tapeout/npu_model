@@ -89,5 +89,3 @@ add x10, x10, x14
 add x11, x11, x14
 addi x12, x12, 1
 blt x12, x13, loop_1
-addi x0, x0, 0
-addi x0, x0, 0

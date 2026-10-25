@@ -418,11 +418,11 @@ class Imm12(BoundedInt):
 # SBImm12
 class SBImm12(BoundedInt):
     """
-    Raw 13-bit B-type immediate, including the implicit zero low bit.
+    13-bit B-type byte offset; bit 0 is zero.
 
-    Atlas uses this value divided by two as an instruction-word displacement.
-    Assembly operands are word offsets; instruction constructors use this raw
-    immediate. JALR uses an ordinary Imm12 instead.
+    Assembly operands and instruction constructors use the byte offset. The RTL
+    adds offset >> 2 to the word index of its IMEM. JALR uses an ordinary Imm12
+    instead.
     """
 
     lower_bound = -4096
@@ -495,7 +495,7 @@ class Imm20(BoundedInt):
 
 
 class Imm21(BoundedInt):
-    """Raw J-type immediate; Atlas divides it by two for a word displacement."""
+    """21-bit J-type byte offset; bit 0 is zero."""
 
     lower_bound = -1048576
     unsigned_lower_bound = 0

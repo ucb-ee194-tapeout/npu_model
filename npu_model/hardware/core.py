@@ -1,11 +1,11 @@
-from typing import Callable, List
+from typing import Callable, List, NoReturn
 import torch
 
 from npu_model.software.program import Program
 from npu_model.software.instruction import Uop
 from npu_model.logging.logger import Logger, LaneType
 from npu_model.hardware.arch_state import ArchState
-from npu_model.isa import CSRType, RType, SBType, UJType
+from npu_model.isa import CSRType, RType
 from npu_model.isa_types import EXU
 
 from .hardware import Module
@@ -92,9 +92,9 @@ class Core(Module):
     def tick(self) -> None:
         """Advance one edge, evaluating S1 against the previous edge's state.
 
-        Fetch reads the old PC even on a redirect, preserving exactly one
-        architectural delay slot. LSU writeback is last so register reads in
-        this cycle observe the old value, as in the RTL (no load bypass).
+        A taken branch or jump drops the instruction that fetch reads in its
+        cycle (no delay slot). LSU writeback is last so register reads in this
+        cycle observe the old value, as in the RTL (no load bypass).
         """
         self.logger.log_cycle(1)
         self.cycle_count += 1
@@ -127,8 +127,6 @@ class Core(Module):
         if self.issued_uop is not None:
             # RTL inst_retire counts S1 launches, not asynchronous completions.
             self.total_completed += 1
-        if state.redirect_requested:
-            state.in_delay_slot = True
         state.finish_csr_cycle(retired=self.issued_uop is not None)
 
         try:
@@ -159,10 +157,6 @@ class Core(Module):
         self._s1_stalled = False
         self.stall_reason: str | None = None
 
-    @staticmethod
-    def _is_control_flow_instruction(uop: Uop) -> bool:
-        return isinstance(uop.insn, (SBType, UJType)) or uop.insn.mnemonic == "jalr"
-
     def _tick_s1(self) -> ExecutionUnit | None:
         """Evaluate S1: halt detection, stall gating, then launch.
 
@@ -187,16 +181,8 @@ class Core(Module):
         if self.s1_uop is not None:
             insn = self.s1_uop.insn
             mnemonic = insn.mnemonic
-            illegal = None
-            if state.in_delay_slot and self._is_control_flow_instruction(self.s1_uop):
-                illegal = f"Illegal control-flow instruction '{mnemonic}' decoded in a delay-slot position"
-            elif isinstance(insn, CSRType) and state.csr_illegal(insn.imm, insn.writes):
-                illegal = f"Illegal CSR access '{mnemonic}' to CSR {insn.imm:#x}"
-            if illegal:
-                state.halted = True
-                state.halt_reason = "illegal"
-                state.execute_pc = self.s1_uop.pc
-                raise RuntimeError(f"{illegal} on cycle {self.cycle_count}")
+            if isinstance(insn, CSRType) and state.csr_illegal(insn.imm, insn.writes):
+                self._illegal(f"Illegal CSR access '{mnemonic}' to CSR {insn.imm:#x}")
             if mnemonic in {"ecall", "ebreak"}:
                 state.execute_pc = self.s1_uop.pc
                 self.s1_uop.insn.exec(state)
@@ -218,7 +204,10 @@ class Core(Module):
             return None
 
         state.execute_pc = self.s1_uop.pc
-        state.in_delay_slot = False
+        # A jump target with bit 1 set is illegal (RV32I without C); the RTL checks it at issue.
+        jump = insn.jump_target(state)
+        if jump is not None and jump & 2:
+            self._illegal(f"Illegal jump target {jump:#x} of '{insn.mnemonic}'")
         self.issued_uop = self.s1_uop
         self.s1_uop = None
         target: ExecutionUnit | None = None
@@ -236,6 +225,15 @@ class Core(Module):
         if insn.mnemonic == "delay":
             self.delay_counter = int(insn.imm) & 0xFFF
         return target
+
+    def _illegal(self, message: str) -> NoReturn:
+        """Halt on the illegal instruction in S1, as ScalarCore does."""
+        assert self.s1_uop is not None
+        state = self.arch_state
+        state.halted = True
+        state.halt_reason = "illegal"
+        state.execute_pc = self.s1_uop.pc
+        raise RuntimeError(f"{message} on cycle {self.cycle_count}")
 
     def is_finished(self) -> bool:
         """Check if execution is complete."""

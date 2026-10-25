@@ -81,9 +81,8 @@ def stream_to_instrs(source: TextIO) -> list[Instruction]:
 
     def resolve(s: str):
         if s in labels:
-            # Atlas PCs and assembly branch operands count instruction words.
-            # InstructionPattern converts B/J offsets to the encoded immediate.
-            return labels[s] - pc
+            # pc and the label addresses count instructions; branch and jump offsets are in bytes.
+            return 4 * (labels[s] - pc)
         return int(s, 0)
 
     for line in lines:

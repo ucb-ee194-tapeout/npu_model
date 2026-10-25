@@ -1,9 +1,10 @@
 {
   "taken_branch": {
-    "source": "addi x1, x0, 1\nbeq x1, x1, target\naddi x2, x0, 11\naddi x2, x0, 99\necall\ntarget:\naddi x3, x2, 1\ncsrrw x0, 0x800, x3\necall\n",
+    "source": "addi x1, x0, 1\naddi x2, x0, 5\nbeq x1, x1, target\naddi x2, x0, 11\naddi x2, x0, 99\necall\ntarget:\naddi x3, x2, 1\ncsrrw x0, 0x800, x3\necall\n",
     "words": [
       "00100093",
-      "00108463",
+      "00500113",
+      "00108863",
       "00b00113",
       "06300113",
       "00000073",
@@ -12,12 +13,12 @@
       "00000073"
     ]
   },
-  "delay_branch_and_delay_slot": {
+  "delay_then_taken_branch": {
     "source": "addi x1, x0, 7\ndelay 3\nbeq x1, x1, target\ndelay 2\necall\ntarget:\ncsrrw x0, 0x800, x1\necall\n",
     "words": [
       "00700093",
       "0003a02b",
-      "00108363",
+      "00108663",
       "0002a02b",
       "00000073",
       "80009073",
@@ -25,25 +26,24 @@
     ]
   },
   "not_taken_then_taken": {
-    "source": "addi x1, x0, 1\nbne x1, x1, target\nbeq x0, x0, target\nnop\necall\ntarget:\ncsrrw x0, 0x800, x1\necall\n",
+    "source": "addi x1, x0, 1\nbne x1, x1, target\nbeq x0, x0, target\necall\ntarget:\ncsrrw x0, 0x800, x1\necall\n",
     "words": [
       "00100093",
-      "00109463",
-      "00000363",
-      "00000013",
+      "00109663",
+      "00000463",
       "00000073",
       "80009073",
       "00000073"
     ]
   },
   "jalr_same_register_and_auipc": {
-    "source": "addi x1, x0, 5\njalr x1, x1, 0\naddi x2, x1, 8\necall\necall\ncsrrw x0, 0x800, x2\nauipc x3, 0\ncsrrw x0, 0x800, x3\necall\n",
+    "source": "addi x1, x0, 15\njalr x1, x1, 2\necall\necall\naddi x2, x1, 8\ncsrrw x0, 0x800, x2\nauipc x3, 0\ncsrrw x0, 0x800, x3\necall\n",
     "words": [
-      "00500093",
-      "000080e7",
+      "00f00093",
+      "002080e7",
+      "00000073",
+      "00000073",
       "00808113",
-      "00000073",
-      "00000073",
       "80011073",
       "00000197",
       "80019073",
@@ -74,12 +74,13 @@
       "00000073"
     ]
   },
-  "illegal_branch_delay_slot": {
-    "source": "jal x0, target\njal x0, target\nnop\ntarget:\necall\n",
+  "illegal_jump_target": {
+    "source": "addi x1, x0, 6\nbne x0, x0, 6\ndelay 2\njalr x0, x1, 0\necall\n",
     "words": [
-      "0060006f",
-      "0040006f",
-      "00000013",
+      "00600093",
+      "00001363",
+      "0002a02b",
+      "00008067",
       "00000073"
     ]
   },
@@ -102,19 +103,19 @@
       "00000113",
       "00110113",
       "fff08093",
-      "fe009ee3",
+      "fe009ce3",
       "00a10113",
       "80011073",
       "00000073"
     ]
   },
-  "jal_word_link": {
-    "source": "addi x1, x0, 1\njal x2, target\naddi x3, x2, 40\necall\ntarget:\ncsrrw x0, 0x800, x3\ncsrrw x0, 0x800, x2\necall\n",
+  "jal_byte_link": {
+    "source": "addi x1, x0, 1\njal x2, target\necall\ntarget:\naddi x3, x2, 40\ncsrrw x0, 0x800, x3\ncsrrw x0, 0x800, x2\necall\n",
     "words": [
       "00100093",
-      "0060016f",
-      "02810193",
+      "0080016f",
       "00000073",
+      "02810193",
       "80019073",
       "80011073",
       "00000073"
@@ -148,17 +149,15 @@
     ]
   },
   "signed_unsigned_branches": {
-    "source": "li x1, -1\nli x2, 1\nblt x1, x2, signed\nnop\necall\nsigned:\nbltu x1, x2, wrong\nli x3, 9\nbgeu x1, x2, unsigned\nnop\nwrong:\necall\nunsigned:\ncsrrw x0, 0x800, x3\necall\n",
+    "source": "li x1, -1\nli x2, 1\nblt x1, x2, signed\necall\nsigned:\nbltu x1, x2, wrong\nli x3, 9\nbgeu x1, x2, unsigned\nwrong:\necall\nunsigned:\ncsrrw x0, 0x800, x3\necall\n",
     "words": [
       "fff00093",
       "00100113",
-      "0020c363",
-      "00000013",
+      "0020c463",
       "00000073",
-      "0020e463",
+      "0020e663",
       "00900193",
-      "0020f363",
-      "00000013",
+      "0020f463",
       "00000073",
       "80019073",
       "00000073"

@@ -6,8 +6,6 @@
 # header from it. Do not copy an encoding into another file: generate it.
 #
 # Top-level keys:
-#   pc              the unit of the PC, link values and branch targets: "word" (an IMEM word
-#                   index; the B and J offset fields hold two times the word offset) or "byte"
 #   configurations  the Atlas configurations
 #
 # [format.F] gives the bit range of each field of format F: [hi, lo], or, for an immediate that
@@ -46,7 +44,6 @@
 # custom opcode (0x0B, 0x2B, 0x5B, 0x7B), every bit is in select, fixed or operands. In an RV32I
 # opcode, the bits that are not in them are not decoded: they can have any value.
 
-pc = "word"
 configurations = ["default", "ipt-nvfp4"]
 
 [format.R]
@@ -326,7 +323,7 @@ unit = "scalar"
 operation = "x[rd] = $signed(x[rs1]) >>> shamt"
 ver = "1.0"
 
-# ---- RV32I: control flow (pc counts words; one delay slot) --------------------------------------
+# ---- RV32I: control flow (pc is a byte address; a taken target with bit 1 set is illegal) -------
 
 [[instruction]]
 mnemonic = "beq"
@@ -336,8 +333,8 @@ select = { funct3 = 0 }
 operands = { rs1 = "x", rs2 = "x", offset = "label" }
 syntax = "beq x(rs1), x(rs2), offset"
 unit = "scalar"
-operation = "if (x[rs1] == x[rs2]) pc = pc + offset after 1 delay slot"
-ver = "1.0"
+operation = "if (x[rs1] == x[rs2]) pc = pc + offset"
+ver = "2.0"
 
 [[instruction]]
 mnemonic = "bne"
@@ -347,8 +344,8 @@ select = { funct3 = 1 }
 operands = { rs1 = "x", rs2 = "x", offset = "label" }
 syntax = "bne x(rs1), x(rs2), offset"
 unit = "scalar"
-operation = "if (x[rs1] != x[rs2]) pc = pc + offset after 1 delay slot"
-ver = "1.0"
+operation = "if (x[rs1] != x[rs2]) pc = pc + offset"
+ver = "2.0"
 
 [[instruction]]
 mnemonic = "blt"
@@ -358,8 +355,8 @@ select = { funct3 = 4 }
 operands = { rs1 = "x", rs2 = "x", offset = "label" }
 syntax = "blt x(rs1), x(rs2), offset"
 unit = "scalar"
-operation = "if ($signed(x[rs1]) < $signed(x[rs2])) pc = pc + offset after 1 delay slot"
-ver = "1.0"
+operation = "if ($signed(x[rs1]) < $signed(x[rs2])) pc = pc + offset"
+ver = "2.0"
 
 [[instruction]]
 mnemonic = "bge"
@@ -369,8 +366,8 @@ select = { funct3 = 5 }
 operands = { rs1 = "x", rs2 = "x", offset = "label" }
 syntax = "bge x(rs1), x(rs2), offset"
 unit = "scalar"
-operation = "if ($signed(x[rs1]) >= $signed(x[rs2])) pc = pc + offset after 1 delay slot"
-ver = "1.0"
+operation = "if ($signed(x[rs1]) >= $signed(x[rs2])) pc = pc + offset"
+ver = "2.0"
 
 [[instruction]]
 mnemonic = "bltu"
@@ -380,8 +377,8 @@ select = { funct3 = 6 }
 operands = { rs1 = "x", rs2 = "x", offset = "label" }
 syntax = "bltu x(rs1), x(rs2), offset"
 unit = "scalar"
-operation = "if (x[rs1] < x[rs2]) pc = pc + offset after 1 delay slot"
-ver = "1.0"
+operation = "if (x[rs1] < x[rs2]) pc = pc + offset"
+ver = "2.0"
 
 [[instruction]]
 mnemonic = "bgeu"
@@ -391,8 +388,8 @@ select = { funct3 = 7 }
 operands = { rs1 = "x", rs2 = "x", offset = "label" }
 syntax = "bgeu x(rs1), x(rs2), offset"
 unit = "scalar"
-operation = "if (x[rs1] >= x[rs2]) pc = pc + offset after 1 delay slot"
-ver = "1.0"
+operation = "if (x[rs1] >= x[rs2]) pc = pc + offset"
+ver = "2.0"
 
 [[instruction]]
 mnemonic = "jal"
@@ -401,8 +398,8 @@ opcode = 0x6F
 operands = { rd = "x", offset = "label" }
 syntax = "jal x(rd), offset"
 unit = "scalar"
-operation = "x[rd] = pc + 1; pc = pc + offset after 1 delay slot"
-ver = "1.0"
+operation = "x[rd] = pc + 4; pc = pc + offset"
+ver = "2.0"
 
 [[instruction]]
 mnemonic = "jalr"
@@ -412,8 +409,8 @@ select = { funct3 = 0 }
 operands = { rd = "x", rs1 = "x", imm = "imm" }
 syntax = "jalr x(rd), x(rs1), imm"
 unit = "scalar"
-operation = "next_pc = x[rs1] + imm; x[rd] = pc + 1; pc = next_pc after 1 delay slot"
-ver = "1.0"
+operation = "next_pc = (x[rs1] + imm) & ~1; x[rd] = pc + 4; pc = next_pc"
+ver = "2.0"
 
 [[instruction]]
 mnemonic = "lui"
@@ -433,7 +430,7 @@ operands = { rd = "x", imm = "hex" }
 syntax = "auipc x(rd), imm"
 unit = "scalar"
 operation = "x[rd] = pc + {imm, 12'b0}"
-ver = "1.0"
+ver = "2.0"
 
 # ---- RV32I: system ------------------------------------------------------------------------------
 

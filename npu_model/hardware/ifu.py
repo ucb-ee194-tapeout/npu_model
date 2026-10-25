@@ -223,9 +223,11 @@ class InstructionFetch(Module):
 
         self._stalled = False
         fetched_instruction = self.memory.fetch_data
-        # Program exhaustion is a simulator convenience (hardware requires a
-        # halt instruction). Still apply redirects at the end of a program.
-        if fetched_instruction is None:
+        # A taken branch or jump drops the instruction fetched after it (no
+        # delay slot). Program exhaustion is a simulator convenience (hardware
+        # requires a halt instruction). Still apply redirects at the end of a
+        # program.
+        if fetched_instruction is None or self.arch_state.redirect_requested:
             self.output.prepare(None)
         else:
             uop = Uop(fetched_instruction, pc=pc)

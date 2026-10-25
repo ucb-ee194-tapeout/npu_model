@@ -124,11 +124,12 @@ class ArchState:
                 self.wb["mxu1"][i].fill_(0)
             for i in range(len(self.acc["mxu1"])):
                 self.acc["mxu1"][i].fill_(0)
+        # IMEM word indices, as ScalarCore's PcControl keeps them. The architectural PC (link
+        # values, auipc, branch and jump targets) is the byte address, four times the index.
         self.pc = 0
         self.npc = 0
         self.execute_pc = 0
         self.redirect_requested = False
-        self.in_delay_slot = False
         self.current_uop = None
         self.halt_reason = None
         self._csr_values = {addr: 0 for addr in (CSR_CYCLE, CSR_INSTRET) + CSR_WRITABLE}

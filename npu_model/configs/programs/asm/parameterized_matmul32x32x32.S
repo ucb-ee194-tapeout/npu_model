@@ -65,11 +65,7 @@ addi x16, x16, 1024
 add x17, x17, x6
 addi x21, x21, 1
 blt x21, x11, loop_1
-addi x0, x0, 0
-addi x0, x0, 0
 add x15, x15, x8
 add x14, x14, x9
 addi x20, x20, 1
 blt x20, x10, loop_2
-addi x0, x0, 0
-addi x0, x0, 0

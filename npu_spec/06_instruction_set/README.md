@@ -21,6 +21,9 @@ Conventions used in the opcode tables:
   `m[r..r+3]`, `r` is a multiple of 4. Another `r` makes the word illegal, and
   so do an `e`-register above `e31` and an accumulator or weight slot above 1 in
   a 6-bit field.
+- `pc` is the byte address of the instruction, as in RV32I. Branch and `jal`
+  offsets are byte offsets, and `jal` and `jalr` write `pc + 4`. There is no
+  delay slot. A taken branch or jump to a target with bit 1 set is illegal.
 
 ## 1. Register Set
 
@@ -31,7 +34,7 @@ for `m`, `e`, or MXU-local state; this card uses the conservative convention
 
 | Register | ABI Name | Description | Saver |
 |-------|---|---|---|
-| `pc`  | `pc` | Architectural program counter, stored as an instruction-word index | N/A |
+| `pc`  | `pc` | Architectural program counter: the byte address of the instruction | N/A |
 | `x0`  | `zero` | Constant zero | Fixed |
 | `x1`  | `ra` | Return address | Caller |
 | `x2`  | `sp` | Stack pointer | Callee |
@@ -368,14 +371,14 @@ Rows are ordered by hex value.
 | `vstore m(vd), imm(x(rs1))` | VLS | `5B/1` | `0000205b` / `0000607f` | lsu | all | `VMEM[x[rs1] + (imm << 5)] = m[vd]` |
 | `vload.scale m(vd), imm(x(rs1))` | VLS | `5B/2` | `0000405b` / `0000607f` | lsu | ipt-nvfp4 | `scales of m[vd] = 128 B of VMEM at x[rs1] + (imm << 5)` |
 | `vstore.scale m(vd), imm(x(rs1))` | VLS | `5B/3` | `0000605b` / `0000607f` | lsu | ipt-nvfp4 | `128 B of VMEM at x[rs1] + (imm << 5) = scales of m[vd]` |
-| `beq x(rs1), x(rs2), offset` | B | `63/0` | `00000063` / `0000707f` | scalar | all | `if (x[rs1] == x[rs2]) pc = pc + offset after 1 delay slot` |
-| `bne x(rs1), x(rs2), offset` | B | `63/1` | `00001063` / `0000707f` | scalar | all | `if (x[rs1] != x[rs2]) pc = pc + offset after 1 delay slot` |
-| `blt x(rs1), x(rs2), offset` | B | `63/4` | `00004063` / `0000707f` | scalar | all | `if ($signed(x[rs1]) < $signed(x[rs2])) pc = pc + offset after 1 delay slot` |
-| `bge x(rs1), x(rs2), offset` | B | `63/5` | `00005063` / `0000707f` | scalar | all | `if ($signed(x[rs1]) >= $signed(x[rs2])) pc = pc + offset after 1 delay slot` |
-| `bltu x(rs1), x(rs2), offset` | B | `63/6` | `00006063` / `0000707f` | scalar | all | `if (x[rs1] < x[rs2]) pc = pc + offset after 1 delay slot` |
-| `bgeu x(rs1), x(rs2), offset` | B | `63/7` | `00007063` / `0000707f` | scalar | all | `if (x[rs1] >= x[rs2]) pc = pc + offset after 1 delay slot` |
-| `jalr x(rd), x(rs1), imm` | I | `67/0` | `00000067` / `0000707f` | scalar | all | `next_pc = x[rs1] + imm; x[rd] = pc + 1; pc = next_pc after 1 delay slot` |
-| `jal x(rd), offset` | J | `6F` | `0000006f` / `0000007f` | scalar | all | `x[rd] = pc + 1; pc = pc + offset after 1 delay slot` |
+| `beq x(rs1), x(rs2), offset` | B | `63/0` | `00000063` / `0000707f` | scalar | all | `if (x[rs1] == x[rs2]) pc = pc + offset` |
+| `bne x(rs1), x(rs2), offset` | B | `63/1` | `00001063` / `0000707f` | scalar | all | `if (x[rs1] != x[rs2]) pc = pc + offset` |
+| `blt x(rs1), x(rs2), offset` | B | `63/4` | `00004063` / `0000707f` | scalar | all | `if ($signed(x[rs1]) < $signed(x[rs2])) pc = pc + offset` |
+| `bge x(rs1), x(rs2), offset` | B | `63/5` | `00005063` / `0000707f` | scalar | all | `if ($signed(x[rs1]) >= $signed(x[rs2])) pc = pc + offset` |
+| `bltu x(rs1), x(rs2), offset` | B | `63/6` | `00006063` / `0000707f` | scalar | all | `if (x[rs1] < x[rs2]) pc = pc + offset` |
+| `bgeu x(rs1), x(rs2), offset` | B | `63/7` | `00007063` / `0000707f` | scalar | all | `if (x[rs1] >= x[rs2]) pc = pc + offset` |
+| `jalr x(rd), x(rs1), imm` | I | `67/0` | `00000067` / `0000707f` | scalar | all | `next_pc = (x[rs1] + imm) & ~1; x[rd] = pc + 4; pc = next_pc` |
+| `jal x(rd), offset` | J | `6F` | `0000006f` / `0000007f` | scalar | all | `x[rd] = pc + 4; pc = pc + offset` |
 | `ecall` | I | `73/0/000` | `00000073` / `ffffffff` | scalar | all | `halt_reason = ECALL; halt = 1'b1` |
 | `ebreak` | I | `73/0/001` | `00100073` / `ffffffff` | scalar | all | `halt_reason = EBREAK; halt = 1'b1` |
 | `csrrw x(rd), csr, x(rs1)` | I | `73/1` | `00001073` / `0000707f` | scalar | all | `x[rd] = CSR[csr]; CSR[csr] = x[rs1]` |
@@ -405,7 +408,6 @@ take a 5-bit immediate in place of `rs1`.
 |---|---:|
 | Instruction width | `32` bits |
 | Instruction alignment | `4` bytes |
-| Control-flow delay slots | `1` |
 | Scalar registers | `32` |
 | Tensor registers | `64` |
 | Scale registers | `32` |

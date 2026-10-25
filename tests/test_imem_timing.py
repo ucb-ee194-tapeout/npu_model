@@ -15,7 +15,7 @@ def program(*values: int) -> InstantiableProgram:
 
 
 def fetch_unit(*values: int):
-    state = SimpleNamespace(pc=0, npc=1, halted=False)
+    state = SimpleNamespace(pc=0, npc=1, halted=False, redirect_requested=False)
     state.set_pc = lambda pc: setattr(state, "pc", pc)
     ifu = InstructionFetch(1, Mock(spec=Logger), state)
     ifu.load_program(program(*values))
@@ -166,15 +166,15 @@ def test_host_get_stays_blocked_during_frontend_stall_then_runs_when_halted() ->
     assert ifu.memory.response.data == ifu.memory.words[0].to_bytecode()
 
 
-def test_fetches_one_delay_slot_before_redirect_target() -> None:
+def test_redirect_drops_the_instruction_fetched_after_the_jump() -> None:
     ifu, state = fetch_unit(10, 20, 30, 40)
     ifu.tick()  # Fetch branch at word zero.
     assert ifu.output.claim().pc == 0
-    state.npc = 3  # Branch resolves while word one is being fetched.
+    state.npc, state.redirect_requested = 3, True  # Branch is taken while word one is being fetched.
     ifu.tick()
-    assert ifu.output.claim().pc == 1
+    assert ifu.output.claim() is None
     assert state.pc == 3
-    state.npc = 4
+    state.npc, state.redirect_requested = 4, False
     ifu.tick()
     assert ifu.output.claim().pc == 3
 

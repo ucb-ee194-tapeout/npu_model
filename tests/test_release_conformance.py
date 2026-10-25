@@ -91,11 +91,11 @@ def test_dma_transfer_latency_uses_offchip_and_vmem_formulas() -> None:
     assert dma_transfer_cycles(cfg, 1024) == 516
 
 
-def test_taken_branch_executes_exactly_one_delay_slot_before_redirect() -> None:
+def test_taken_branch_drops_the_next_instruction() -> None:
     instrs: list[Instruction] = [
         ADDI(rd=x(1), rs1=x(0), imm=1),
         ADDI(rd=x(4), rs1=x(0), imm=0),
-        BEQ(rs1=x(1), rs2=x(1), imm=8),
+        BEQ(rs1=x(1), rs2=x(1), imm=12),
         ADDI(rd=x(2), rs1=x(0), imm=11),
         ADDI(rd=x(3), rs1=x(0), imm=22),
         ADDI(rd=x(4), rs1=x(0), imm=99),
@@ -106,27 +106,23 @@ def test_taken_branch_executes_exactly_one_delay_slot_before_redirect() -> None:
     sim = run_simulation(program, DefaultHardwareConfig(), max_cycles=64)
 
     assert sim.core is not None
-    assert sim.core.arch_state.read_xrf(2) == 11
+    assert sim.core.arch_state.read_xrf(2) == 0
     assert sim.core.arch_state.read_xrf(3) == 0
-    assert sim.core.arch_state.read_xrf(4) == 0
+    assert sim.core.arch_state.read_xrf(4) == 99
     assert sim.core.arch_state.read_xrf(5) == 44
 
 
-def test_control_flow_instruction_in_delay_slot_is_illegal() -> None:
+def test_taken_branch_to_a_target_with_bit_1_set_is_illegal() -> None:
     instrs: list[Instruction] = [
         ADDI(rd=x(1), rs1=x(0), imm=1),
-        BEQ(rs1=x(1), rs2=x(1), imm=4),
-        JAL(rd=x(0), imm=2),
+        BNE(rs1=x(1), rs2=x(1), imm=6),
+        BEQ(rs1=x(1), rs2=x(1), imm=6),
         ADDI(rd=x(2), rs1=x(0), imm=22),
         ADDI(rd=x(3), rs1=x(0), imm=33),
-        ADDI(rd=x(4), rs1=x(0), imm=44),
     ]
     program = InstantiableProgram(instrs)
 
-    with pytest.raises(
-        RuntimeError,
-        match="Illegal control-flow instruction 'jal' decoded in a delay-slot position",
-    ):
+    with pytest.raises(RuntimeError, match="Illegal jump target 0xe of 'beq'"):
         run_simulation(program, DefaultHardwareConfig(), max_cycles=64)
 
 

@@ -45,5 +45,3 @@ add x4, x4, x3
 add x5, x5, x3
 addi x6, x6, 1
 blt x6, x7, loop_1
-addi x0, x0, 0
-addi x0, x0, 0

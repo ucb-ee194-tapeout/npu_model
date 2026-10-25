@@ -87,7 +87,7 @@ def read_dram_tensor(
 
 def operands(cls) -> list[tuple[str, type]]:
     named = [n for p in cls.params for n in ((p.reg, p.imm) if isinstance(p, Bundled) else (p,))]
-    # jal's constructor takes the encoded immediate, twice the assembly word offset.
+    # jal's constructor takes its byte offset as an Imm21, not as the Imm20 of its pattern.
     return [(n.repr, Imm21 if issubclass(cls, UJType) and n.inner is Imm20 else n.inner) for n in named]
 
 

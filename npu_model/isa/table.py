@@ -84,7 +84,6 @@ class Entry:
 
 @dataclass(frozen=True)
 class Table:
-    pc: str
     configurations: tuple[str, ...]
     formats: dict[str, dict[str, Pieces]]
     entries: dict[str, Entry]
@@ -168,8 +167,6 @@ def _entry(raw: dict, formats: dict[str, dict[str, Pieces]], configurations: tup
 def load(path: Path = PATH) -> Table:
     """Load the table. Raises TableError if an entry is malformed or two entries match one word."""
     raw = tomllib.loads(path.read_text())
-    if raw.get("pc") not in ("word", "byte"):
-        raise TableError(f"pc {raw.get('pc')}")
     configurations = tuple(raw["configurations"])
     formats = {name: {field: _pieces(spec) for field, spec in fields.items()}
                for name, fields in raw["format"].items()}
@@ -182,4 +179,4 @@ def load(path: Path = PATH) -> Table:
     for a, b in itertools.combinations(entries.values(), 2):
         if not (a.match ^ b.match) & a.mask & b.mask:
             raise TableError(f"{a.mnemonic} and {b.mnemonic} match the same words")
-    return Table(raw["pc"], configurations, formats, entries)
+    return Table(configurations, formats, entries)

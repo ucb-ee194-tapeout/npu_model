@@ -185,8 +185,6 @@ add x11, x11, x9
 add x12, x12, x9
 addi x18, x18, 1
 blt x18, x17, loop_1
-addi x0, x0, 0
-addi x0, x0, 0
 vrecip.bf16 m34, m6
 delay 66
 vmul.bf16 m8, m8, m34
@@ -211,5 +209,3 @@ add x6, x6, x9
 add x8, x8, x9
 addi x16, x16, 1
 blt x16, x15, loop_2
-addi x0, x0, 0
-addi x0, x0, 0

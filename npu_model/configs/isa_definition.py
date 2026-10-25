@@ -298,7 +298,7 @@ class ANDI(ScalarComputeImm, IType):
 class AUIPC(ScalarImm, UType):
     def exec(self, state: ArchState) -> None:
         state.write_xrf(
-            self.rd, ((self.imm << 12) & 0xFFFFFFFF) + state.execute_pc
+            self.rd, ((self.imm << 12) & 0xFFFFFFFF) + 4 * state.execute_pc
         )
 
 
@@ -570,58 +570,60 @@ class VLI_ONE(DirectImm, VIType):
         state.write_mrf_bf16(self.vd, bits.view(torch.bfloat16))
 
 
-class BEQ(ScalarBranchImm, SBType):
+class _Branch(ScalarBranchImm, SBType, instr=False):
+    """A branch: pc = pc + offset if taken(state)."""
+
+    def taken(self, state: ArchState) -> bool:
+        raise NotImplementedError
+
+    def jump_target(self, state: ArchState) -> int | None:
+        if not self.taken(state):
+            return None
+        return 4 * state.execute_pc + _sign_extend(self.imm & 0x1FFF, 13)
+
     def exec(self, state: ArchState) -> None:
-        imm = _sign_extend(self.imm & 0x1FFF, 13)
-        if state.xrf[self.rs1] == state.xrf[self.rs2]:
-            state.set_npc(state.execute_pc + (imm >> 1))
+        target = self.jump_target(state)
+        if target is not None:
+            state.set_npc(target >> 2)
 
 
-class BNE(ScalarBranchImm, SBType):
-    def exec(self, state: ArchState) -> None:
-        imm = _sign_extend(self.imm & 0x1FFF, 13)
-        if state.xrf[self.rs1] != state.xrf[self.rs2]:
-            state.set_npc(state.execute_pc + (imm >> 1))
+class BEQ(_Branch):
+    def taken(self, state: ArchState) -> bool:
+        return state.xrf[self.rs1] == state.xrf[self.rs2]
 
 
-class BLT(ScalarBranchImm, SBType):
-    def exec(self, state: ArchState) -> None:
-        imm = _sign_extend(self.imm & 0x1FFF, 13)
-        if _sign_extend(state.xrf[self.rs1], 32) < _sign_extend(state.xrf[self.rs2], 32):
-            state.set_npc(state.execute_pc + (imm >> 1))
+class BNE(_Branch):
+    def taken(self, state: ArchState) -> bool:
+        return state.xrf[self.rs1] != state.xrf[self.rs2]
 
 
-class BGE(ScalarBranchImm, SBType):
-    def exec(self, state: ArchState) -> None:
-        imm = _sign_extend(self.imm & 0x1FFF, 13)
-        if _sign_extend(state.xrf[self.rs1], 32) >= _sign_extend(state.xrf[self.rs2], 32):
-            state.set_npc(state.execute_pc + (imm >> 1))
+class BLT(_Branch):
+    def taken(self, state: ArchState) -> bool:
+        return _sign_extend(state.xrf[self.rs1], 32) < _sign_extend(state.xrf[self.rs2], 32)
 
 
-class BLTU(ScalarBranchImm, SBType):
-    def exec(self, state: ArchState) -> None:
-        imm = _sign_extend(self.imm & 0x1FFF, 13)
-        a = state.xrf[self.rs1] & _MASK32
-        b = state.xrf[self.rs2] & _MASK32
-        if a < b:
-            state.set_npc(state.execute_pc + (imm >> 1))
+class BGE(_Branch):
+    def taken(self, state: ArchState) -> bool:
+        return _sign_extend(state.xrf[self.rs1], 32) >= _sign_extend(state.xrf[self.rs2], 32)
 
 
-class BGEU(ScalarBranchImm, SBType):
-    def exec(self, state: ArchState) -> None:
-        imm = _sign_extend(self.imm & 0x1FFF, 13)
-        a = state.xrf[self.rs1] & _MASK32
-        b = state.xrf[self.rs2] & _MASK32
-        if a >= b:
-            state.set_npc(state.execute_pc + (imm >> 1))
+class BLTU(_Branch):
+    def taken(self, state: ArchState) -> bool:
+        return state.xrf[self.rs1] & _MASK32 < state.xrf[self.rs2] & _MASK32
+
+
+class BGEU(_Branch):
+    def taken(self, state: ArchState) -> bool:
+        return state.xrf[self.rs1] & _MASK32 >= state.xrf[self.rs2] & _MASK32
 
 
 class JALR(JalrPattern, IType[ScalarReg, Imm12]):
+    def jump_target(self, state: ArchState) -> int | None:
+        return (state.read_xrf(self.rs1) + _sign_extend(self.imm, 12)) & _MASK32 & ~1
+
     def exec(self, state: ArchState) -> None:
-        imm = _sign_extend(self.imm, 12)
-        target = state.read_xrf(self.rs1) + imm
-        state.write_xrf(self.rd, state.execute_pc + 1)
-        state.set_npc(target)
+        state.set_npc(self.jump_target(state) >> 2)
+        state.write_xrf(self.rd, 4 * state.execute_pc + 4)
 
 
 class DELAY(UnaryImm, VIType):
@@ -637,10 +639,12 @@ class VTRPOSE_XLU(TensorComputeUnary, VRType):
 
 
 class JAL(ScalarImm, UJType):
+    def jump_target(self, state: ArchState) -> int | None:
+        return 4 * state.execute_pc + _sign_extend(self.imm, 21)
+
     def exec(self, state: ArchState) -> None:
-        imm = _sign_extend(self.imm, 21)
-        state.write_xrf(self.rd, state.execute_pc + 1)
-        state.set_npc(state.execute_pc + (imm >> 1))
+        state.set_npc(self.jump_target(state) >> 2)
+        state.write_xrf(self.rd, 4 * state.execute_pc + 4)
 
 
 class CSRRW(CSRReg, CSRType):

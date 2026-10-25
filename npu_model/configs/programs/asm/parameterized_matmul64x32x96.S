@@ -59,8 +59,6 @@ vload m1, 0(x31)
 delay 34
 addi x21, x21, 1
 bge x21, x11, no_prefetch
-addi x0, x0, 0
-addi x0, x0, 0
 add x16, x16, x5
 dma.load x2, x16, x5, ch1
 no_prefetch:
@@ -82,11 +80,7 @@ dma.store x17, x3, x6, ch0
 dma.wait ch0
 add x17, x17, x6
 blt x21, x11, loop_1
-addi x0, x0, 0
-addi x0, x0, 0
 add x15, x15, x5
 add x14, x14, x9
 addi x20, x20, 1
 blt x20, x10, loop_2
-addi x0, x0, 0
-addi x0, x0, 0
