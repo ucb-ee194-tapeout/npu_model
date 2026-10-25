@@ -311,8 +311,8 @@ Rows are ordered by hex value.
 | `vrecip.bf16 m(vd), m(vs1)` | VR | `0B/41` | `8200000b` / `fff820ff` | vpu | all | `{m[vd], m[vd+1]} = 1 / {m[vs1], m[vs1+1]}` |
 | `vexp.bf16 m(vd), m(vs1)` | VR | `0B/42` | `8400000b` / `fff820ff` | vpu | all | `{m[vd], m[vd+1]} = exp({m[vs1], m[vs1+1]})` |
 | `vexp2.bf16 m(vd), m(vs1)` | VR | `0B/43` | `8600000b` / `fff820ff` | vpu | all | `{m[vd], m[vd+1]} = 2^{m[vs1], m[vs1+1]}` |
-| `vpack.bf16.fp8 m(vd), m(vs2), e(vs1)` | VR | `0B/44` | `8800000b` / `fe0c007f` | vpu | all | `m[vd] = E4M3({m[vs2], m[vs2+1]} / 2^(e[vs1] - 127)) (FP8 row k = BF16 rows 2k, 2k+1)` |
-| `vunpack.fp8.bf16 m(vd), m(vs2), e(vs1)` | VR | `0B/45` | `8a00000b` / `fe0400ff` | vpu | all | `{m[vd], m[vd+1]} = BF16(m[vs2] * 2^(e[vs1] - 127)) (vpack's row layout)` |
+| `vpack.bf16.fp8 m(vd), m(vs2), e(vs1)` | VR | `0B/44` | `8800000b` / `fe0c007f` | vpu | all | `m[vd] = E4M3_RN_SATFINITE({m[vs2], m[vs2+1]} * 2^(e[vs1] - 127)) (row k: 2k, 2k+1)` |
+| `vunpack.fp8.bf16 m(vd), m(vs2), e(vs1)` | VR | `0B/45` | `8a00000b` / `fe0400ff` | vpu | all | `{m[vd], m[vd+1]} = BF16_RNE(m[vs2] * 2^(e[vs1] - 127)) (vpack's row layout)` |
 | `vsquare.bf16 m(vd), m(vs1)` | VR | `0B/46` | `8c00000b` / `fff820ff` | vpu | all | `{m[vd], m[vd+1]} = {m[vs1], m[vs1+1]}^2` |
 | `vcube.bf16 m(vd), m(vs1)` | VR | `0B/47` | `8e00000b` / `fff820ff` | vpu | all | `{m[vd], m[vd+1]} = {m[vs1], m[vs1+1]}^3` |
 | `vrelu.bf16 m(vd), m(vs1)` | VR | `0B/48` | `9000000b` / `fff820ff` | vpu | all | `{m[vd], m[vd+1]} = max({m[vs1], m[vs1+1]}, 0)` |
@@ -330,11 +330,11 @@ Rows are ordered by hex value.
 | `vmatmul.nv acc(vd), m(vs1), w(vs2)` | VR | `0B/68` | `d000000b` / `fff01f7f` | nv | ipt-nvfp4 | `nv.acc[vd] = m[vs1] @ nv.w[vs2]^T (64 NVFP4 elements, FP32)` |
 | `vmatmul.acc.nv acc(vd), m(vs1), w(vs2)` | VR | `0B/69` | `d200000b` / `fff01f7f` | nv | ipt-nvfp4 | `nv.acc[vd] = nv.acc[vd] + m[vs1] @ nv.w[vs2]^T (one NVIDIA m16n8k64 step)` |
 | `vmatpush.weight.mxu1 w(vd), m(vs1)` | VR | `0B/70` | `e000000b` / `fff81f7f` | mxu1 | all | `mxu1.w[vd] = m[vs1] (E4M3; row j = output column j)` |
-| `vmatpush.acc.bf16.mxu1 acc(vd), m(vs1)` | VR | `0B/71` | `e200000b` / `fff83f7f` | mxu1 | all | `mxu1.acc[vd] = {m[vs1], m[vs1+1]}` |
-| `vmatpush.acc.fp8.mxu1 acc(vd), m(vs1)` | VR | `0B/73` | `e600000b` / `fff81f7f` | mxu1 | all | `mxu1.acc[vd] = BF16(m[vs1]) (E4M3)` |
-| `vmatpop.bf16.acc.mxu1 m(vd), acc(vs2)` | VR | `0B/74` | `e800000b` / `fff7e0ff` | mxu1 | all | `{m[vd], m[vd+1]} = mxu1.acc[vs2]` |
-| `vmatpop.fp8.acc.mxu1 m(vd), acc(vs2), e(vs1)` | VR | `0B/77` | `ee00000b` / `fff4007f` | mxu1 | all | `m[vd] = E4M3(mxu1.acc[vs2] * 2^(e[vs1] - 127))` |
-| `vmatmul.mxu1 acc(vd), m(vs1), w(vs2)` | VR | `0B/78` | `f000000b` / `fff01f7f` | mxu1 | all | `mxu1.acc[vd] = m[vs1] @ mxu1.w[vs2]^T` |
+| `vmatpush.acc.bf16.mxu1 acc(vd), m(vs1)` | VR | `0B/71` | `e200000b` / `fff83f7f` | mxu1 | all | `mxu1.acc[vd] = {m[vs1], m[vs1+1]} (BF16, exact in FP32)` |
+| `vmatpush.acc.fp8.mxu1 acc(vd), m(vs1)` | VR | `0B/73` | `e600000b` / `fff81f7f` | mxu1 | all | `mxu1.acc[vd] = m[vs1] (E4M3, exact in FP32)` |
+| `vmatpop.bf16.acc.mxu1 m(vd), acc(vs2)` | VR | `0B/74` | `e800000b` / `fff7e0ff` | mxu1 | all | `{m[vd], m[vd+1]} = BF16_RNE(mxu1.acc[vs2])` |
+| `vmatpop.fp8.acc.mxu1 m(vd), acc(vs2), e(vs1)` | VR | `0B/77` | `ee00000b` / `fff4007f` | mxu1 | all | `m[vd] = E4M3_RN_SATFINITE(mxu1.acc[vs2] * 2^(e[vs1] - 127))` |
+| `vmatmul.mxu1 acc(vd), m(vs1), w(vs2)` | VR | `0B/78` | `f000000b` / `fff01f7f` | mxu1 | all | `mxu1.acc[vd] = m[vs1] @ mxu1.w[vs2]^T (one Blackwell FP8 MMA step, FP32)` |
 | `vmatmul.acc.mxu1 acc(vd), m(vs1), w(vs2)` | VR | `0B/79` | `f200000b` / `fff01f7f` | mxu1 | all | `mxu1.acc[vd] = mxu1.acc[vd] + m[vs1] @ mxu1.w[vs2]^T` |
 | `fence` | I | `0F/0` | `0000000f` / `0000707f` | scalar | all | `no operation` |
 | `addi x(rd), x(rs1), imm` | I | `13/0` | `00000013` / `0000707f` | scalar | all | `x[rd] = x[rs1] + imm` |

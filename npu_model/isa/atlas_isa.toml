@@ -762,7 +762,7 @@ unit = "dma"
 operation = "hold issue until channel ch is idle"
 ver = "2.0"
 
-# ---- MXU1 (inner-product trees): E4M3 weights, BF16 accumulators --------------------------------
+# ---- MXU1 (inner-product trees): E4M3 weights, FP32 accumulators (docs/fp8-mxu.md) --------------
 
 [[instruction]]
 mnemonic = "vmatpush.weight.mxu1"
@@ -787,7 +787,7 @@ operands = { vd = "acc", vs1 = "m" }
 syntax = "vmatpush.acc.fp8.mxu1 acc(vd), m(vs1)"
 unit = "mxu1"
 m = "rows"
-operation = "mxu1.acc[vd] = BF16(m[vs1]) (E4M3)"
+operation = "mxu1.acc[vd] = m[vs1] (E4M3, exact in FP32)"
 ver = "2.0"
 
 [[instruction]]
@@ -800,7 +800,7 @@ operands = { vd = "acc", vs1 = "mp" }
 syntax = "vmatpush.acc.bf16.mxu1 acc(vd), m(vs1)"
 unit = "mxu1"
 m = "rows"
-operation = "mxu1.acc[vd] = {m[vs1], m[vs1+1]}"
+operation = "mxu1.acc[vd] = {m[vs1], m[vs1+1]} (BF16, exact in FP32)"
 ver = "2.0"
 
 [[instruction]]
@@ -812,7 +812,7 @@ operands = { vd = "m", vs2 = "acc", vs1 = "e" }
 syntax = "vmatpop.fp8.acc.mxu1 m(vd), acc(vs2), e(vs1)"
 unit = "mxu1"
 m = "rows"
-operation = "m[vd] = E4M3(mxu1.acc[vs2] * 2^(e[vs1] - 127))"
+operation = "m[vd] = E4M3_RN_SATFINITE(mxu1.acc[vs2] * 2^(e[vs1] - 127))"
 ver = "2.0"
 
 [[instruction]]
@@ -825,7 +825,7 @@ operands = { vd = "mp", vs2 = "acc" }
 syntax = "vmatpop.bf16.acc.mxu1 m(vd), acc(vs2)"
 unit = "mxu1"
 m = "rows"
-operation = "{m[vd], m[vd+1]} = mxu1.acc[vs2]"
+operation = "{m[vd], m[vd+1]} = BF16_RNE(mxu1.acc[vs2])"
 ver = "2.0"
 
 [[instruction]]
@@ -837,7 +837,7 @@ operands = { vd = "acc", vs1 = "m", vs2 = "w" }
 syntax = "vmatmul.mxu1 acc(vd), m(vs1), w(vs2)"
 unit = "mxu1"
 m = "rows"
-operation = "mxu1.acc[vd] = m[vs1] @ mxu1.w[vs2]^T"
+operation = "mxu1.acc[vd] = m[vs1] @ mxu1.w[vs2]^T (one Blackwell FP8 MMA step, FP32)"
 ver = "2.0"
 
 [[instruction]]
@@ -1177,7 +1177,7 @@ operands = { vd = "m", vs2 = "mp", vs1 = "e" }
 syntax = "vpack.bf16.fp8 m(vd), m(vs2), e(vs1)"
 unit = "vpu"
 m = "all"
-operation = "m[vd] = E4M3({m[vs2], m[vs2+1]} / 2^(e[vs1] - 127)) (FP8 row k = BF16 rows 2k, 2k+1)"
+operation = "m[vd] = E4M3_RN_SATFINITE({m[vs2], m[vs2+1]} * 2^(e[vs1] - 127)) (row k: 2k, 2k+1)"
 ver = "2.0"
 
 [[instruction]]
@@ -1189,7 +1189,7 @@ operands = { vd = "mp", vs2 = "m", vs1 = "e" }
 syntax = "vunpack.fp8.bf16 m(vd), m(vs2), e(vs1)"
 unit = "vpu"
 m = "all"
-operation = "{m[vd], m[vd+1]} = BF16(m[vs2] * 2^(e[vs1] - 127)) (vpack's row layout)"
+operation = "{m[vd], m[vd+1]} = BF16_RNE(m[vs2] * 2^(e[vs1] - 127)) (vpack's row layout)"
 ver = "2.0"
 
 [[instruction]]
