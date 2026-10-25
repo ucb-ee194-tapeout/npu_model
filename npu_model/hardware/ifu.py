@@ -108,7 +108,7 @@ class InstructionMemory:
 
         read_address = None
         if fetch_active:
-            # ScalarCore connects only the low IMEM_ADDR_BITS of its word PC.
+            # ScalarCore connects only the low IMEM_ADDR_BITS of its PC word index.
             read_address = fetch_address & (self.WORDS - 1)
         elif accepted is not None and accepted.instruction is None:
             read_address = word_address

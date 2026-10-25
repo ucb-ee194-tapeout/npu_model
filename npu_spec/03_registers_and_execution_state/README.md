@@ -86,7 +86,7 @@ The machine exposes three disjoint architectural memory regions.
 
 Rules:
 
-- `IMEM` is word-addressed for architectural `pc` sequencing
+- `IMEM` holds 32-bit instruction words; fetch reads the word that `pc` bits 16:2 index
 - `VMEM` and `DRAM` are byte-addressed
 - instruction fetch reads `IMEM`
 - scalar data load / store access `VMEM` only

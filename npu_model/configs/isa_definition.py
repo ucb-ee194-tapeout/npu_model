@@ -64,7 +64,7 @@ from npu_model.isa_types import (
 if TYPE_CHECKING:
     from npu_model.hardware.arch_state import ArchState
 
-# ScalarCore is RV32 with word-indexed PCs.
+# ScalarCore is RV32. It keeps IMEM word indices; the architectural PC is the byte address.
 _MASK32 = 0xFFFFFFFF
 
 

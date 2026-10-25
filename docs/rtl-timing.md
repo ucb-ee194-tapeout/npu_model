@@ -34,9 +34,10 @@ during frontend stalls. Host reads share the fetch read port; host writes use
 the independent write port. Undefined same-address read/write collisions raise
 an error.
 
-Fetch indexes the live memory using the low 15 PC bits. Host-written instructions
-beyond the initially loaded program are executable, and high architectural PCs
-alias the physical memory without truncating the architectural PC or jump links.
+Fetch indexes the live memory with PC bits 16:2 (the low 15 bits of the IMEM
+word index). Host-written instructions beyond the initially loaded program are
+executable, and high architectural PCs alias the physical memory without
+truncating the architectural PC or jump links.
 The host interface accepts decoded instruction objects. Uninitialized words end
 a model program as a software convenience; real software should use ECALL/EBREAK.
 

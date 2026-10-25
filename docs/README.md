@@ -77,7 +77,8 @@ instruction store.
 [`InstructionMemory` and `InstructionFetch`](../npu_model/hardware/ifu.py) now
 represent that live bank and the held frontend instruction:
 
-- The memory contains 32,768 instruction words; fetch uses the low 15 PC bits.
+- The memory contains 32,768 instruction words; fetch uses PC bits 16:2 (the low
+  15 bits of the IMEM word index).
 - A stalled S1 retains its instruction and its original PC. SRAM fetch activity
   can continue without replacing the held instruction.
 - Host Get requests share the read port and are blocked while fetch owns it,
