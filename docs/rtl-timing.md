@@ -81,9 +81,12 @@ the issue-cycle gap: the `DELAY` instruction itself issues before its stall
 begins.
 
 
-Scalar loads have no same-cycle bypass. Scalar, vector-load and vector-store
-paths progress independently. Sources are sampled at their row-read edges;
-results become visible row by row. Software scheduling violations raise errors.
+Scalar loads have no same-cycle bypass. As in ScalarCore's interlock, S1 holds an
+instruction while an x-register that it names (an x operand of the ISA table) has a
+pending scalar load, or while a load response takes the register write port that it
+needs. Scalar, vector-load and vector-store paths progress independently. Sources are
+sampled at their row-read edges; results become visible row by row. Software scheduling
+violations raise errors.
 VPU has two independent single-input slots; binary and row-reduction operations
 occupy both. `issue_busy_mask` exposes the opcode-specific issue restrictions.
 

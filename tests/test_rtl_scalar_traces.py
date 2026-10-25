@@ -18,13 +18,9 @@ from npu_model.util.converter import input_to_program
 
 _FIXTURES = Path(__file__).parent / "rtl"
 _CASES = json.loads((_FIXTURES / "scalar_cases.json").read_text())
-# The model does not have the interlock: ScalarCore holds an instruction that reads the register
-# of a pending scalar load (xRegHazard); the model lets it read the old value.
-_NO_INTERLOCK = pytest.mark.xfail(strict=True, reason="npu_model does not model the scalar-load interlock")
 
 
-@pytest.mark.parametrize("name", [pytest.param(n, marks=_NO_INTERLOCK) if n == "load_response_no_bypass" else n
-                                  for n in _CASES])
+@pytest.mark.parametrize("name", _CASES)
 def test_scalar_core_matches_recorded_rtl_cycle_trace(name: str, tmp_path: Path) -> None:
     scenario = _CASES[name]
     expected = json.loads((_FIXTURES / "scalar_traces.json").read_text())[name]

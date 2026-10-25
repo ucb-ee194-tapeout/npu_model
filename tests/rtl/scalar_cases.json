@@ -96,6 +96,16 @@
       "00000073"
     ]
   },
+  "load_then_seli_delay": {
+    "source": "lw x3, 0(x0)\nseli e1, 1\ndelay 1\ncsrrw x0, 0x800, x3\necall\n",
+    "words": [
+      "00002183",
+      "000180ab",
+      "0001a02b",
+      "80019073",
+      "00000073"
+    ]
+  },
   "backward_branch_loop": {
     "source": "li x1, 3\nli x2, 0\nloop:\naddi x2, x2, 1\naddi x1, x1, -1\nbne x1, x0, loop\naddi x2, x2, 10\ncsrrw x0, 0x800, x2\necall\n",
     "words": [

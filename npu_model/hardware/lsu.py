@@ -13,7 +13,7 @@ from .exu import ExecutionUnit, StagedExecution
 from ..logging.logger import Logger
 from .arch_state import ArchState
 from ..software.instruction import Uop
-from ..isa import EXU
+from ..isa import EXU, Instruction
 from .config import HardwareConfig
 from .bank_conflict import BankConflictError
 
@@ -173,6 +173,12 @@ class LoadStoreUnit(ExecutionUnit):
         banks = {address // self.config.vmem_bank_bytes: mnemonic
                  for mnemonic, address in self._vmem_accesses_at(self.cycle + 1)}
         self.arch_state.conflict_checker.announce_vmem_ports(self.cycle + 1, banks)
+
+    def pending_loads(self) -> list[tuple[Instruction, bool]]:
+        """The scalar loads that have not written back, each with True if it writes back in this
+        cycle. S1 asks before the LSU ticks."""
+        return [(op.uop.insn, self.cycle + 1 - op.issued == 3) for op in self._scalar
+                if op.uop.insn.mnemonic in _SCALAR_LOADS]
 
     def _check_writeback(self) -> None:
         current = getattr(self.arch_state, "current_uop", None)

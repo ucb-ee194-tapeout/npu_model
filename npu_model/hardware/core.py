@@ -5,7 +5,7 @@ from npu_model.software.program import Program
 from npu_model.software.instruction import Uop
 from npu_model.logging.logger import Logger, LaneType
 from npu_model.hardware.arch_state import ArchState
-from npu_model.isa import CSRType, RType
+from npu_model.isa import TABLE, CSRType, Instruction, RType
 from npu_model.isa_types import EXU
 
 from .hardware import Module
@@ -21,13 +21,21 @@ from .xlu import CrossLaneExecutionUnit  # noqa: F401
 from .lsu import LoadStoreUnit  # type: ignore # noqa: F401, F403 
 
 
+def _x_regs(insn: Instruction) -> dict[str, int]:
+    """The fields of an instruction that hold an x-register (the table's x operands, which are
+    ScalarCore's decode column xr), with their registers."""
+    operands = TABLE.entries[insn.mnemonic].operands
+    return {field: int(getattr(insn, field)) for field in ("rd", "rs1", "rs2") if operands.get(field) == "x"}
+
+
 class Core(Module):
     """
     NPU Core.
     Orchestrates the two RTL stages: fetch (IFU), then S1, which decodes,
     reads registers, executes scalar ops and launches EXU commands in one
-    cycle. Only DELAY and DMA.WAIT hold S1. Resource conflicts are software
-    scheduling errors, not extra pipeline stages or implicit stalls.
+    cycle. DELAY, DMA.WAIT and the scalar-load interlock hold S1. Other
+    resource conflicts are software scheduling errors, not extra pipeline
+    stages or implicit stalls.
 
     Each functional unit handles its own logging.
     """
@@ -203,6 +211,11 @@ class Core(Module):
             self.stall_reason = "dma.wait"
             return None
 
+        if self._x_reg_hazard(insn):
+            self._s1_stalled = True
+            self.stall_reason = "xreg"
+            return None
+
         state.execute_pc = self.s1_uop.pc
         # A jump target with bit 1 set is illegal (RV32I without C); the RTL checks it at issue.
         jump = insn.jump_target(state)
@@ -225,6 +238,15 @@ class Core(Module):
         if insn.mnemonic == "delay":
             self.delay_counter = int(insn.imm) & 0xFFF
         return target
+
+    def _x_reg_hazard(self, insn: Instruction) -> bool:
+        """ScalarCore's xRegHazard: an x-register that the instruction names has a pending scalar
+        load, or a load response takes the register write port while the instruction writes x[rd]."""
+        regs = _x_regs(insn)
+        named = set(regs.values()) - {0}
+        writes_rd = insn.exu == EXU.SCALAR and regs.get("rd", 0) != 0
+        lsu = self.exu_map[EXU.LSU]
+        return any(_x_regs(load).get("rd") in named or (writes_rd and now) for load, now in lsu.pending_loads())
 
     def _illegal(self, message: str) -> NoReturn:
         """Halt on the illegal instruction in S1, as ScalarCore does."""
