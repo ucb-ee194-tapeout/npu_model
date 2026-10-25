@@ -36,9 +36,12 @@ class NpuModelArithmeticTraceTest extends AnyFlatSpec {
       dut.reset.poke(true.B)
       dut.clock.step(2)
       dut.reset.poke(false.B)
+      // A random E4M3 code is never NaN (0x7F, 0xFF), so NaN results come only from the codes of
+      // lane 0 below 256 and from the NaN C values.
+      def code(): Int = { val c = random.nextInt(256); if ((c & 0x7f) == 0x7f) c ^ 1 else c }
       for (index <- 0 until 512) {
-        val a = (0 until 32).map(lane => if(index < 256 && lane == 0) index else random.nextInt(256))
-        val w = (0 until 32).map(_ => random.nextInt(256))
+        val a = (0 until 32).map(lane => if(index < 256 && lane == 0) index else code())
+        val w = (0 until 32).map(_ => code())
         // C: edges, then values near the products (exponent field 100..150), then any bits.
         val c = if(index < 256) edges32(index%16)
                 else if(index < 384) (random.nextInt(2).toLong << 31) | ((100L + random.nextInt(51)) << 23) | random.nextInt(1 << 23)
