@@ -4,6 +4,7 @@
     "npu_model/configs/data/cube.bin.gz": "a1ad3b1db7a591c93ff12aa7b6e128337d9cdd6f211648ecf717795ee931c087",
     "npu_model/configs/data/exp.bin.gz": "c868283c0118ac478b2acd44af4e10d5c02bcd236d73e188e1c7ce33f112e566",
     "npu_model/configs/data/exp2.bin.gz": "88882a702acaf062782d1d8070cff0e7f188fa14fd9bf0b4bb334eef75eeeba5",
+    "npu_model/configs/data/gelu.bin.gz": "b12ee88b7361e016b94ac486c923616ce00436fe10eb8c1e2aa6c8ad6989fbe6",
     "npu_model/configs/data/log.bin.gz": "420f9f171223c8018e89bd0dff65f9fc60e869ac6155e072400f85f523021c1f",
     "npu_model/configs/data/rcp.bin.gz": "803a18af1c72a1b6d722b76860d43e3028fd2addaec693b49e76e3957a39e470",
     "npu_model/configs/data/relu.bin.gz": "4709f71fdca9dedc927865fdaf3fc283aa25562af78f4bdf0173dc712aa4b77b",
@@ -18,7 +19,7 @@
     "tests/rtl/sa_traces.json": "62252fd1312d7e31013b6c4a310be0e5f567eee8055218d376a06731aca60573",
     "tests/rtl/scalar_cases.json": "52a7129fbd562ea1460eff001d0575d4d78b7ffc3a54ef5afbb8015f68eb3f6a",
     "tests/rtl/scalar_traces.json": "bc071cc13e832e8f6691717cc2ce860e755091fc2beb4e1daf11a5173fe6ec4b",
-    "tests/rtl/vector_traces.json": "684aa9b8912777af181f433b91e0e50457ebdd1864d54e6d34160e9efdacd0cc"
+    "tests/rtl/vector_traces.json": "6437fbc20313e889f2ed4d0cec09a157c165ec23ba4b79d20d267967181cadf2"
   },
   "description": "SHA256 of RTL/harness sources and their generated artifacts.",
   "sources": {
@@ -89,7 +90,7 @@
     "npu-model/tests/rtl/scala/mxu/NpuModelArithmeticTraceTest.scala": "c757a22ca9cdc5f959a2eabfdc595776a6171bd3d3b2d7735fe8a69321a8ce2c",
     "npu-model/tests/rtl/scala/mxu/NpuModelMatrixTraceTest.scala": "2f04b6210af7d08a8a35ce9ae72dc2d8ab4cae70fa8017700eb2155764512b4c",
     "npu-model/tests/rtl/scala/scalar/NpuModelScalarTraceTest.scala": "3100bc7a00ab0fb766bf0e3683a3186d8c324dcb70c5c4a0b6b6a4750305a5f3",
-    "npu-model/tests/rtl/scala/vector/NpuModelVectorTraceTest.scala": "0c18faa4b869b3cd4eb7e312a19d43d6180bdb7aecc829d721ce0cf301e3e26b",
+    "npu-model/tests/rtl/scala/vector/NpuModelVectorTraceTest.scala": "92cd41561b82ee65a85989a871013fa22e509e7ef47ffea59adf4b13b29ebf67",
     "src/main/scala/atlas/common/AtlasParams.scala": "b819cb7068ff9fc67af9689ebacf9c0095738dec408f27b2cfdd813027854c58",
     "src/main/scala/atlas/common/Cvt.scala": "a3c3e18b811a0380c994082c01ebad247a4b1ed488a3d171db283b1a5db6496f",
     "src/main/scala/atlas/common/DmaParams.scala": "7d335eff289859e6d5a114c76593aa47bbcf24b521645f98268f981c9136d4ad",

@@ -67,6 +67,7 @@ instruction; see Spacing instructions with `DELAY`.
 | VPU | `vredmin.row.bf16`, `vredmax.row.bf16` | 34 cycles |
 | VPU | `vpack.bf16.fp8` | 66 cycles |
 | VPU | `vunpack.fp8.bf16` | 67 cycles |
+| VPU | `vgelu.bf16` | 75 cycles |
 | VPU | `vli.all`, `vli.row` | 65 cycles |
 | VPU | `vli.col`, `vli.one` | 33 cycles |
 | XLU | `vtrpose.xlu` | 66 cycles |
@@ -131,6 +132,7 @@ the register.
 | Operation | Reads | Writes | Free from |
 | --- | --- | --- | --- |
 | VPU binary/unary BF16, `vmov` | `vs`: T..T+31, `vs+1`: T+32..T+63 (same for a `vs2` pair) | `vd`: T+2..T+33, `vd+1`: T+34..T+65 | reads T+64, writes T+66 |
+| VPU `vgelu.bf16` | `vs`: T..T+31, `vs+1`: T+32..T+63 | `vd`: T+11..T+42, `vd+1`: T+43..T+74 | reads T+64, writes T+75 |
 | VPU `vredmin.row`, `vredmax.row` | `vs`, `vs+1`: T..T+31 | `vd`, `vd+1`: T+2..T+33 | reads T+32, writes T+34 |
 | VPU `vredsum.row` | `vs`, `vs+1`: T..T+31 | `vd`, `vd+1`: T+7..T+38 | reads T+32, writes T+39 |
 | VPU `vredsum`, `vredmin`, `vredmax` | `vs`: T..T+31 and T+64..T+95, `vs+1`: T+32..T+63 and T+96..T+127 | `vd`: T+66..T+97, `vd+1`: T+98..T+129 | reads T+128, writes T+130 |

@@ -37,7 +37,7 @@ _OP_ORDER = (
     "vredsum.bf16", "reserved.fp8", "vpack.bf16.fp8", "vunpack.fp8.bf16",
     "vrelu.bf16", "vredmax.row.bf16", "vredmin.row.bf16", "vredmax.bf16",
     "vredmin.bf16", "vmaximum.bf16", "vminimum.bf16", "vmov",
-    "vli.one", "vli.col", "vli.row", "vli.all",
+    "vli.one", "vli.col", "vli.row", "vli.all", "vgelu.bf16",
 )
 
 # Inclusive issue-to-last-write cycles for the default 32-row geometry.
@@ -56,6 +56,7 @@ VPU_OP_LATENCIES = {
     "vli.col": 33,
     "vli.one": 33,
     "vunpack.fp8.bf16": 67,
+    "vgelu.bf16": 75,
     **dict.fromkeys(_VX, 66),
     **dict.fromkeys(_VR, 67),
 }
@@ -225,7 +226,7 @@ class VectorExecutionUnit(ExecutionUnit):
             return [(vd, (age - 3) // 2)] if 3 <= age <= 65 and age % 2 else []
         # The rest write one row per cycle across the pair, starting at `first`.
         first = (1 if name.startswith("vli.") else 3 if name == "vunpack.fp8.bf16" or name in _VR
-                 else 66 if name in _COL_REDUCE else 2)
+                 else 11 if name == "vgelu.bf16" else 66 if name in _COL_REDUCE else 2)
         index = age - first
         count = 32 if name in {"vli.col", "vli.one"} else 64
         return [(vd + index // 32, index % 32)] if 0 <= index < count else []

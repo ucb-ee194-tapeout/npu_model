@@ -9,7 +9,7 @@ from npu_model.configs.hardware.default import DefaultHardwareConfig
 from npu_model.configs.isa_definition import (
     VADD_BF16, VMOV, VLI_ALL, VLI_ROW, VLI_COL, VLI_ONE, VREDSUM_BF16,
     VREDSUM_ROW_BF16, VREDMAX_ROW_BF16, VPACK_BF16_FP8, VUNPACK_FP8_BF16,
-    VSQUARE_BF16, VCUBE_BF16, VTRPOSE_XLU, VADD_BF16_VX, VSUB_BF16_VR, VMUL_BF16_VR,
+    VSQUARE_BF16, VCUBE_BF16, VTRPOSE_XLU, VADD_BF16_VX, VSUB_BF16_VR, VMUL_BF16_VR, VGELU_BF16,
 )
 from npu_model.hardware.arch_state import ArchState
 from npu_model.hardware.bank_conflict import BankConflictError
@@ -58,6 +58,7 @@ def fill_pair(state, bank, value):
     (VUNPACK_FP8_BF16(vd=m(4), vs2=m(0), es1=e(0)), 3, 66, 64),
     (VADD_BF16_VX(vd=m(4), vs1=m(0), rs2=x(5)), 2, 65, 64),
     (VMUL_BF16_VR(vd=m(4), vs1=m(0), vs2=m(2)), 3, 66, 64),
+    (VGELU_BF16(vd=m(4), vs1=m(0)), 11, 74, 64),
 ])
 def test_operation_write_edges(vpu, op, first, last, count):
     state = vpu.arch_state

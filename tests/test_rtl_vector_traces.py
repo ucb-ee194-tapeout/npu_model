@@ -6,13 +6,16 @@ import pytest
 import torch
 
 from io import StringIO
+from npu_model.configs.isa_definition import gelu
+from npu_model.configs.numerics import NUMERICS
+from npu_model.configs.rtl_math import unary
 from npu_model.util.converter import stream_to_instrs
 from tests.test_vector_rtl_timing import vpu, tick
 
 TRACES = json.loads((Path(__file__).parent / 'rtl/vector_traces.json').read_text())
 MNEMONICS = dict(zip(
-    'add sub mul rcp sqrt sin cos tanh log exp exp2 square cube rsum csum fp8pack fp8unpack relu rmax rmin cmax cmin pairmax pairmin mov vliOne vliCol vliRow vliAll'.split(),
-    'vadd.bf16 vsub.bf16 vmul.bf16 vrecip.bf16 vsqrt.bf16 vsin.bf16 vcos.bf16 vtanh.bf16 vlog2.bf16 vexp.bf16 vexp2.bf16 vsquare.bf16 vcube.bf16 vredsum.row.bf16 vredsum.bf16 vpack.bf16.fp8 vunpack.fp8.bf16 vrelu.bf16 vredmax.row.bf16 vredmin.row.bf16 vredmax.bf16 vredmin.bf16 vmaximum.bf16 vminimum.bf16 vmov vli.one vli.col vli.row vli.all'.split()))
+    'add sub mul rcp sqrt sin cos tanh log exp exp2 square cube rsum csum fp8pack fp8unpack relu rmax rmin cmax cmin pairmax pairmin mov vliOne vliCol vliRow vliAll gelu'.split(),
+    'vadd.bf16 vsub.bf16 vmul.bf16 vrecip.bf16 vsqrt.bf16 vsin.bf16 vcos.bf16 vtanh.bf16 vlog2.bf16 vexp.bf16 vexp2.bf16 vsquare.bf16 vcube.bf16 vredsum.row.bf16 vredsum.bf16 vpack.bf16.fp8 vunpack.fp8.bf16 vrelu.bf16 vredmax.row.bf16 vredmin.row.bf16 vredmax.bf16 vredmin.bf16 vmaximum.bf16 vminimum.bf16 vmov vli.one vli.col vli.row vli.all vgelu.bf16'.split()))
 
 @pytest.mark.parametrize('name', TRACES)
 def test_vector_rtl_port_trace(vpu, name):
@@ -49,7 +52,7 @@ def test_vector_rtl_port_trace(vpu, name):
         for form, key in (('', 'issue_busy'), ('.vx', 'issue_busy_vx'), ('.vr', 'issue_busy_vr')):
             assert vpu.issue_busy_mask(form) == expected[key], (case, expected['cycle'], key)
         command = insn if expected['cycle'] == 1 else None
-        if case in ('mov_overlap', 'add_vx_overlap') and expected['cycle'] == 2:
+        if case in ('mov_overlap', 'add_vx_overlap', 'gelu_overlap') and expected['cycle'] == 2:
             command = stream_to_instrs(StringIO('vrecip.bf16 m10, m8'))[0]
         if case == 'mov_row0' and expected['cycle'] == 65:
             command = stream_to_instrs(StringIO('vmul.bf16.vr m10, m8, m12'))[0]
@@ -61,3 +64,12 @@ def test_vector_rtl_port_trace(vpu, name):
                   for b,r,w in accesses if w]
         assert sorted(reads) == sorted(expected['reads']), (name, expected['cycle'], 'reads')
         assert sorted(writes) == sorted(expected['writes']), (name, expected['cycle'], 'writes')
+
+
+def test_vgelu_rtl_table_equals_the_eight_instruction_sequence():
+    """NpuModelUnaryTableTest runs vgelu.bf16 on VectorEngineTop for every BF16 input (gelu.bin.gz).
+    The model's eight .bf16 steps give the same bits, NaN, infinite, subnormal and zero results too."""
+    x = torch.arange(65536, dtype=torch.int32).to(torch.int16).view(torch.bfloat16)
+    rtl, model = unary('gelu', x).view(torch.int16), gelu(NUMERICS['rtl'], x).view(torch.int16)
+    differ = (rtl != model).nonzero().flatten().tolist()
+    assert not differ, f'{len(differ)} inputs differ, first {[hex(i) for i in differ[:8]]}'

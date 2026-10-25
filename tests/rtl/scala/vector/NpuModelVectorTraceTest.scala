@@ -17,7 +17,7 @@ class NpuModelVectorTraceHarness extends Module {
     val reads = Vec(2, Valid(new MregReadReq(p)))
     val writes = Vec(2, Valid(new MregWriteReq(p)))
     val busy = Output(Bool())
-    val issueBusy = Output(Vec(3, UInt(31.W)))
+    val issueBusy = Output(Vec(3, UInt((VPUOp.all.size + 1).W)))
   })
   val vpu = Module(new VectorEngineTop(VpuParams(), p))
   vpu.io.cmd <> io.cmd
@@ -38,13 +38,14 @@ class NpuModelVectorTraceTest extends AnyFlatSpec {
   it should "record every physical row access and result" in {
     val root = Paths.get(sys.env.getOrElse("MILL_WORKSPACE_ROOT", sys.props("user.dir")))
     val traces = ujson.Obj()
-    val names = Seq("add", "sub", "mul", "rcp", "sqrt", "sin", "cos", "tanh", "log", "exp", "exp2", "square", "cube", "rsum", "csum", "fp8", "fp8pack", "fp8unpack", "relu", "rmax", "rmin", "cmax", "cmin", "pairmax", "pairmin", "mov", "vliOne", "vliCol", "vliRow", "vliAll")
+    val names = Seq("add", "sub", "mul", "rcp", "sqrt", "sin", "cos", "tanh", "log", "exp", "exp2", "square", "cube", "rsum", "csum", "fp8", "fp8pack", "fp8unpack", "relu", "rmax", "rmin", "cmax", "cmin", "pairmax", "pairmin", "mov", "vliOne", "vliCol", "vliRow", "vliAll", "gelu")
     simulate(new NpuModelVectorTraceHarness) { dut =>
       val scenarios = names.zipWithIndex.filter(_._1 != "fp8") ++
-        names.zipWithIndex.filter(x => Set("add", "sub", "mul", "rsum", "csum", "rmax", "rmin", "cmax", "cmin", "pairmax", "pairmin", "fp8pack", "fp8unpack").contains(x._1)).map { case (n,c) => (n + "_special",c) } ++
+        names.zipWithIndex.filter(x => Set("add", "sub", "mul", "rsum", "csum", "rmax", "rmin", "cmax", "cmin", "pairmax", "pairmin", "fp8pack", "fp8unpack", "gelu").contains(x._1)).map { case (n,c) => (n + "_special",c) } ++
         Seq("mov_overlap" -> 25, "add_mirrored" -> 0, "mov_inplace" -> 25, "mov_handoff" -> 25) ++
         Seq("add_vx" -> 0, "mul_vx_special" -> 2, "pairmin_vx" -> 24, "sub_vr" -> 1, "pairmax_vr_special" -> 23,
-          "add_vr_inplace" -> 0, "add_vx_overlap" -> 0, "mov_row0" -> 25)
+          "add_vr_inplace" -> 0, "add_vx_overlap" -> 0, "mov_row0" -> 25) ++
+        Seq("gelu_overlap" -> 30)
       for ((name, code) <- scenarios) {
         val mem = Array.tabulate(64, 32) { (bank, row) =>
           (0 until 16).foldLeft(BigInt(0)) { (bits, lane) =>
@@ -69,7 +70,7 @@ class NpuModelVectorTraceTest extends AnyFlatSpec {
         dut.reset.poke(false.B)
         val events = ujson.Arr()
         for (cycle <- 1 to 135) {
-          val overlap = (name == "mov_overlap" || name == "add_vx_overlap") && cycle == 2
+          val overlap = Set("mov_overlap", "add_vx_overlap", "gelu_overlap")(name) && cycle == 2
           val handoff = name == "mov_handoff" && cycle == 66
           val row0 = name == "mov_row0" && cycle == 65
           dut.io.cmd.valid.poke((cycle == 1 || overlap || handoff || row0).B)
@@ -125,7 +126,7 @@ class NpuModelUnaryTableTest extends AnyFlatSpec {
     Files.createDirectories(dest)
     val ops = Seq("rcp" -> 4, "sqrt" -> 5, "sin" -> 6, "cos" -> 7,
       "tanh" -> 8, "log" -> 9, "exp" -> 10, "exp2" -> 11,
-      "square" -> 12, "cube" -> 13, "relu" -> 19)
+      "square" -> 12, "cube" -> 13, "relu" -> 19, "gelu" -> 31)
     simulate(new NpuModelVectorTraceHarness) { dut =>
       dut.io.cmd.valid.poke(false.B)
       dut.io.cmd.bits.op.poke(0.U)
@@ -143,7 +144,7 @@ class NpuModelUnaryTableTest extends AnyFlatSpec {
         val bytes = new Array[Byte](65536 * 2)
         var count = 0
         dut.io.cmd.bits.op.poke(code.U)
-        for (chunk <- 0 until 64; cycle <- 0 until 68) {
+        for (chunk <- 0 until 64; cycle <- 0 until 76) {
           dut.io.cmd.valid.poke((cycle == 0).B)
           val read = dut.io.reads(0)
           if (read.valid.peek().litToBoolean) {

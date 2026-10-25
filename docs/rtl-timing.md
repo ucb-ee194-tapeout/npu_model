@@ -55,6 +55,7 @@ For a command issued at T (default 32 rows):
 | MXU1 inner-product compute, accumulator rows | T+3 | T+34 |
 | VPU ordinary BF16 operations, `.vx` | T+2 | T+65 |
 | VPU `.vr` (row 0 of T(vs2) read at T) | T+3 | T+66 |
+| VPU `vgelu.bf16` (ten-cycle lane chain) | T+11 | T+74 |
 | VPU row min/max | T+2 | T+33 |
 | VPU row sum | T+7 | T+38 |
 | VPU column reductions | T+66 | T+129 |
@@ -105,6 +106,9 @@ physical port checks account for mN/m(N+32) sharing a 1R1W bank.
 - Eleven unary BF16 operations use exhaustive RTL-generated lookup tables:
   reciprocal, sqrt, sin, cos, tanh, log2, exp, exp2, square, cube and ReLU. Every
   possible BF16 input encoding is represented, including special values.
+- `vgelu.bf16` is the composition of the eight BF16 operations that define it
+  (`isa_definition.gelu`). Its RTL table (`configs/data/gelu.bin.gz`) checks this on every
+  input; the model does not read it.
 - Add/subtract round the FP32 result to BF16, nearest even, which equals one
   rounding of the exact result. Column sums truncate the FP32 result. Both give
   HardFloat's canonical NaN. Min/max use the RTL's ordered-bit comparisons.
