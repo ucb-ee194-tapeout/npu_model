@@ -271,6 +271,13 @@ python -m npu_model.isa.gen card      # npu_spec/06_instruction_set/README.md
 
    The RTL also needs a row in `IDecode.scala`. `tests/test_rtl_bitpats.py` fails while
    Instructions.scala differs from the table, and `tests/test_isa_gen.py` while the green card does.
+   The Atlas `ScalarDecoderTest` fails while the decoded control vector of an entry differs from
+   its line in `src/test/resources/scalar_decode.txt`. After a change of `IDecode.scala`, write
+   that file again (in the Atlas root) and review its diff:
+
+```bash
+ATLAS_DECODE_GOLDEN=write ./mill atlas.test.testOnly atlas.scalar.ScalarDecoderTest
+```
 
 4. Use in programs:
 
