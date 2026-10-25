@@ -187,13 +187,13 @@ def test_read_only_csrs_read_with_x0_or_zero_immediate(make_core):
         CSRRC(x(2), x(0), 0xCC0),
         CSRRSI(x(3), 0, 0xCC0),
         CSRRCI(x(4), 0, 0xCC0),
-        CSRRS(x(5), x(0), 0xCC1),   # the model has no performance counters
-        CSRRS(x(6), x(0), 0xCF7),   # the last counter's bits 63:32
+        CSRRS(x(5), x(0), 0xCC1),   # PERF_NUM
+        CSRRS(x(6), x(0), 0xCF7),   # the last counter's bits 63:32: the model has no counters
         ECALL(),
     ])
     step(core, 8)
     isa = ISA_VERSION[0] << 24 | ISA_VERSION[1] << 16 | 0xD
-    assert core.arch_state.xrf[1:7] == [isa] * 4 + [0, 0]
+    assert core.arch_state.xrf[1:7] == [isa] * 4 + [27, 0]
     assert core.arch_state.halt_reason == "ecall"
 
 

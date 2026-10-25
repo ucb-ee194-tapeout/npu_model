@@ -57,7 +57,8 @@ observations for debugging and trace comparison.
 than a general array of unrelated CSRs. [`arch_state.py`](../npu_model/hardware/arch_state.py)
 now models the implemented addresses, cycle and instruction counters, execution
 status, illegal-instruction PC and the ISA CSR (`0xCC0`: `isa.ISA_VERSION` and
-all four unit bits). The performance-counter CSRs (`0xCC1` to `0xCF7`) read 0.
+unit bits 0, 2 and 3). PERF_NUM (`0xCC1`) reads 27, as in the RTL. The model has
+no performance counters: the counter CSRs (`0xCC2` to `0xCF7`) read 0.
 An access to any other CSR, or a write to a read-only one, is an illegal
 instruction. `csrrs` / `csrrc` with `x0` and `csrrsi` / `csrrci` with 0 only
 read. Reads observe pre-edge values and explicit writes take priority over

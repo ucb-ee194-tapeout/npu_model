@@ -13,8 +13,8 @@ CSR_CYCLE, CSR_INSTRET = 0xC00, 0xC02
 CSR_WRITABLE = (0x800, 0x801)   # DBG0, DBG1
 CSR_ISA, CSR_PERF_NUM, CSR_PERF_BASE = 0xCC0, 0xCC1, 0xCC2
 NUM_PERF_COUNTERS = 27
-"""PerfCounters.num: counter i is at CSR_PERF_BASE + 2i (bits 31:0) and + 2i + 1 (bits 63:32). The
-model has no performance counters: these CSRs and CSR_PERF_NUM read 0."""
+"""PerfCounters.num, which CSR_PERF_NUM gives. Counter i is at CSR_PERF_BASE + 2i (bits 31:0) and
++ 2i + 1 (bits 63:32). The model has no performance counters: these CSRs read 0."""
 ISA_UNITS = 0b1101
 """CSR_ISA bits 3:0 (AtlasCore features): interlock, 0 (reserved), inner-product trees, NVFP4 MXU.
 The model runs the instructions of every unit."""
@@ -241,6 +241,8 @@ class ArchState:
         assert not self.csr_illegal(rs, False), f"CSR {rs:#x} is not mapped"
         if rs == CSR_ISA:
             return ISA_VERSION[0] << 24 | ISA_VERSION[1] << 16 | ISA_UNITS
+        if rs == CSR_PERF_NUM:
+            return NUM_PERF_COUNTERS
         return self._csr_values.get(rs, 0)
 
     def finish_csr_cycle(self, retired: bool) -> None:
