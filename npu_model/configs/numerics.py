@@ -22,11 +22,12 @@ class RtlNumerics:
 
     @staticmethod
     def add(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
-        return _truncated_bf16(a.float() + b.float())
+        """AddSubSumVec: FP32 sum, then BF16 nearest even; together BF16_RNE of the exact sum."""
+        return canonical_nan((a.float() + b.float()).to(torch.bfloat16))
 
     @staticmethod
     def sub(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
-        return _truncated_bf16(a.float() - b.float())
+        return canonical_nan((a.float() - b.float()).to(torch.bfloat16))
 
     @staticmethod
     def mul(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:

@@ -191,9 +191,11 @@ RTL's approximations and special-value behavior without substituting PyTorch's
 mathematical function. Files are gzip-compressed little-endian uint16 arrays
 in [`hardware/data`](../npu_model/hardware/data/).
 
-Other arithmetic follows the corresponding hardware rule: add/subtract and
-column sums truncate FP32 results to BF16 and canonicalize NaNs; min/max use
-ordered-bit comparisons; row sums use the FP32 reduction tree.
+Other arithmetic follows the corresponding hardware rule. Add and subtract
+round their FP32 result to BF16, nearest even; FP32 has more than 2 x 8 + 1
+significand bits, so this equals one rounding of the exact result. Column sums
+truncate their FP32 result to BF16. Both give HardFloat's canonical NaN. Min/max
+use ordered-bit comparisons; row sums use the FP32 reduction tree.
 
 `atlas/xlu/XLU.scala` is a separate engine. The new
 [`xlu.py`](../npu_model/hardware/xlu.py) models its read-buffer-transpose-write

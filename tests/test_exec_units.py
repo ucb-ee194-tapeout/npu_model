@@ -131,10 +131,16 @@ def test_unit_commits_exec_results_on_a_numerics_independent_schedule(unit, name
 
 
 def test_numerics_backend_selects_rounding():
-    a = torch.tensor([1.0], dtype=torch.bfloat16)
-    b = torch.tensor([1.5 * 2 ** -8], dtype=torch.bfloat16)
-    assert NUMERICS["rtl"].add(a, b).item() == 1.0  # AddSubSumVec truncates
-    assert NUMERICS["pytorch"].add(a, b).item() == 1.0078125
+    x = torch.tensor([[1.0], [1.5 * 2 ** -8]], dtype=torch.bfloat16)
+    assert NUMERICS["rtl"].column_sum(x).item() == 1.0  # ColAddVec truncates
+    assert NUMERICS["pytorch"].column_sum(x).item() == 1.0078125
+
+
+def test_rtl_add_and_sub_round_to_nearest_even():
+    one = torch.tensor([1.0, 1.0, 1.0], dtype=torch.bfloat16)
+    b = torch.tensor([1.5 * 2 ** -8, 2 ** -8, 3 * 2 ** -8], dtype=torch.bfloat16)
+    assert NUMERICS["rtl"].add(one, b).tolist() == [1.0078125, 1.0, 1.015625]  # ties to even
+    assert NUMERICS["rtl"].sub(one, b).tolist() == [0.9921875, 0.99609375, 0.98828125]
 
 
 def test_rtl_nan_results_are_canonical_whatever_torch_emits(monkeypatch):

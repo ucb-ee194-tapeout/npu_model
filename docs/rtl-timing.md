@@ -96,8 +96,9 @@ physical port checks account for mN/m(N+32) sharing a 1R1W bank.
 - Eleven unary BF16 operations use exhaustive RTL-generated lookup tables:
   reciprocal, sqrt, sin, cos, tanh, log2, exp, exp2, square, cube and ReLU. Every
   possible BF16 input encoding is represented, including special values.
-- Add/subtract and column sums truncate the FP32 result to BF16, with HardFloat's
-  canonical NaN. Min/max use the RTL's ordered-bit comparisons.
+- Add/subtract round the FP32 result to BF16, nearest even, which equals one
+  rounding of the exact result. Column sums truncate the FP32 result. Both give
+  HardFloat's canonical NaN. Min/max use the RTL's ordered-bit comparisons.
 - MXU1 uses the default 32-bit anchor accumulator with seven bits of exponent
   headroom. This path uses integer arithmetic and is compared to actual RTL
   outputs.

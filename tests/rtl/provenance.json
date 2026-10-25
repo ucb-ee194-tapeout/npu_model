@@ -18,7 +18,7 @@
     "tests/rtl/sa_traces.json": "62252fd1312d7e31013b6c4a310be0e5f567eee8055218d376a06731aca60573",
     "tests/rtl/scalar_cases.json": "8f347984bfcdce82f9221da7ed4e9fe59400e7a1fb2abcb3a0f644c3887c2bf3",
     "tests/rtl/scalar_traces.json": "a254ff6eebf8d817fac8f6ee506ba7feefd2021b64b5584214620c4c1743b86b",
-    "tests/rtl/vector_traces.json": "067b01a6c925215f578be2d662174c60b2070b639ecd6e14fa6adf380b61c4e9"
+    "tests/rtl/vector_traces.json": "8e234d8c19c0cc5bd3692c9445774af3fa20215ca0b352d96f4636d2b5735dcc"
   },
   "description": "SHA256 of RTL/harness sources and their generated artifacts.",
   "sources": {
@@ -133,7 +133,7 @@
     "src/main/scala/atlas/vector/VectorFSM.scala": "8b199ab477a840067b70bf31f79022cc8f6ff0cb6235fecfd36a70c32254d598",
     "src/main/scala/atlas/vector/VectorIO.scala": "2390f039e274e0ecb587e8bfb3ca052ebb906a75433d8c302a6df2db9ef54fb8",
     "src/main/scala/atlas/vector/laneBoxes/AddSubRec.scala": "1d855171ed50e7332a7db6c48ca323ff0aa6009ccb26ddf054c29659d7692d82",
-    "src/main/scala/atlas/vector/laneBoxes/AddSubSumVec.scala": "1a67aa2b9cff085c513ef44a6ff12151c8d19d859d9fd4468f0af25be6430f12",
+    "src/main/scala/atlas/vector/laneBoxes/AddSubSumVec.scala": "18e74c2b97b146b27d878db4939bff1e3206aaf76a849d9128d0a3ba2c827e49",
     "src/main/scala/atlas/vector/laneBoxes/ColAddVec.scala": "c9a5ba8e05e02bf5b1529362db3689a21a676037b038fecaa4e29f0ede174cb6",
     "src/main/scala/atlas/vector/laneBoxes/DivSqrtRec.scala": "50f445344a96b5364449b5ab20b05335693b89f57f027b8bdc116db78d27ead1",
     "src/main/scala/atlas/vector/laneBoxes/ExpLane.scala": "ee2903c92f2fe359f927c993b6885d211ff1b66a7dc0f3841ca2877578d903cb",
