@@ -14,7 +14,7 @@ are bf16.
 MLIR → ISA mapping:
     op_a (fp8 matmul):
         vmatpush.weight.mxu1   — push B_fp8 into WB slot 0
-        vmatmul.mxu1           — acc[0] = A_fp8 @ WB[0], bf16 accumulator
+        vmatmul.mxu1           — acc[0] = A_fp8 @ WB[0], FP32 accumulator
         vmatpop.bf16.acc.mxu1  — acc[0] → (m_vd, m_vd+1) bf16 pair
     op_b (bias add):
         vadd.bf16              — pair-op add of matmul result + bias
@@ -74,8 +74,8 @@ func.func @fused_matmul_bias(
 def fused_matmul_bias_reference(
     a: torch.Tensor, b: torch.Tensor, bias: torch.Tensor
 ) -> torch.Tensor:
-    """A_fp8 @ B_fp8 → bf16, then + bias. Matches MXU semantics:
-    extf fp8→bf16 inputs, bf16 accumulator, bf16 bias-add."""
+    """A_fp8 @ B_fp8 → bf16, then + bias, as the MXU and VPU do it: FP32
+    accumulation, one bf16 rounding at the pop, bf16 bias-add."""
     mm = (a.to(torch.float32) @ b.to(torch.float32)).to(torch.bfloat16)
     return (mm.float() + bias.float()).to(torch.bfloat16)
 

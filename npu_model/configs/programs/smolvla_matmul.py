@@ -1,7 +1,7 @@
 """SmolVLA matmul kernel.
 
 One-tile fp8 matmul: ``C = A @ B`` where A and B are 32x32 fp8
-tiles. The kernel pops the bf16 accumulator as two 32x16 halves
+tiles. The kernel pops the FP32 accumulator to bf16 as two 32x16 halves
 (cols 0-15 and cols 16-31) written at DRAM_OUTPUT and
 DRAM_OUTPUT + 0x400.
 """

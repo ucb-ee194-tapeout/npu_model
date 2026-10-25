@@ -37,7 +37,7 @@ import math
 # ───────────────────────────────────────────────────────────────────────
 # MLIR: single-tile SDPA (softmax((Q @ K) * scale) @ V), expressed in
 # f32 for stock llvm-cpu compatibility. The hardware does the matmuls
-# in fp8 with a bf16 accumulator and quantizes ``probs`` back to fp8
+# in fp8 with FP32 accumulators and BF16 pops, and quantizes ``probs`` back to fp8
 # before the second matmul; this MLIR omits the fp8 round-trip on
 # probs, so the cross-check tolerance is loose.
 # ───────────────────────────────────────────────────────────────────────
