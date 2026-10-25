@@ -10,9 +10,10 @@ import pytest
 from npu_model.configs.hardware.default import DefaultHardwareConfig
 from npu_model.configs.isa_definition import (
     ADDI, AUIPC, BEQ, BNE, BLT, BGE, JAL, JALR, DELAY, DMA_WAIT,
-    ECALL, EBREAK, SLL, SLT, SRLI,
+    ECALL, EBREAK, SLL, SLT, SRLI, CSRRW, CSRRS, CSRRC, CSRRSI, CSRRCI,
 )
 from npu_model.hardware.core import Core
+from npu_model.isa import ISA_VERSION
 from npu_model.logging import Logger, LoggerConfig
 from npu_model.software import x
 from npu_model.software.program import InstantiableProgram
@@ -155,17 +156,51 @@ def test_scalar_rv32_wrap_signed_compare_and_shift_mask(make_core):
     assert core.arch_state.xrf[1:6] == [0xFFFFFFFF, 1, 32, 0xFFFFFFFF, 0x7FFFFFFF]
 
 
-def test_csr_counters_read_pre_edge_and_writes_override_increment(make_core):
-    from npu_model.configs.isa_definition import CSRRS, CSRRW
+def test_csr_reads_do_not_write_and_writes_override_increment(make_core):
     core = make_core([
-        CSRRS(x(1), x(0), 0xC00),  # reads 1; write of old value overrides increment
-        CSRRS(x(2), x(0), 0xC01),  # reads one retired instruction, suppresses own increment
+        CSRRS(x(1), x(0), 0xC00),   # reads 1; a read does not write, so the counter counts on
+        CSRRSI(x(2), 0, 0xC00),     # reads 2
+        CSRRW(x(0), x(1), 0xC00),   # the write of 1 overrides the increment
+        CSRRC(x(3), x(0), 0xC00),   # reads 1
+        CSRRS(x(4), x(0), 0xC01),   # four instructions retired
         CSRRW(x(0), x(1), 0xC10),
-        CSRRS(x(3), x(0), 0xC10),
+        CSRRS(x(5), x(0), 0xC10),
         ECALL(),
     ])
-    step(core, 6)
-    assert core.arch_state.xrf[1:4] == [1, 1, 1]
-    assert core.arch_state.read_csrf(0xC01) == 3
+    step(core, 9)
+    assert core.arch_state.xrf[1:6] == [1, 2, 1, 4, 1]
+    assert core.arch_state.read_csrf(0xC01) == 7
     assert core.arch_state.read_csrf(0xC02) == 5  # halted / ecall
-    assert core.arch_state.read_csrf(0xABC) == core.arch_state.read_csrf(0xC00)
+
+
+def test_read_only_csrs_read_with_x0_or_zero_immediate(make_core):
+    core = make_core([
+        CSRRS(x(1), x(0), 0xCC0),   # ISA version and units
+        CSRRC(x(2), x(0), 0xCC0),
+        CSRRSI(x(3), 0, 0xCC0),
+        CSRRCI(x(4), 0, 0xCC0),
+        CSRRS(x(5), x(0), 0xCC1),   # the model has no performance counters
+        CSRRS(x(6), x(0), 0xCF7),   # the last counter's bits 63:32
+        ECALL(),
+    ])
+    step(core, 8)
+    isa = ISA_VERSION[0] << 24 | ISA_VERSION[1] << 16 | 0xF
+    assert core.arch_state.xrf[1:7] == [isa] * 4 + [0, 0]
+    assert core.arch_state.halt_reason == "ecall"
+
+
+@pytest.mark.parametrize('insn', [
+    CSRRS(x(1), x(0), 0xC20),     # unmapped, even for a read
+    CSRRS(x(1), x(0), 0xCF8),     # past the last counter
+    CSRRW(x(0), x(0), 0xC02),     # status is read-only
+    CSRRS(x(0), x(1), 0xCC0),     # rs1 is not x0: a write, although x1 is 0
+    CSRRCI(x(0), 1, 0xCC2),       # uimm is not 0: a write
+])
+def test_unmapped_csr_or_write_to_read_only_csr_is_illegal(make_core, insn):
+    core = make_core([ADDI(x(1), x(0), 0), insn, ADDI(x(2), x(0), 1)])
+    step(core, 2)
+    with pytest.raises(RuntimeError, match='Illegal CSR access'):
+        step(core)
+    assert core.arch_state.halt_reason == "illegal"
+    assert core.arch_state.execute_pc == 1
+    assert core.arch_state.read_xrf(2) == 0

@@ -36,7 +36,15 @@ class NpuModelScalarTraceHarness extends Module {
   core.io.lsu_vstore_busy := false.B
   core.io.mregReadBusy := 0.U
   core.io.mregWriteBusy := 0.U
+  core.io.mxu0Ready := true.B
+  core.io.mxu1Ready := true.B
+  core.io.nvReady := true.B
+  core.io.xlu_busy := false.B
+  core.io.dma_can_enqueue := true.B
+  core.io.lsu_vload_vmem_bank := 0.U.asTypeOf(core.io.lsu_vload_vmem_bank)
+  core.io.lsu_vstore_vmem_bank := 0.U.asTypeOf(core.io.lsu_vstore_vmem_bank)
   core.io.csrPort.rdata := 0.U
+  core.io.csrPort.illegal := false.B
   core.io.scalarMemResp.valid := RegNext(core.io.scalarMemCmd.valid && !core.io.scalarMemCmd.bits.isStore, false.B)
   core.io.scalarMemResp.bits := "h12345678".U
   io.fetchPc := core.io.imemFetch.addr

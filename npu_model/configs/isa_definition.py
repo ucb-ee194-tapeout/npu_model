@@ -776,14 +776,16 @@ class CSRRW(CSRReg, CSRType, exu=EXU.SCALAR, opcode=0b1110011, funct3=0b001):
 class CSRRS(CSRReg, CSRType, exu=EXU.SCALAR, opcode=0b1110011, funct3=0b010):
     def exec(self, state: ArchState) -> None:
         old = state.read_csrf(self.imm)
-        state.write_csrf(self.imm, old | state.read_xrf(self.rs1))
+        if self.writes:
+            state.write_csrf(self.imm, old | state.read_xrf(self.rs1))
         state.write_xrf(self.rd, old)
 
 
 class CSRRC(CSRReg, CSRType, exu=EXU.SCALAR, opcode=0b1110011, funct3=0b011):
     def exec(self, state: ArchState) -> None:
         old = state.read_csrf(self.imm)
-        state.write_csrf(self.imm, old & ~state.read_xrf(self.rs1))
+        if self.writes:
+            state.write_csrf(self.imm, old & ~state.read_xrf(self.rs1))
         state.write_xrf(self.rd, old)
 
 
@@ -797,14 +799,16 @@ class CSRRWI(CSRImm, CSRType, exu=EXU.SCALAR, opcode=0b1110011, funct3=0b101):
 class CSRRSI(CSRImm, CSRType, exu=EXU.SCALAR, opcode=0b1110011, funct3=0b110):
     def exec(self, state: ArchState) -> None:
         old = state.read_csrf(self.imm)
-        state.write_csrf(self.imm, old | (self.rs1 & 0b11111))
+        if self.writes:
+            state.write_csrf(self.imm, old | (self.rs1 & 0b11111))
         state.write_xrf(self.rd, old)
 
 
 class CSRRCI(CSRImm, CSRType, exu=EXU.SCALAR, opcode=0b1110011, funct3=0b111):
     def exec(self, state: ArchState) -> None:
         old = state.read_csrf(self.imm)
-        state.write_csrf(self.imm, old & ~(self.rs1 & 0b11111))
+        if self.writes:
+            state.write_csrf(self.imm, old & ~(self.rs1 & 0b11111))
         state.write_xrf(self.rd, old)
 
 

@@ -4,6 +4,10 @@ from npu_model.isa_types import *
 if TYPE_CHECKING:
     from npu_model.hardware.arch_state import ArchState
 
+ISA_VERSION = (1, 0)
+"""Atlas ISA (major, minor): bits 31:24 and 23:16 of CSR 0xCC0 (ScalarISA.ISA_MAJOR / ISA_MINOR in
+the RTL). A change of instruction encoding or semantics increments it."""
+
 # Utility functions for assembly
 def _mask(val: int, bits: int):
     """returns the first `bits` bits of `val`"""
@@ -312,6 +316,11 @@ class CSRType(Instruction, instr=False):
         opcode_b = _mask(self.opcode, 7)
 
         return (imm_b << 20) | (rs1_b << 15) | (funct3_b << 12) | (rd_b << 7) | opcode_b
+
+    @property
+    def writes(self) -> bool:
+        """csrrw and csrrwi write the CSR; the set and clear forms only when rs1 (or uimm) is not 0."""
+        return self.funct3 & 0b11 == 0b01 or self.rs1 != 0
 
     def __init_subclass__(cls, exu: EXU, opcode: OpcodeL, funct3: Funct3L, mnemonic: str | None = None) -> None:
         mnemonic = mnemonic if mnemonic != None else cls.__name__.lower().replace("_",".")

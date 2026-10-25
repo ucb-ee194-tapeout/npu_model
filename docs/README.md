@@ -58,9 +58,12 @@ observations for debugging and trace comparison.
 `diplomatic/memory/CSRFile.scala` implements a small internal CSR map rather
 than a general array of unrelated CSRs. [`arch_state.py`](../npu_model/hardware/arch_state.py)
 now models the implemented addresses, cycle and instruction counters, execution
-status, and illegal-instruction PC. Unknown addresses alias the cycle CSR.
-Reads observe pre-edge values and explicit writes take priority over automatic
-counter increments.
+status, illegal-instruction PC and the ISA CSR (`0xCC0`: `isa.ISA_VERSION` and
+all four unit bits). The performance-counter CSRs (`0xCC1` to `0xCF7`) read 0.
+An access to any other CSR, or a write to a read-only one, is an illegal
+instruction. `csrrs` / `csrrc` with `x0` and `csrrsi` / `csrrci` with 0 only
+read. Reads observe pre-edge values and explicit writes take priority over
+automatic counter increments.
 
 The instruction counter counts S1 launches, not completion of a long-running
 engine. This matters when a matmul is still in flight or S1 is stalled. CSR

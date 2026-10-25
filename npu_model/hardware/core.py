@@ -5,7 +5,7 @@ from npu_model.software.program import Program
 from npu_model.software.instruction import Uop
 from npu_model.logging.logger import Logger, LaneType
 from npu_model.hardware.arch_state import ArchState
-from npu_model.isa import RType, SBType, UJType
+from npu_model.isa import CSRType, RType, SBType, UJType
 from npu_model.isa_types import EXU
 
 from .hardware import Module
@@ -189,15 +189,18 @@ class Core(Module):
 
         # ScalarCore halt detection is combinational and precedes stall gating.
         if self.s1_uop is not None:
-            mnemonic = self.s1_uop.insn.mnemonic
+            insn = self.s1_uop.insn
+            mnemonic = insn.mnemonic
+            illegal = None
             if state.in_delay_slot and self._is_control_flow_instruction(self.s1_uop):
+                illegal = f"Illegal control-flow instruction '{mnemonic}' decoded in a delay-slot position"
+            elif isinstance(insn, CSRType) and state.csr_illegal(insn.imm, insn.writes):
+                illegal = f"Illegal CSR access '{mnemonic}' to CSR {insn.imm:#x}"
+            if illegal:
                 state.halted = True
                 state.halt_reason = "illegal"
                 state.execute_pc = self.s1_uop.pc
-                raise RuntimeError(
-                    f"Illegal control-flow instruction '{mnemonic}' decoded "
-                    f"in a delay-slot position on cycle {self.cycle_count}"
-                )
+                raise RuntimeError(f"{illegal} on cycle {self.cycle_count}")
             if mnemonic in {"ecall", "ebreak"}:
                 state.execute_pc = self.s1_uop.pc
                 self.s1_uop.insn.exec(state)
