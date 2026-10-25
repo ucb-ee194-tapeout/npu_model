@@ -97,6 +97,12 @@ same-accumulator row-0 gate opens one edge after row 0's write. Port reuse
 (32), in-flight depth (3/2) and weight-slot reuse (63/32) are separate limits;
 same-target, accumulate, shared-port and live-weight checks still apply.
 
+`lsu.SCALAR_LOAD_TIMING`, `SCALAR_STORE_TIMING` and `vector_timing` separate
+VMEM requests, result writes and path availability. A scalar load writes at age 3
+and is usable at 4; the next load may issue at 3. VLOAD and VSTORE write rows at
+3..34 and accept their next command at 35. VSTORE keeps its source reserved
+through 34 although its last MREG read is at 32.
+
 Scalar LSU addresses are **bytes**. VLOAD/VSTORE bases are **words**, and their
 immediate contributes 32 words per unit. For example, byte address 0x2000 needs
 base 0x800; an additional 1024 bytes uses immediate 8. VMEM contains six contiguous

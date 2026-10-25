@@ -19,12 +19,44 @@ from .bank_conflict import BankConflictError
 
 _SCALAR_LOADS = {"lb", "lh", "lw", "lbu", "lhu", "seld"}
 _SCALAR_STORES = {"sb", "sh", "sw"}
+
+
+@dataclass(frozen=True)
+class ScalarLoadStoreTiming:
+    """Ages after command acceptance of the VMEM request and the result write."""
+
+    vmem_request_age: int
+    result_write_age: int
+
+
+@dataclass(frozen=True)
+class VectorLoadStoreTiming:
+    """Inclusive row windows after command acceptance. VLOAD reads VMEM and writes its MREG; VSTORE the reverse."""
+
+    source_read_first_age: int
+    source_read_last_age: int
+    result_write_first_age: int
+    result_write_last_age: int
+    mreg_release_age: int  # VSTORE holds its source through its last VMEM write.
+    path_occupied_last_age: int
+
+
+SCALAR_LOAD_TIMING = ScalarLoadStoreTiming(vmem_request_age=1, result_write_age=3)
+SCALAR_STORE_TIMING = ScalarLoadStoreTiming(vmem_request_age=1, result_write_age=1)
+
+
+def vector_timing(rows: int = 32) -> VectorLoadStoreTiming:
+    return VectorLoadStoreTiming(source_read_first_age=1, source_read_last_age=rows, result_write_first_age=3,
+                                 result_write_last_age=rows + 2, mreg_release_age=rows + 2,
+                                 path_occupied_last_age=rows + 2)
+
+
 # Inclusive execute-stage cycles, including the scalar command/response flops.
 LSU_OP_LATENCIES = {
-    **dict.fromkeys(_SCALAR_LOADS, 4),
-    **dict.fromkeys(_SCALAR_STORES, 2),
-    "vload": 35,
-    "vstore": 35,
+    **dict.fromkeys(_SCALAR_LOADS, SCALAR_LOAD_TIMING.result_write_age + 1),
+    **dict.fromkeys(_SCALAR_STORES, SCALAR_STORE_TIMING.result_write_age + 1),
+    "vload": vector_timing().result_write_last_age + 1,
+    "vstore": vector_timing().result_write_last_age + 1,
 }
 
 
@@ -77,7 +109,7 @@ class LoadStoreUnit(ExecutionUnit):
 
     def _get_latency(self, uop: Uop) -> int:
         if uop.insn.mnemonic in {"vload", "vstore"}:
-            return self.arch_state.cfg.mrf_depth + 3
+            return vector_timing(self.arch_state.cfg.mrf_depth).result_write_last_age + 1
         return LSU_OP_LATENCIES[uop.insn.mnemonic]
 
     def _finish(self, op: _Operation) -> None:
@@ -103,7 +135,8 @@ class LoadStoreUnit(ExecutionUnit):
         assert address < self.arch_state.cfg.vmem_size, "LSU address exceeds VMEM capacity"
         reads: list[tuple] = []
         if mnemonic in _SCALAR_LOADS:
-            if any(old.uop.insn.mnemonic in _SCALAR_LOADS and self.cycle - old.issued < 3
+            if any(old.uop.insn.mnemonic in _SCALAR_LOADS
+                   and self.cycle - old.issued < SCALAR_LOAD_TIMING.result_write_age
                    for old in self._scalar):
                 raise RuntimeError("scalar load issued while prior load response pending")
             writes = [("erf" if mnemonic == "seld" else "xrf", int(insn.rd))]
@@ -147,15 +180,18 @@ class LoadStoreUnit(ExecutionUnit):
         """
         accesses: list[tuple[str, int]] = []
         for op in self._scalar:
-            if cycle - op.issued == 1:
+            timing = SCALAR_LOAD_TIMING if op.uop.insn.mnemonic in _SCALAR_LOADS else SCALAR_STORE_TIMING
+            if cycle - op.issued == timing.vmem_request_age:
                 accesses.append((op.uop.insn.mnemonic, op.address))
-        rows = self.arch_state.cfg.mrf_depth
-        if self._vload and 1 <= cycle - self._vload.issued <= rows:
-            row = cycle - self._vload.issued - 1
-            accesses.append(("vload", self._vload.address + row * self.arch_state.cfg.mrf_width))
-        if self._vstore and 3 <= cycle - self._vstore.issued <= rows + 2:
-            row = cycle - self._vstore.issued - 3
-            accesses.append(("vstore", self._vstore.address + row * self.arch_state.cfg.mrf_width))
+        timing = vector_timing(self.arch_state.cfg.mrf_depth)
+        # VLOAD requests VMEM as it reads its source rows, VSTORE as it writes its result rows.
+        windows = {"vload": (timing.source_read_first_age, timing.source_read_last_age),
+                   "vstore": (timing.result_write_first_age, timing.result_write_last_age)}
+        for mnemonic, op in (("vload", self._vload), ("vstore", self._vstore)):
+            first, last = windows[mnemonic]
+            if op is not None and first <= cycle - op.issued <= last:
+                row = cycle - op.issued - first
+                accesses.append((mnemonic, op.address + row * self.arch_state.cfg.mrf_width))
         return accesses
 
     def _check_vmem_ports(self) -> None:
@@ -199,7 +235,7 @@ class LoadStoreUnit(ExecutionUnit):
             age = self.cycle - op.issued
             insn = op.uop.insn
             mnemonic = insn.mnemonic
-            if mnemonic in _SCALAR_STORES and age == 1:
+            if mnemonic in _SCALAR_STORES and age == SCALAR_STORE_TIMING.result_write_age:
                 size = {"sb": 1, "sh": 2, "sw": 4}[mnemonic]
                 # Hardware ignores bit 0 for halfwords and bits 1:0 for words.
                 address = op.address & ~(size - 1)
@@ -207,10 +243,10 @@ class LoadStoreUnit(ExecutionUnit):
                 self._finish(op)
                 continue
             if mnemonic in _SCALAR_LOADS:
-                if age == 1:
+                if age == SCALAR_LOAD_TIMING.vmem_request_age:
                     word = op.address & ~3
                     op.staged.sample(("vmem",), slice(word, word + 4), self.arch_state.read_vmem(word, 0, 4))
-                if age == 3:
+                if age == SCALAR_LOAD_TIMING.result_write_age:
                     self._check_writeback()
                     if mnemonic == "seld":
                         self.arch_state.write_erf(insn.rd, op.staged.result(("erf", int(insn.rd))))
@@ -226,26 +262,28 @@ class LoadStoreUnit(ExecutionUnit):
             return
         age = self.cycle - op.issued
         rows, width = self.arch_state.cfg.mrf_depth, self.arch_state.cfg.mrf_width
+        timing = vector_timing(rows)
         reg = int(op.uop.insn.vd)
         owner = f"{self.name}:{op.uop.id}"
-        if 1 <= age <= rows:
-            row = age - 1
+        if timing.source_read_first_age <= age <= timing.source_read_last_age:
+            row = age - timing.source_read_first_age
             if load:
                 start = op.address + row * width
                 op.staged.sample(("vmem",), slice(start, start + width), self.arch_state.read_vmem(start, 0, width))
             else:
                 self.arch_state.conflict_checker.access_mreg(self.cycle, reg, row, False, owner)
                 op.staged.sample(("mrf", reg), row, self.arch_state.read_mrf_u8(reg)[row])
-        if 3 <= age <= rows + 2:
-            row = age - 3
+        if timing.result_write_first_age <= age <= timing.result_write_last_age:
+            row = age - timing.result_write_first_age
             if load:
                 self.arch_state.conflict_checker.access_mreg(self.cycle, reg, row, True, owner)
                 self.arch_state.read_mrf_u8(reg)[row] = op.staged.result(("mrf", reg))[row]
             else:
                 data = self._vmem_write(op, op.address, rows * width)
                 self.arch_state.write_vmem(op.address + row * width, 0, data[row * width:(row + 1) * width])
-        if age == rows + 2:
+        if age == timing.mreg_release_age:
             self.arch_state.conflict_checker.release_mreg(owner)
+        if age == timing.path_occupied_last_age:
             self._finish(op)
             if load:
                 self._vload = None
