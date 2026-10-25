@@ -103,6 +103,10 @@ and is usable at 4; the next load may issue at 3. VLOAD and VSTORE write rows at
 3..34 and accept their next command at 35. VSTORE keeps its source reserved
 through 34 although its last MREG read is at 32.
 
+`xlu.TRANSPOSE_TIMING` separates source reads (1..32, released at 33), result
+writes (34..65) and engine release (end of 65). `TRANSPOSE_CYCLES` remains the
+66-cycle engine lifetime.
+
 Scalar LSU addresses are **bytes**. VLOAD/VSTORE bases are **words**, and their
 immediate contributes 32 words per unit. For example, byte address 0x2000 needs
 base 0x800; an additional 1024 bytes uses immediate 8. VMEM contains six contiguous

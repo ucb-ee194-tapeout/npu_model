@@ -2,11 +2,28 @@
 
 Values come from Instruction.exec; this unit decides only when rows move.
 """
+from dataclasses import dataclass
+
 from .exu import ExecutionUnit, StagedExecution
 from ..software.instruction import Uop
 from ..isa import EXU
 
-TRANSPOSE_CYCLES = 66
+
+@dataclass(frozen=True)
+class CrossLaneTiming:
+    """Ages after command acceptance of source reads, reservation release, result writes and engine release."""
+
+    source_read_first_age: int
+    source_read_last_age: int
+    source_release_request_age: int
+    result_write_first_age: int
+    result_write_last_age: int
+    engine_release_age: int
+
+
+TRANSPOSE_TIMING = CrossLaneTiming(source_read_first_age=1, source_read_last_age=32, source_release_request_age=33,
+                                   result_write_first_age=34, result_write_last_age=65, engine_release_age=65)
+TRANSPOSE_CYCLES = TRANSPOSE_TIMING.engine_release_age + 1
 """Cycles a transpose holds the engine, from issue through its last row write."""
 
 
@@ -62,22 +79,22 @@ class CrossLaneExecutionUnit(ExecutionUnit):
         self._busy_cycles += 1
         age = self.cycle - self.issued
         insn = self.in_flight.insn
-        if 1 <= age <= 32:
-            row = age - 1
+        if TRANSPOSE_TIMING.source_read_first_age <= age <= TRANSPOSE_TIMING.source_read_last_age:
+            row = age - TRANSPOSE_TIMING.source_read_first_age
             checker.access_mreg(self.cycle, int(insn.vs1), row, False, self.owner)
             # Capture the value at the request edge; the response appears one
             # cycle later. The last response changes ReadMreg to WriteMreg.
             source = int(insn.vs1)
             self.staged.sample(("mrf", source), row, self.arch_state.read_mrf_u8(source)[row])
-        if age == 33:
+        if age == TRANSPOSE_TIMING.source_release_request_age:
             checker.release_mreg(self.owner, reads=True, writes=False)
-        if 34 <= age <= 65:
-            row = age - 34
+        if TRANSPOSE_TIMING.result_write_first_age <= age <= TRANSPOSE_TIMING.result_write_last_age:
+            row = age - TRANSPOSE_TIMING.result_write_first_age
             destination = int(insn.vd)
             checker.access_mreg(self.cycle, destination, row, True, self.owner)
             self.arch_state.read_mrf_u8(destination)[row] = self.staged.result(("mrf", destination))[row]
-        self.in_flight.execute_delay = max(0, TRANSPOSE_CYCLES - 1 - age)
-        if age == TRANSPOSE_CYCLES - 1:
+        self.in_flight.execute_delay = max(0, TRANSPOSE_TIMING.result_write_last_age - age)
+        if age == TRANSPOSE_TIMING.engine_release_age:
             checker.release_mreg(self.owner)
             self._pending_completions.append(self.in_flight)
             self.in_flight = None
