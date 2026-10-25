@@ -16,12 +16,6 @@ from ..software.instruction import Uop
 from ..isa import EXU
 from .config import HardwareConfig
 
-MXU_OP_LATENCIES = {
-    f"{op}.mxu{unit}": (95 if unit == 0 else 35) if op.startswith("vmatmul") else 33
-    for unit in (0, 1)
-    for op in ("vmatpush.weight", "vmatpush.acc.fp8", "vmatpush.acc.bf16",
-               "vmatmul.acc", "vmatmul", "vmatpop.fp8.acc", "vmatpop.bf16.acc")
-}
 PORT_CYCLES = 32
 """Cycles a command holds each sequencer port it takes, one row per cycle."""
 PORT_CHOICES = {
@@ -42,7 +36,43 @@ _PORTS_BUSY = {
     "pop_fp8": "pop issued while write ports are busy",
     "pop_bf16": "pop issued while write ports are busy",
 }
-_GRID = torch.arange(32)
+_ROWS = 32
+_GRID = torch.arange(_ROWS)
+
+
+@dataclass(frozen=True)
+class MatrixTiming:
+    """Source, accumulator and resource ages after command acceptance."""
+
+    accumulator_write_first_age: int
+    accumulator_write_last_age: int
+    weight_slot_reuse_age: int
+    inflight_depth: int
+    source_read_last_age: int = 31
+    mreg_release_request_age: int = 32
+    weight_read_first_age: int = 1
+    buffer_write_first_age: int = 1  # Push and pop row writes.
+    buffer_write_last_age: int = 32
+    push_path_release_age: int = 32
+    accumulator_push_reader_gap: int = 2
+
+    @property
+    def accumulator_row0_usable_age(self) -> int:
+        """First edge a same-accumulator consumer can pass the row-0 gate."""
+        return self.accumulator_write_first_age + 1
+
+
+MXU0_TIMING = MatrixTiming(accumulator_write_first_age=63, accumulator_write_last_age=94, weight_slot_reuse_age=63,
+                           inflight_depth=3)
+MXU1_TIMING = MatrixTiming(accumulator_write_first_age=3, accumulator_write_last_age=34, weight_slot_reuse_age=32,
+                           inflight_depth=2)
+MXU_OP_LATENCIES = {
+    f"{op}.mxu{unit}": (timing.accumulator_write_last_age if op.startswith("vmatmul")
+                        else timing.buffer_write_last_age) + 1
+    for unit, timing in enumerate((MXU0_TIMING, MXU1_TIMING))
+    for op in ("vmatpush.weight", "vmatpush.acc.fp8", "vmatpush.acc.bf16",
+               "vmatmul.acc", "vmatmul", "vmatpop.fp8.acc", "vmatpop.bf16.acc")
+}
 
 
 @dataclass
@@ -66,6 +96,7 @@ class _Operation:
 class _MatrixExecutionUnit(ExecutionUnit):
     mxu: str
     exu_type: EXU
+    timing: MatrixTiming
     compute_first: int
     inflight_depth: int
 
@@ -125,7 +156,8 @@ class _MatrixExecutionUnit(ExecutionUnit):
         active = [op for op in self._ops if self.cycle - op.issued < PORT_CYCLES]
         compute = [op for op in self._ops if op.kind == "compute"]
         free = lambda port: not any(port in op.ports for op in active)
-        if kind != "weight" and any(op.acc == acc and self.cycle - op.issued <= self.compute_first for op in compute):
+        row0 = self.timing.accumulator_row0_usable_age
+        if kind != "weight" and any(op.acc == acc and self.cycle - op.issued < row0 for op in compute):
             raise RuntimeError(f"{self.mxu}: command issued before previous compute row-0 writeback")
         # Take the first choice whose ports are all free.
         ports = None
@@ -133,27 +165,33 @@ class _MatrixExecutionUnit(ExecutionUnit):
             if all(free(port) for port in choice):
                 ports = choice
                 break
-        if ports is None or (kind == "compute" and len(compute) >= self.inflight_depth):
+        if ports is None or (kind == "compute" and len(compute) >= self.timing.inflight_depth):
             raise RuntimeError(f"{self.mxu}: {_PORTS_BUSY[kind]}")
         if self.mxu == "mxu0" and kind == "weight":
-            if weight in self._last_compute and self.cycle - self._last_compute[weight] <= 62:
+            reuse = self.timing.weight_slot_reuse_age
+            if weight in self._last_compute and self.cycle - self._last_compute[weight] < reuse:
                 raise RuntimeError("mxu0: weight push issued before previous matmul on same slot drained")
         if self.mxu == "mxu1":
-            weight_pushes = [op for op in active if op.kind == "weight" and op.weight == weight]
+            weight_pushes = [op for op in self._ops if op.kind == "weight" and op.weight == weight
+                             and self.cycle - op.issued < self.timing.push_path_release_age]
             acc_pushes = [op for op in self._ops if op.kind.startswith("push") and op.acc == acc
-                          and self.cycle - op.issued <= 32]
-            if kind == "weight" and (weight_pushes or any(op.kind == "compute" and op.weight == weight for op in active)):
+                          and self.cycle - op.issued <= self.timing.buffer_write_last_age]
+            if kind == "weight" and (weight_pushes or any(
+                    op.kind == "compute" and op.weight == weight
+                    and self.cycle - op.issued < self.timing.weight_slot_reuse_age for op in self._ops)):
                 raise RuntimeError("mxu1: weight slot busy")
             if kind == "compute" and (weight_pushes or acc_pushes):
                 raise RuntimeError("mxu1: compute reads buffer with an active push")
             if kind == "push_fp8" and acc_pushes:
                 raise RuntimeError("mxu1: accumulation push target busy")
         path = self._push_path(kind)
-        if path and any(self._push_path(op.kind) == path for op in active):
+        if path and any(self._push_path(op.kind) == path
+                        and self.cycle - op.issued < self.timing.push_path_release_age for op in self._ops):
             raise RuntimeError(f"{self.mxu}: {path} push issued while another {path} push is still writing")
         # A reader one cycle behind a push would read each row just before it lands.
         if (pop or (kind == "compute" and ".acc." in insn.mnemonic)) and any(
-                self._push_path(op.kind) == "accumulator" and op.acc == acc and self.cycle - op.issued < 2
+                self._push_path(op.kind) == "accumulator" and op.acc == acc
+                and self.cycle - op.issued < self.timing.accumulator_push_reader_gap
                 for op in self._ops):
             raise RuntimeError(f"{self.mxu}: accumulator read issued the cycle after a push to it")
         owner = f"{self.name}:{uop.id}"
@@ -194,12 +232,13 @@ class _MatrixExecutionUnit(ExecutionUnit):
         """(output column, inner) weights read at this age, and which are row 0's."""
         if self.mxu == "mxu1":
             # Each IPT row reads the whole tile, row r at age r + 1.
-            used = torch.full((32, 32), 1 <= age <= 32)
-            return used, used & (age == 1)
+            first = self.timing.weight_read_first_age
+            used = torch.full((_ROWS, _ROWS), first <= age < first + _ROWS)
+            return used, used & (age == self.timing.weight_read_first_age)
         # SA PE(i, j) evaluates row r at T+1+r+i+j, reading the weight
         # present at that PE's use cycle.
-        row = age - 1 - _GRID[:, None] - _GRID[None, :]
-        return (row >= 0) & (row <= 31), row == 0
+        row = age - self.timing.weight_read_first_age - _GRID[:, None] - _GRID[None, :]
+        return (row >= 0) & (row < _ROWS), row == 0
 
     def _sample_weights(self, op: _Operation, age: int) -> None:
         """Every use of a weight follows row 0's, so a change seen there is
@@ -235,7 +274,7 @@ class _MatrixExecutionUnit(ExecutionUnit):
         readers: dict[int, str] = {}
         for op in self._ops:
             age = self.cycle - op.issued
-            if 0 <= age < 32:
+            if 0 <= age <= self.timing.source_read_last_age:
                 if ("acc", self.mxu, op.acc) in op.staged.operands:
                     if op.acc in readers:
                         raise RuntimeError(f"{self.mxu}: compute and pop read the same accumulator")
@@ -250,34 +289,36 @@ class _MatrixExecutionUnit(ExecutionUnit):
         compute_writes: list[tuple[_Operation, int]] = []
         for op in self._ops:
             age = self.cycle - op.issued
-            if op.kind == "compute" and self.compute_first <= age <= self.compute_first + 31:
-                compute_writes.append((op, age - self.compute_first))
-            if 1 <= age <= 32:
+            if (op.kind == "compute"
+                    and self.timing.accumulator_write_first_age <= age <= self.timing.accumulator_write_last_age):
+                compute_writes.append((op, age - self.timing.accumulator_write_first_age))
+            in_buffer_write = self.timing.buffer_write_first_age <= age <= self.timing.buffer_write_last_age
+            if in_buffer_write:
                 if op.kind == "weight" and (weight_push is None or op.ports[0] > weight_push.ports[0]):
                     weight_push = op
                 elif op.kind.startswith("push") and (acc_push is None or op.ports[0] > acc_push.ports[0]):
                     acc_push = op
-                elif op.kind.startswith("pop"):
-                    self._pop_row(op, age - 1)
+            if op.kind.startswith("pop") and in_buffer_write:
+                self._pop_row(op, age - self.timing.buffer_write_first_age)
         if acc_push is not None and any(op.acc == acc_push.acc for op, _ in compute_writes):
             raise RuntimeError(f"{self.mxu}: compute and push write the same accumulator")
         for op, row in compute_writes:
             self.arch_state.acc[self.mxu][op.acc][row] = op.staged.result(("acc", self.mxu, op.acc))[row]
         if weight_push is not None:
-            row = self.cycle - weight_push.issued - 1
+            row = self.cycle - weight_push.issued - self.timing.buffer_write_first_age
             location = ("wb", self.mxu, weight_push.weight)
             self.arch_state.read_wb_u8(self.mxu, weight_push.weight)[row] = weight_push.staged.result(location)[row]
         if acc_push is not None:
-            row = self.cycle - acc_push.issued - 1
+            row = self.cycle - acc_push.issued - self.timing.buffer_write_first_age
             location = ("acc", self.mxu, acc_push.acc)
             self.arch_state.acc[self.mxu][acc_push.acc][row] = acc_push.staged.result(location)[row]
         remaining = []
         for op in self._ops:
             age = self.cycle - op.issued
-            if age == 32 and not op.mreg_released:
+            if age == self.timing.mreg_release_request_age and not op.mreg_released:
                 self.arch_state.conflict_checker.release_mreg(op.owner)
                 op.mreg_released = True
-            last = self.compute_first + 31 if op.kind == "compute" else 32
+            last = self.timing.accumulator_write_last_age if op.kind == "compute" else self.timing.buffer_write_last_age
             if age == last:
                 self._complete_count += 1
                 self._pending_completions.append(op.uop)
@@ -314,12 +355,14 @@ class _MatrixExecutionUnit(ExecutionUnit):
 class MatrixExecutionUnitSystolic(_MatrixExecutionUnit):
     mxu = "mxu0"
     exu_type = EXU.MATRIX_SYSTOLIC
-    compute_first = 63
-    inflight_depth = 3
+    timing = MXU0_TIMING
+    compute_first = timing.accumulator_write_first_age
+    inflight_depth = timing.inflight_depth
 
 
 class MatrixExecutionUnitInner(_MatrixExecutionUnit):
     mxu = "mxu1"
     exu_type = EXU.MATRIX_INNER
-    compute_first = 3
-    inflight_depth = 2
+    timing = MXU1_TIMING
+    compute_first = timing.accumulator_write_first_age
+    inflight_depth = timing.inflight_depth

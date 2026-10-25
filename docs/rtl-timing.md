@@ -91,6 +91,12 @@ destination MREG at age 66. None of these is a general def-use latency; operand,
 port, shared-logic and double-input checks still apply. `issue_cycles` returns
 the slot-release age for compatibility.
 
+`mxu.MXU0_TIMING` and `MXU1_TIMING` name each event: source reads end at age 31
+and release at 32, and accumulator writes span 63..94 (MXU0) or 3..34 (MXU1). The
+same-accumulator row-0 gate opens one edge after row 0's write. Port reuse
+(32), in-flight depth (3/2) and weight-slot reuse (63/32) are separate limits;
+same-target, accumulate, shared-port and live-weight checks still apply.
+
 Scalar LSU addresses are **bytes**. VLOAD/VSTORE bases are **words**, and their
 immediate contributes 32 words per unit. For example, byte address 0x2000 needs
 base 0x800; an additional 1024 bytes uses immediate 8. VMEM contains six contiguous
