@@ -5,8 +5,10 @@ where its results land are fixed by isa_definition. They differ only in
 rounding, special values and function approximation. Tensors are BF16 unless
 noted; ``scale`` is a raw ERF value, the power of two 2**(scale - 127).
 """
+import numpy as np
 import torch
 
+from . import cvt
 from .rtl_math import (unary, minmax, extremum, pack_row, unpack_row, _truncated_bf16,
                        canonical_nan, ipt_row)
 
@@ -69,18 +71,25 @@ class RtlNumerics:
 
     @staticmethod
     def to_fp8(x: torch.Tensor, scale: int) -> torch.Tensor:
-        """FP8Pack: saturates to 448 and flushes subnormal results to +0."""
-        return pack_row(x.flatten(), scale).view(torch.float8_e4m3fn).reshape(x.shape)
+        """FP8Pack: E4M3_RN_SATFINITE(x * 2**(scale - 127)), as cvt.py."""
+        bits = x.contiguous().view(torch.int16).numpy().astype(np.uint16).astype(np.uint32) << 16
+        return torch.from_numpy(cvt.e4m3_rn_satfinite(bits, scale)).view(torch.float8_e4m3fn)
 
     @staticmethod
     def from_fp8(x: torch.Tensor, scale: int) -> torch.Tensor:
-        """FP8Unpack: flushes subnormal and NaN inputs to signed zero."""
-        return unpack_row(x.flatten().view(torch.uint8), scale).reshape(x.shape)
+        """FP8Unpack: BF16_RNE(x * 2**(scale - 127)), as cvt.py."""
+        codes = x.contiguous().view(torch.uint8).numpy()
+        return torch.from_numpy(cvt.bf16_rne(cvt.e4m3_to_f32(codes), scale).view(np.int16)).view(torch.bfloat16)
+
+    @staticmethod
+    def acc_from_fp8(x: torch.Tensor) -> torch.Tensor:
+        """MXU push, FPUtils.e4m3ToBf16: flushes subnormal and NaN inputs to signed zero."""
+        return unpack_row(x.flatten().view(torch.uint8)).reshape(x.shape)
 
     @staticmethod
     def acc_to_fp8(x: torch.Tensor, scale: int) -> torch.Tensor:
-        """BF16ScaleToE4M3: like FP8Pack, but a value rounding to 480 encodes 0x7f."""
-        return pack_row(x.flatten(), scale, mxu=True).view(torch.float8_e4m3fn).reshape(x.shape)
+        """BF16ScaleToE4M3, as rtl_math.pack_row."""
+        return pack_row(x.flatten(), scale).view(torch.float8_e4m3fn).reshape(x.shape)
 
     @staticmethod
     def inner_product_matmul(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
@@ -143,12 +152,16 @@ class TorchNumerics:
     @staticmethod
     def to_fp8(x: torch.Tensor, scale: int) -> torch.Tensor:
         """Saturates to 448, keeping subnormals."""
-        scaled = x.float() * 2.0 ** -_exponent(scale)
+        scaled = x.double() * 2.0 ** (int(scale) - 127)
         return scaled.clamp(-448, 448).to(torch.float8_e4m3fn)
 
     @staticmethod
     def from_fp8(x: torch.Tensor, scale: int) -> torch.Tensor:
-        return (x.float() * 2.0 ** _exponent(scale)).to(torch.bfloat16)
+        return (x.double() * 2.0 ** (int(scale) - 127)).to(torch.bfloat16)
+
+    @staticmethod
+    def acc_from_fp8(x: torch.Tensor) -> torch.Tensor:
+        return x.to(torch.bfloat16)
 
     @staticmethod
     def acc_to_fp8(x: torch.Tensor, scale: int) -> torch.Tensor:

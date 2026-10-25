@@ -207,11 +207,17 @@ Two superficially similar conversions in RTL have different behavior:
 | Property | VPU pack | MXU accumulator pop to FP8 |
 | --- | --- | --- |
 | Unit E8M0 scale | 127 | 127 |
-| Scale direction | Divide by 2^(scale − 127) | Multiply by 2^(scale − 127) |
+| Scale direction | Multiply by 2^(scale − 127) | Multiply by 2^(scale − 127) |
+| Scale 255 | 2^128 | 2^127 (clamped) |
 | BF16 source layout | Successive 16-lane rows in the bank stream | Corresponding rows of the two banks form 32 columns |
-| Rounded positive FP8 0x7f encoding | Clamp to 0x7e | Can emit 0x7f, following the current RTL |
+| Subnormal results | Kept, rounded to nearest even | Flushed to +0 |
+| Rounded positive FP8 0x7f encoding | Saturate to 0x7e (448) | Can emit 0x7f, following the current RTL |
+| NaN input | 0x7f | +0 |
 
-The scale exponent is clamped as in RTL. These differences are deliberately
+VPU pack and unpack are the Blackwell conversions of
+[`cvt.py`](../npu_model/configs/cvt.py) (ISA v2, section 5.2): unpack gives
+BF16 subnormals, +-Inf on overflow and 0x7fff for NaN. The MXU FP8 push flushes
+subnormal and NaN inputs to signed zero. These differences are deliberately
 preserved; the model does not normalize both converters to a common ideal
 quantizer. Column-blocked attention intermediates use an MXU accumulator
 push/pop round trip when a row-major FP8 tile is required.

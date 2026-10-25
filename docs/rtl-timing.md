@@ -106,9 +106,11 @@ physical port checks account for mN/m(N+32) sharing a 1R1W bank.
 - VPU pack concatenates successive 16-lane rows from its bank stream. MXU BF16
   push/pop instead joins matching rows of the even/odd banks into 32 columns.
   Attention kernels use an MXU accumulator round trip to quantize that layout.
-- E8M0 unit scale is **127**. VPU pack divides by the scale; MXU pop multiplies.
-  Their RTL converters also differ at the rounded FP8 0x7f encoding. The model
-  preserves both behaviors, including the MXU converter emitting that encoding.
+- E8M0 unit scale is **127**. VPU pack and unpack multiply by the scale and
+  round once, as the Blackwell conversions of `configs/cvt.py` do: E4M3 and BF16
+  subnormals are kept, pack saturates to 448, and NaN gives 0x7f or 0x7fff. The
+  MXU pop also multiplies, but flushes subnormal results and can emit 0x7f; the
+  MXU FP8 push flushes subnormal and NaN inputs. The model keeps both behaviors.
 
 The supplied assembly now uses correct VLS address units, even BF16 register
 pairs, compatible layouts and legal physical-bank schedules. All `.bin`/`.hex`

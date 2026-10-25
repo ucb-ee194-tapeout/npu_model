@@ -14,5 +14,5 @@ def test_mxu_arithmetic_encodings_against_rtl():
         w = torch.tensor([case['w']],dtype=torch.uint8).view(torch.float8_e4m3fn)
         p = torch.tensor([case['partial']],dtype=torch.uint16).view(torch.bfloat16)
         assert ipt_row(a,w,p).view(torch.uint16).item() == case['ipt'], (i,'ipt')
-        assert pack_row(p,case['scale'],mxu=True).item() == case['quant'], (i,'quant')
-        assert unpack_row(a.view(torch.uint8)[:1],127).view(torch.uint16).item() == case['dequant'], (i,'dequant')
+        assert pack_row(p,case['scale']).item() == case['quant'], (i,'quant')
+        assert unpack_row(a.view(torch.uint8)[:1]).view(torch.uint16).item() == case['dequant'], (i,'dequant')

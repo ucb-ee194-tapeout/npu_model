@@ -13,7 +13,7 @@ from npu_model.configs.isa_definition import (
 )
 from npu_model.hardware.arch_state import ArchState
 from npu_model.hardware.bank_conflict import BankConflictError
-from npu_model.configs.rtl_math import pack_row, unpack_row
+from npu_model.configs.numerics import NUMERICS
 from npu_model.hardware.vpu import VectorExecutionUnit
 from npu_model.hardware.xlu import CrossLaneExecutionUnit
 from npu_model.logging.logger import Logger
@@ -184,13 +184,13 @@ def test_mirrored_binary_operand_uses_one_physical_read_port(vpu):
     assert torch.all(vpu.arch_state.mrf[4].view(torch.bfloat16) == 4)
 
 
-def test_fp8_conversion_has_rtl_scale_and_flush_behavior():
+def test_fp8_conversion_multiplies_by_the_scale_and_keeps_subnormals():
+    rtl = NUMERICS["rtl"]
     values = torch.tensor([1, 2, -1, float("inf"), float("nan"), 2 ** -7], dtype=torch.bfloat16)
-    assert pack_row(values, 127).tolist() == [0x38, 0x40, 0xB8, 0x7E, 0, 0]
-    assert pack_row(values[:3], 128).tolist() == [0x30, 0x38, 0xB0]
-    bits = unpack_row(torch.tensor([0x38, 0x40, 0x81, 0x7F], dtype=torch.uint8), 128)
-    assert bits[:2].tolist() == [2, 4]
-    assert bits.view(torch.uint16)[2:].tolist() == [0x8000, 0]
+    assert rtl.to_fp8(values, 127).view(torch.uint8).tolist() == [0x38, 0x40, 0xB8, 0x7E, 0x7F, 0x04]
+    assert rtl.to_fp8(values[:3], 128).view(torch.uint8).tolist() == [0x40, 0x48, 0xC0]
+    bits = rtl.from_fp8(torch.tensor([0x38, 0x40, 0x81, 0x7F], dtype=torch.uint8), 128)
+    assert bits.view(torch.uint16).tolist() == [0x4000, 0x4080, 0xBB80, 0x7FFF]
 
 
 def test_xlu_transposes_with_independent_read_and_write_phases(vpu):

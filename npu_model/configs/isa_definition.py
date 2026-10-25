@@ -474,7 +474,7 @@ class VEXP2_BF16(TensorComputeUnary, VRType):
 class VPACK_BF16_FP8(TensorComputeMixed, VRType):
     def exec(self, state: ArchState) -> None:
         # Converts the pair in register order (FP8 row k holds BF16 rows 2k and
-        # 2k + 1), dividing by the ERF scale.
+        # 2k + 1), multiplying by the ERF scale.
         x = _read_mrf_bf16_rows(state, self.vs2)
         state.write_mrf_fp8(self.vd, state.math.to_fp8(x.flatten(), state.read_erf(self.es1)))
 
@@ -714,9 +714,8 @@ class VMATPUSH_ACC_FP8_MXU1(MXUAccumulatorPush, VRType[Accumulator, MatrixReg]):
     params = [acc_vd, m_vs1]
 
     def exec(self, state: ArchState) -> None:
-        # FP8Unpack at unit scale (2**0).
         x = state.read_mrf_fp8(self.vs1)
-        state.write_acc_bf16("mxu1", self.vd, state.math.from_fp8(x, 127))
+        state.write_acc_bf16("mxu1", self.vd, state.math.acc_from_fp8(x))
 
 
 class VMATPUSH_ACC_BF16_MXU1(MXUAccumulatorPush, VRType[Accumulator, MatrixReg]):
@@ -726,7 +725,6 @@ class VMATPUSH_ACC_BF16_MXU1(MXUAccumulatorPush, VRType[Accumulator, MatrixReg])
 
 class VMATPOP_FP8_ACC_MXU1(MXUAccumulatorPopE1, VRType[MatrixReg, Accumulator]):
     def exec(self, state: ArchState) -> None:
-        # Multiplies by the ERF scale, unlike vpack.
         acc = state.read_acc_bf16("mxu1", self.vs2)
         fp8 = state.math.acc_to_fp8(acc, state.read_erf(self.es1))
         state.write_mrf_u8(self.vd, fp8.view(torch.uint8))
