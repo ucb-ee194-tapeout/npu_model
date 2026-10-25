@@ -50,6 +50,8 @@ class NpuModelMemoryTraceHarness extends Module {
   lsu.io.vmemScalarReadData.bits := RegNext(vdata(io.vreads(0).bits))
   lsu.io.vmemVecReadData.valid := RegNext(io.vreads(1).valid,false.B)
   lsu.io.vmemVecReadData.bits := RegNext(vdata(io.vreads(1).bits))
+  // No NVFP4 scale file, as in AtlasCore without the NV MXU.
+  lsu.io.scaleLineResp := 0.U
 }
 
 class NpuModelMemoryTraceTest extends AnyFlatSpec {
