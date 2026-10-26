@@ -11,6 +11,7 @@ A Language Server Protocol (LSP) linter for NPU assembly (`.S`) files, integrate
 - **Malformed base+offset operands** — e.g. `lw x1, bad` instead of `lw x1, 16(x2)`
 - **Control-flow offsets** — branch and JAL source operands are byte offsets, as in RV32I: even
   and in range. JALR takes any 12-bit byte offset.
+- **`.word`** — one 32-bit operand, which must not encode an instruction (write the instruction)
 - **Duplicate labels** — warns when the same label is defined twice
 - **Malformed label names** — must match `[A-Za-z_][A-Za-z0-9_.]*`
 

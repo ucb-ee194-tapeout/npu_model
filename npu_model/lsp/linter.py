@@ -23,7 +23,7 @@ if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
 import npu_model.configs.isa_definition as _isa_def  # noqa: F401, E402 # type: ignore 
-from npu_model.isa import IsaSpec  # noqa: E402
+from npu_model.isa import IsaSpec, Word  # noqa: E402
 from npu_model.isa_types import (
     AsmError,  # noqa: E402
     ScalarReg,  # noqa: E402
@@ -136,9 +136,25 @@ def _lint_li(tokens: list[str], labels: list[str]) -> list[AsmError]:
     return errors
 
 
+def _lint_word(tokens: list[str], labels: list[str]) -> list[AsmError]:
+    """`.word w`: a 32-bit word that is no instruction (the core halts at it)."""
+    if len(tokens) != 2:
+        return [AsmError(f"'.word' expects 1 operand (a 32-bit word), got {len(tokens) - 1}", token_index=0)]
+    try:
+        value = int(tokens[1], 0)
+    except ValueError:
+        return [AsmError(f"Expected integer for '.word', got '{tokens[1]}'", token_index=1)]
+    try:
+        Word(value)
+    except ValueError as e:
+        return [AsmError(str(e), token_index=1)]
+    return []
+
+
 _PSEUDOS: dict[str, Callable[[list[str], list[str]], list[AsmError]]] = {
     "nop": _lint_nop,
     "li": _lint_li,
+    ".word": _lint_word,
 }
 
 # ---------------------------------------------------------------------------

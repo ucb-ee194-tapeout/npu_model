@@ -42,7 +42,7 @@
       "patterns": [
         {
           "name": "keyword.control.mnemonic.memory.npu-asm",
-          "match": "(?i)\\b(lb|lh|lw|lbu|lhu|sb|sh|sw|seld|seli|vload|vstore|fence)\\b"
+          "match": "(?i)\\b(lb|lh|lw|lbu|lhu|sb|sh|sw|seld|seli|vload\\.scale|vstore\\.scale|vload|vstore|fence)\\b"
         },
         {
           "name": "keyword.control.mnemonic.alu-imm.npu-asm",
@@ -70,11 +70,11 @@
         },
         {
           "name": "keyword.control.mnemonic.vector.npu-asm",
-          "match": "(?i)\\b(vadd\\.bf16|vsub\\.bf16|vmul\\.bf16|vmov|vrecip\\.bf16|vexp\\.bf16|vexp2\\.bf16|vrelu\\.bf16|vsin\\.bf16|vcos\\.bf16|vtanh\\.bf16|vlog2\\.bf16|vsqrt\\.bf16)\\b"
+          "match": "(?i)\\b((vadd|vsub|vmul|vminimum|vmaximum)\\.bf16(\\.v[xr])?|vmov|(vrecip|vexp|vexp2|vrelu|vsin|vcos|vtanh|vlog2|vsqrt|vsquare|vcube|vgelu)\\.bf16)\\b"
         },
         {
           "name": "keyword.control.mnemonic.vector.reduce.npu-asm",
-          "match": "(?i)\\b(vredsum\\.bf16|vredmin\\.bf16|vredmax\\.bf16|vminimum\\.bf16|vmaximum\\.bf16|vredsum\\.row\\.bf16|vredmin\\.row\\.bf16|vredmax\\.row\\.bf16)\\b"
+          "match": "(?i)\\b(vred(sum|min|max)(\\.row)?\\.bf16)\\b"
         },
         {
           "name": "keyword.control.mnemonic.vector.convert.npu-asm",
@@ -82,15 +82,15 @@
         },
         {
           "name": "keyword.control.mnemonic.vector.imm.npu-asm",
-          "match": "(?i)\\b(vli\\.all|vli\\.row|vli\\.col|vli\\.one)\\b"
+          "match": "(?i)\\b(vli\\.(all|row|col|one))\\b"
         },
         {
           "name": "keyword.control.mnemonic.mxu.npu-asm",
-          "match": "(?i)\\b(vmatpush\\.weight\\.mxu[01]|vmatpush\\.acc\\.fp8\\.mxu[01]|vmatpush\\.acc\\.bf16\\.mxu[01]|vmatpop\\.fp8\\.acc\\.mxu[01]|vmatpop\\.bf16\\.acc\\.mxu[01])\\b"
+          "match": "(?i)\\b(vmatpush\\.(weight|acc\\.fp8|acc\\.bf16|acc\\.fp32)\\.mxu1|vmatpop\\.(fp8|bf16|bf16\\.scaled|fp32)\\.acc\\.mxu1|vmatpush\\.(weight|acc\\.bf16|acc\\.fp32)\\.nv|vmatpop\\.(bf16|bf16\\.scaled|fp32)\\.acc\\.nv)\\b"
         },
         {
           "name": "keyword.control.mnemonic.mxu.matmul.npu-asm",
-          "match": "(?i)\\b(vmatmul\\.mxu[01]|vmatmul\\.acc\\.mxu[01])\\b"
+          "match": "(?i)\\b(vmatmul(\\.acc)?\\.(mxu1|nv))\\b"
         },
         {
           "name": "keyword.control.mnemonic.dma.npu-asm",
@@ -99,6 +99,10 @@
         {
           "name": "keyword.control.mnemonic.pseudo.npu-asm",
           "match": "(?i)\\b(nop|li)\\b"
+        },
+        {
+          "name": "keyword.control.directive.npu-asm",
+          "match": "(?i)(?<![\\w.])\\.word\\b"
         }
       ]
     },
@@ -127,6 +131,10 @@
         {
           "name": "variable.other.register.weight.npu-asm",
           "match": "(?i)\\bw[01]\\b"
+        },
+        {
+          "name": "variable.other.register.channel.npu-asm",
+          "match": "(?i)\\bch[0-7]\\b"
         }
       ]
     },

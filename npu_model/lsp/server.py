@@ -39,6 +39,7 @@ from npu_model.isa_types import Named, Bundled, Imm32
 _PSEUDO_PARAMS: dict[str, list[Named]] = {
     "nop": [],
     "li": [x_rd, Named(Imm32, "32-bit immediate", "imm", False)],
+    ".word": [Named(Imm32, "32-bit word", "imm", False)],
 }
 
 # ---------------------------------------------------------------------------
