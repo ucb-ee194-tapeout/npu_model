@@ -163,7 +163,7 @@ class NpuModelDmaTraceTest extends AnyFlatSpec {
       }
     }
     val root = Paths.get(sys.env.getOrElse("NPU_MODEL_ROOT",
-      Paths.get(sys.props("user.dir"), "generators/sp26-atlas-acc/npu-model").toString))
+      Paths.get(sys.props("user.dir"), "generators/atlas-npu/npu-model").toString))
     Files.writeString(root.resolve("tests/rtl/dma_traces.json"), lines.mkString("[\n", ",\n", "\n]\n"))
   }
 }
