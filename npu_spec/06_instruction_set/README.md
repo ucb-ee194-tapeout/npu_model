@@ -24,6 +24,12 @@ Conventions used in the opcode tables:
 - `pc` is the byte address of the instruction, as in RV32I. Branch and `jal`
   offsets are byte offsets, and `jal` and `jalr` write `pc + 4`. There is no
   delay slot. A taken branch or jump to a target with bit 1 set is illegal.
+- The tensor operations act on rows `0` to `M - 1` of each register and
+  accumulator, `M` the row count that `vsetm` sets (32 after a start;
+  `03_registers_and_execution_state`, Row Count), except `vmatpush.weight.*`,
+  `vpack.bf16.fp8`, `vunpack.fp8.bf16`, `vtrpose.xlu`, `vload.scale` and
+  `vstore.scale`, which take all rows (the table's `m` key). `vsetm` holds
+  `M - 1` in imm16[4:0], and bits 31:21 are 0: every word that matches is legal.
 
 ## 1. Register Set
 
@@ -372,6 +378,7 @@ Rows are ordered by hex value.
 | `vli.one m(vd), imm` | VI | `2B/3` | `0000602b` / `0000e07f` | vpu | all | `m[vd][0, 0] = imm; the other elements = 0` |
 | `seli e(vd), imm` | VI | `2B/4` | `0000802b` / `ff00f07f` | scalar | all | `e[vd] = imm` |
 | `delay imm` | VI | `2B/5` | `0000a02b` / `f000ffff` | scalar | all | `hold decode issue for imm cycles` |
+| `vsetm imm` | VI | `2B/6` | `0000c02b` / `ffe0ffff` | scalar | all | `M = imm: later tensor instructions use rows 0..M-1` |
 | `add x(rd), x(rs1), x(rs2)` | R | `33/0/00` | `00000033` / `fe00707f` | scalar | all | `x[rd] = x[rs1] + x[rs2]` |
 | `sub x(rd), x(rs1), x(rs2)` | R | `33/0/20` | `40000033` / `fe00707f` | scalar | all | `x[rd] = x[rs1] - x[rs2]` |
 | `sll x(rd), x(rs1), x(rs2)` | R | `33/1/00` | `00001033` / `fe00707f` | scalar | all | `x[rd] = x[rs1] << x[rs2][4:0]` |

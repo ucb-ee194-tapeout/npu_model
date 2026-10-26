@@ -138,6 +138,8 @@ class ArchState:
                     row[:] = [0] * len(row)
         # IMEM word indices, as ScalarCore's PcControl keeps them. The architectural PC (link
         # values, auipc, branch and jump targets) is the byte address, four times the index.
+        # M, the row count that vsetm sets: an M-row instruction uses rows 0..M-1 of its registers.
+        self.rows = self.cfg.mrf_depth
         self.pc = 0
         self.npc = 0
         self.execute_pc = 0
@@ -271,6 +273,12 @@ class ArchState:
         )
         self.mrf[vd].view(torch.uint8)[:] = value.flatten()
 
+    def write_mrf_rows(self, vd: int, value: torch.Tensor) -> None:
+        """Rows 0..M-1 of m[vd] = the first M rows of `value`, register rows of any type. The other
+        rows keep their values."""
+        rows = value.contiguous().view(torch.uint8).reshape(-1, self.cfg.mrf_width)
+        self.read_mrf_u8(vd)[:self.rows] = rows[:self.rows]
+
     def read_mrf_u8(self, vs: int) -> torch.Tensor:
         return (
             self.mrf[vs]
@@ -399,6 +407,12 @@ class ArchState:
         assert value.dtype == torch.float32
         assert value.shape == self.acc[unit][wd].shape
         self.acc[unit][wd][:] = value
+
+    def write_acc_rows(self, unit: str, wd: int, value: torch.Tensor) -> None:
+        """Rows 0..M-1 of an accumulator = those of `value`. The other rows keep their values."""
+        assert value.dtype == torch.float32
+        assert value.shape == self.acc[unit][wd].shape
+        self.acc[unit][wd][:self.rows] = value[:self.rows]
 
     def read_acc_f32(self, unit: str, ws: int) -> torch.Tensor:
         return self.acc[unit][ws].clone()

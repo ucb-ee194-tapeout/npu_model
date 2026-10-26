@@ -81,7 +81,8 @@ class StagedExecution:
     since it was copied (VLOAD may write during a read window, a weight push
     may lead a matmul) re-runs exec before the next commit. That is exact
     because the RTL writes each result only after reading the inputs it
-    depends on.
+    depends on. exec uses the row count M of launch, as the unit takes it
+    from the command.
     """
 
     def __init__(self, uop: Uop, state: ArchState, reads: Iterable[Location],
@@ -90,6 +91,7 @@ class StagedExecution:
         self.state = state
         self.unit = unit
         self.writes = frozenset(writes)
+        self.rows = state.rows
         tiles = _tiles(state)
         self.operands: dict[Location, torch.Tensor] = {
             ("xrf",): torch.tensor(state.xrf, dtype=torch.int64),
@@ -118,7 +120,7 @@ class StagedExecution:
                     for mxu, slots in view.acc.items()}
         view.wb = {mxu: [copies[("wb", mxu, slot)].view(-1) for slot in range(len(slots))]
                    for mxu, slots in view.wb.items()}
-        view.xrf, view.erf, view.base = list(xrf), list(erf), base
+        view.xrf, view.erf, view.base, view.rows = list(xrf), list(erf), base, self.rows
         view.vmem, view.dram = memories["vmem"], memories["dram"]
         for name in _FIXED:
             setattr(view, name, copy.copy(getattr(state, name)))

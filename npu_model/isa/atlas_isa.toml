@@ -27,6 +27,7 @@
 #                ch             DMA channel ch0-ch7
 #                imm, uimm      signed or unsigned immediate
 #                uimm8, uimm12  unsigned immediate below 2^8 or 2^12
+#                rows           row count M, 1-32: the field holds M - 1
 #                hex            immediate that holds a bit pattern (shown in hex)
 #                label          branch or jump offset
 #   syntax     the assembly syntax: x(rd), m(vd), ... name a register operand and its field, and
@@ -34,7 +35,8 @@
 #   unit       the unit that executes it: scalar, lsu, vpu, xlu, mxu1, nv or dma
 #   configs    the configurations that have the unit (optional; all if not given)
 #   m          the rows of a tensor register that it reads and writes (optional): "rows" for
-#              rows 0..M-1 (M is 32), "all" for all 32 rows
+#              rows 0..M-1 (M is the row count that vsetm sets, 32 after a start), "all" for
+#              all 32 rows
 #   operation  what it does, in one line
 #   ver        the ISA version that added it or last changed its encoding or operation; the
 #              highest ver is the ISA version (CSR atlas.isa)
@@ -662,6 +664,18 @@ operands = { imm = "uimm12" }
 syntax = "delay imm"
 unit = "scalar"
 operation = "hold decode issue for imm cycles"
+ver = "2.0"
+
+[[instruction]]
+mnemonic = "vsetm"
+format = "VI"
+opcode = 0x2B
+select = { funct3 = 6 }
+fixed = { vd = 0 }
+operands = { imm = "rows" }
+syntax = "vsetm imm"
+unit = "scalar"
+operation = "M = imm: later tensor instructions use rows 0..M-1"
 ver = "2.0"
 
 # ---- Tensor loads and stores (VMEM word addresses) ----------------------------------------------

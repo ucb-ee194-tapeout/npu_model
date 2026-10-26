@@ -45,7 +45,7 @@ def _instruction(t: Table, e: Entry, address: int, word: int, end: int) -> str:
         if kind == "label":
             target = _target(t, e, address, word, end)
             return str(_offset(t, e, word)) if target is None else f"L{target}"
-        return str(value)
+        return str(value + KINDS[kind].offset)
 
     return e.mnemonic + PLACEHOLDER.sub(lambda m: show(m.group(2) or m.group(3)), e.syntax.removeprefix(e.mnemonic))
 

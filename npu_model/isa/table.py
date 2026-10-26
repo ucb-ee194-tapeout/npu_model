@@ -22,12 +22,14 @@ class Kind:
     """The number of values (a power of two), or None for every value of the field."""
     align: int = 1
     """A power of two."""
+    offset: int = 0
+    """The assembly value minus the field value."""
 
 
 KINDS = {"x": Kind("x", 32), "e": Kind("e", 32), "m": Kind("m", 64), "mp": Kind("m", 64, 2),
          "mq": Kind("m", 64, 4), "acc": Kind("acc", 2), "w": Kind("w", 2), "ch": Kind(None, 8),
          "imm": Kind(None), "uimm": Kind(None), "uimm8": Kind(None, 1 << 8), "uimm12": Kind(None, 1 << 12),
-         "hex": Kind(None), "label": Kind(None)}
+         "rows": Kind(None, 32, offset=1), "hex": Kind(None), "label": Kind(None)}
 RV32I_OPCODES = {0x03, 0x0F, 0x13, 0x17, 0x23, 0x33, 0x37, 0x63, 0x67, 0x6F, 0x73}
 CUSTOM_OPCODES = {0x0B, 0x2B, 0x5B, 0x7B}
 UNITS = ("scalar", "lsu", "vpu", "xlu", "mxu1", "nv", "dma")

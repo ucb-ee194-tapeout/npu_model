@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Callable, ClassVar, Self, Any, get_type_hints
 
 from .isa import UJType, SBType
-from .isa_types import Named, Bundled, AsmError, BoundedInt, ScalarReg, ExponentReg, MatrixReg, MatrixPair, MatrixQuad, WeightBuffer, Accumulator, Channel, Funct3, Shamt, Imm12, SBImm12, Imm16, Imm20, Imm21, UImm8, UImm12
+from .isa_types import Named, Bundled, AsmError, BoundedInt, ScalarReg, ExponentReg, MatrixReg, MatrixPair, MatrixQuad, WeightBuffer, Accumulator, Channel, Funct3, Shamt, Imm12, SBImm12, Imm16, Imm20, Imm21, UImm8, UImm12, Rows
 
 # - Named Args ----------------------------------------------
 # Used to significantly clean up linting and assembling code
@@ -50,6 +50,7 @@ sbimm12  = Named(SBImm12, "12-bit SB immediate or label", "imm", True)
 imm16    = Named(Imm16, "16-bit immediate", "imm")
 uimm8    = Named(UImm8, "8-bit unsigned immediate", "imm")
 uimm12   = Named(UImm12, "12-bit unsigned immediate", "imm")
+rows     = Named(Rows, "row count", "imm")
 imm20    = Named(Imm20, "20-bit immediate", "imm")
 imm20_lb = Named(Imm20, "20-bit immediate or label", "imm", True)
 uimm5    = Named(Shamt, "5-bit immediate", "rs1")   # CSR immediate forms carry it in rs1
@@ -760,6 +761,22 @@ class UnaryImm(InstructionPattern):
     """
     imm: UImm12
     params = [uimm12]
-    
+
     def __init__(self, imm: int):
         self.imm = UImm12(imm)
+
+@dataclass(init=False)
+class RowCount(InstructionPattern):
+    """
+    Instruction pattern for instructions with a row count operand.
+
+    Matches assembly patterns of the form `instr imm`. This pattern is used for `vsetm`.
+
+    Attributes:
+        imm: The row count M, 1-32
+    """
+    imm: Rows
+    params = [rows]
+
+    def __init__(self, imm: int):
+        self.imm = Rows(imm)

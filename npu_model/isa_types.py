@@ -462,6 +462,14 @@ class UImm12(BoundedInt):
     fmt = "uimm12"
 
 
+class Rows(BoundedInt):
+    """A row count M (1-32)."""
+
+    lower_bound = 1
+    upper_bound = 33
+    fmt = "rows"
+
+
 # Imm16
 class Imm16(BoundedInt):
     """

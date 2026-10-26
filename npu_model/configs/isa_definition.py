@@ -41,6 +41,7 @@ from npu_model.isa_patterns import (
     MXUAccumulatorPopE1,
     MXUAccumulatorPop,
     MXUMatMul,
+    RowCount,
     UnaryImm,
     acc_vd,
     acc_vs2,
@@ -126,10 +127,6 @@ def _store(state: ArchState, rs1: int, rs2: int, imm: int, size: int) -> None:
     state.write_vmem(address, 0, _int_to_le_bytes(state.read_xrf(rs2), size))
 
 
-def _tensor_register_bytes(state: ArchState) -> int:
-    return state.cfg.mrf_depth * state.cfg.mrf_width // torch.uint8.itemsize
-
-
 def _vmatmul(
     state: ArchState,
     vd: Accumulator,
@@ -141,7 +138,7 @@ def _vmatmul(
     a = state.read_mrf_fp8(vs1)
     b = state.read_wb_fp8("mxu1", vs2).T
     c = state.read_acc_f32("mxu1", vd) if accumulate else torch.zeros(a.shape[0], b.shape[1])
-    state.write_acc_f32("mxu1", vd, state.math.inner_product_matmul(a, b, c))
+    state.write_acc_rows("mxu1", vd, state.math.inner_product_matmul(a, b, c))
 
 
 def _assert_bf16_pair(state: ArchState, reg: int) -> None:
@@ -154,8 +151,12 @@ def _read_mrf_bf16_pair(state: ArchState, reg: int) -> torch.Tensor:
 
 
 def _write_mrf_bf16_pair(state: ArchState, reg: int, value: torch.Tensor) -> None:
+    """Rows 0..M-1 of the tile {m[reg], m[reg + 1]}."""
     _assert_bf16_pair(state, reg)
-    state.write_mrf_bf16_tile(reg, value.to(torch.bfloat16).contiguous())
+    value = value.to(torch.bfloat16)
+    columns = value.shape[1] // 2
+    state.write_mrf_rows(reg, value[:, :columns])
+    state.write_mrf_rows(reg + 1, value[:, columns:])
 
 
 def _bf16_register_shape(state: ArchState) -> tuple[int, int]:
@@ -178,6 +179,16 @@ def _write_mrf_bf16_rows(state: ArchState, reg: int, value: torch.Tensor) -> Non
     _assert_bf16_pair(state, reg)
     state.write_mrf_bf16(reg, value[:state.cfg.mrf_depth].contiguous())
     state.write_mrf_bf16(reg + 1, value[state.cfg.mrf_depth:].contiguous())
+
+
+def _column_reduce(state: ArchState, vd: int, vs1: int, reduce) -> None:
+    """A column reduction: lane j of rows 0..M-1 of both registers of the pair, in register order,
+    into lane j of rows 0..M-1 of both registers of the pair vd."""
+    depth, m = state.cfg.mrf_depth, state.rows
+    x = _read_mrf_bf16_rows(state, vs1)
+    y = reduce(torch.cat((x[:m], x[depth:depth + m]))).expand(depth, -1)
+    state.write_mrf_rows(vd, y)
+    state.write_mrf_rows(vd + 1, y)
 
 
 def _scalar_tile(state: ArchState, rs2: int) -> torch.Tensor:
@@ -253,14 +264,15 @@ class SELI(ExponentImm, VIType):
 
 class VLOAD(TensorBaseOffset, VLSType):
     def exec(self, state: ArchState) -> None:
+        # M lines into rows 0..M-1.
         address = _vmem_line_address(state, self.rs1, self.imm)
-        state.write_mrf_u8(self.vd, state.read_vmem(address, 0, _tensor_register_bytes(state)))
+        state.write_mrf_rows(self.vd, state.read_vmem(address, 0, state.rows * state.cfg.mrf_width))
 
 
 class VSTORE(TensorBaseOffset, VLSType):
     def exec(self, state: ArchState) -> None:
         address = _vmem_line_address(state, self.rs1, self.imm)
-        state.write_vmem(address, 0, state.read_mrf_u8(self.vd))
+        state.write_vmem(address, 0, state.read_mrf_u8(self.vd)[:state.rows])
 
 
 class FENCE(Nullary, IType):
@@ -414,10 +426,7 @@ class VADD_BF16(TensorComputeBinary, VRType):
 
 class VREDSUM_BF16(TensorComputeUnary, VRType):
     def exec(self, state: ArchState) -> None:
-        # Each of the 16 lanes reduces all 64 rows of the pair (both halves of
-        # the tile); every row of both registers receives the 16 results.
-        x = _read_mrf_bf16_rows(state, self.vs1)
-        _write_mrf_bf16_rows(state, self.vd, state.math.column_sum(x).expand_as(x).contiguous())
+        _column_reduce(state, self.vd, self.vs1, state.math.column_sum)
 
 
 class VSUB_BF16(TensorComputeBinary, VRType):
@@ -443,8 +452,7 @@ class VMINIMUM_BF16(TensorComputeBinary, VRType):
 
 class VREDMIN_BF16(TensorComputeUnary, VRType):
     def exec(self, state: ArchState) -> None:
-        x = _read_mrf_bf16_rows(state, self.vs1)
-        _write_mrf_bf16_rows(state, self.vd, state.math.amin(x, 0).expand_as(x).contiguous())
+        _column_reduce(state, self.vd, self.vs1, lambda x: state.math.amin(x, 0))
 
 
 class VMAXIMUM_BF16(TensorComputeBinary, VRType):
@@ -456,8 +464,7 @@ class VMAXIMUM_BF16(TensorComputeBinary, VRType):
 
 class VREDMAX_BF16(TensorComputeUnary, VRType):
     def exec(self, state: ArchState) -> None:
-        x = _read_mrf_bf16_rows(state, self.vs1)
-        _write_mrf_bf16_rows(state, self.vd, state.math.amax(x, 0).expand_as(x).contiguous())
+        _column_reduce(state, self.vd, self.vs1, lambda x: state.math.amax(x, 0))
 
 
 class VADD_BF16_VX(TensorComputeScalar, VRType):
@@ -654,7 +661,7 @@ class VLI_COL(DirectImm, VIType):
         # vli.col and vli.one write m[vd] only.
         bits = torch.zeros(_bf16_register_shape(state), dtype=torch.uint16)
         bits[:, 0] = self.imm & 0xFFFF
-        state.write_mrf_bf16(self.vd, bits.view(torch.bfloat16))
+        state.write_mrf_rows(self.vd, bits)
 
 
 class VLI_ONE(DirectImm, VIType):
@@ -663,7 +670,7 @@ class VLI_ONE(DirectImm, VIType):
     def exec(self, state: ArchState) -> None:
         bits = torch.zeros(_bf16_register_shape(state), dtype=torch.uint16)
         bits[0, 0] = self.imm & 0xFFFF
-        state.write_mrf_bf16(self.vd, bits.view(torch.bfloat16))
+        state.write_mrf_rows(self.vd, bits)
 
 
 class _Branch(ScalarBranchImm, SBType, instr=False):
@@ -725,6 +732,15 @@ class JALR(JalrPattern, IType[ScalarReg, Imm12]):
 class DELAY(UnaryImm, VIType):
     def exec(self, state: ArchState) -> None:
         pass
+
+
+class VSETM(RowCount, VIType):
+    def to_bytecode(self) -> int:
+        # imm16[4:0] holds M - 1.
+        return (self.imm - 1) << 16 | self.funct3 << 13 | self.opcode
+
+    def exec(self, state: ArchState) -> None:
+        state.rows = self.imm
 
 
 class VTRPOSE_XLU(TensorComputeUnary, VRType):
@@ -810,13 +826,13 @@ class VMATPUSH_ACC_FP8_MXU1(MXUAccumulatorPush, VRType[Accumulator, MatrixReg]):
     params = [acc_vd, m_vs1]
 
     def exec(self, state: ArchState) -> None:
-        state.write_acc_f32("mxu1", self.vd, state.math.f32_from_fp8(state.read_mrf_fp8(self.vs1)))
+        state.write_acc_rows("mxu1", self.vd, state.math.f32_from_fp8(state.read_mrf_fp8(self.vs1)))
 
 
 class VMATPUSH_ACC_BF16_MXU1(MXUAccumulatorPush, VRType[Accumulator, MatrixReg]):
     def exec(self, state: ArchState) -> None:
         bits = state.read_mrf_bf16_tile(self.vs1).view(torch.int16).to(torch.int32) << 16
-        state.write_acc_f32("mxu1", self.vd, bits.view(torch.float32))
+        state.write_acc_rows("mxu1", self.vd, bits.view(torch.float32))
 
 
 class VMATPUSH_ACC_FP32_MXU1(MXUAccumulatorPush, VRType[Accumulator, MatrixReg]):
@@ -824,19 +840,19 @@ class VMATPUSH_ACC_FP32_MXU1(MXUAccumulatorPush, VRType[Accumulator, MatrixReg])
 
     def exec(self, state: ArchState) -> None:
         tile = torch.cat([state.read_mrf_f32(self.vs1 + q) for q in range(4)], dim=1)
-        state.write_acc_f32("mxu1", self.vd, tile)
+        state.write_acc_rows("mxu1", self.vd, tile)
 
 
 class VMATPOP_FP8_ACC_MXU1(MXUAccumulatorPopE1, VRType[MatrixReg, Accumulator]):
     def exec(self, state: ArchState) -> None:
         acc = state.read_acc_f32("mxu1", self.vs2)
         fp8 = state.math.f32_to_fp8(acc, state.read_erf(self.es1))
-        state.write_mrf_u8(self.vd, fp8.view(torch.uint8))
+        state.write_mrf_rows(self.vd, fp8)
 
 
 class VMATPOP_BF16_ACC_MXU1(MXUAccumulatorPop, VRType[MatrixReg, Accumulator]):
     def exec(self, state: ArchState) -> None:
-        state.write_mrf_bf16_tile(self.vd, state.math.f32_to_bf16(state.read_acc_f32("mxu1", self.vs2)))
+        _write_mrf_bf16_pair(state, self.vd, state.math.f32_to_bf16(state.read_acc_f32("mxu1", self.vs2)))
 
 
 class VMATPOP_BF16_SCALED_ACC_MXU1(MXUAccumulatorPopE1, VRType[MatrixReg, Accumulator]):
@@ -844,7 +860,7 @@ class VMATPOP_BF16_SCALED_ACC_MXU1(MXUAccumulatorPopE1, VRType[MatrixReg, Accumu
 
     def exec(self, state: ArchState) -> None:
         acc = state.read_acc_f32("mxu1", self.vs2)
-        state.write_mrf_bf16_tile(self.vd, state.math.f32_to_bf16(acc, state.read_erf(self.es1)))
+        _write_mrf_bf16_pair(state, self.vd, state.math.f32_to_bf16(acc, state.read_erf(self.es1)))
 
 
 class VMATPOP_FP32_ACC_MXU1(MXUAccumulatorPop, VRType[MatrixReg, Accumulator]):
@@ -853,7 +869,7 @@ class VMATPOP_FP32_ACC_MXU1(MXUAccumulatorPop, VRType[MatrixReg, Accumulator]):
     def exec(self, state: ArchState) -> None:
         acc = state.read_acc_f32("mxu1", self.vs2)
         for q in range(4):
-            state.write_mrf_f32(self.vd + q, acc[:, 8 * q:8 * q + 8].contiguous())
+            state.write_mrf_rows(self.vd + q, acc[:, 8 * q:8 * q + 8])
 
 
 class VMATMUL_MXU1(MXUMatMul, VRType[Accumulator, WeightBuffer]):
@@ -884,7 +900,7 @@ def _nv_write_mreg_words(state: ArchState, reg: int, rows: list[list[int]]) -> N
     for row in rows:
         for word in row:
             data += (word & 0xFFFF_FFFF).to_bytes(4, "little")
-    state.write_mrf_u8(reg, torch.tensor(list(data), dtype=torch.uint8))
+    state.write_mrf_rows(reg, torch.tensor(list(data), dtype=torch.uint8))
 
 
 def _nv_matmul(state: ArchState, vd: int, vs1: int, ws: int, accumulate: bool) -> None:
@@ -893,9 +909,9 @@ def _nv_matmul(state: ArchState, vd: int, vs1: int, ws: int, accumulate: bool) -
     sa = _nv_rows(state.mrf_scale[vs1], 4)
     w = _nv_rows(state.wb_nv[ws], 32)
     sw = _nv_rows(state.wb_nv_scale[ws], 4)
-    rows = len(a)
-    c = state.acc_nv[vd] if accumulate else [[0] * len(w) for _ in range(rows)]
-    state.acc_nv[vd] = nvfp4.matmul(a, sa, w, sw, c)
+    m = state.rows
+    c = state.acc_nv[vd][:m] if accumulate else [[0] * len(w) for _ in range(m)]
+    state.acc_nv[vd][:m] = nvfp4.matmul(a[:m], sa[:m], w, sw, c)
 
 
 class VMATPUSH_WEIGHT_NV(MXUWeightPush, VRType[WeightBuffer, MatrixReg]):
@@ -914,7 +930,7 @@ class VMATPUSH_ACC_BF16_NV(MXUAccumulatorPush, VRType[Accumulator, MatrixReg]):
             word = halves[j // 16][r][(j % 16) // 2]
             return (word >> 16 * (j % 2)) & 0xFFFF
 
-        state.acc_nv[self.vd & 1] = [[bf16(r, j) << 16 for j in range(32)] for r in range(len(halves[0]))]
+        state.acc_nv[self.vd & 1][:state.rows] = [[bf16(r, j) << 16 for j in range(32)] for r in range(state.rows)]
 
 
 class VMATPUSH_ACC_FP32_NV(MXUAccumulatorPush, VRType[Accumulator, MatrixReg]):
@@ -923,14 +939,14 @@ class VMATPUSH_ACC_FP32_NV(MXUAccumulatorPush, VRType[Accumulator, MatrixReg]):
 
     def exec(self, state: ArchState) -> None:
         regs = [_nv_mreg_words(state, self.vs1 + q) for q in range(4)]
-        state.acc_nv[self.vd & 1] = [[regs[j // 8][r][j % 8] for j in range(32)] for r in range(len(regs[0]))]
+        state.acc_nv[self.vd & 1][:state.rows] = [[regs[j // 8][r][j % 8] for j in range(32)] for r in range(state.rows)]
 
 
 def _nv_pop_bf16(state: ArchState, vd: int, acc: int, e: int) -> None:
     """{m[vd], m[vd+1]} = BF16_RNE(acc x 2^(e - 127)), one rounding."""
     from npu_model.configs import cvt
     bits = cvt.bf16_rne(np.array(state.acc_nv[acc], dtype=np.uint32), e)
-    state.write_mrf_bf16_tile(vd, torch.from_numpy(bits.view(np.int16)).view(torch.bfloat16))
+    _write_mrf_bf16_pair(state, vd, torch.from_numpy(bits.view(np.int16)).view(torch.bfloat16))
 
 
 class VMATPOP_BF16_ACC_NV(MXUAccumulatorPop, VRType[MatrixReg, Accumulator]):
