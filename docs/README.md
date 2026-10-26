@@ -230,7 +230,7 @@ command issue. Trace signals describe the work before the clock edge, except
 scalar `next_pc`, which is sampled afterward. A model tick performs that cycle's
 work and advances state across the edge.
 
-For a command issued at T (default 32 rows):
+For a command issued at T (default 32 rows; `rtl-timing.md` gives the row count M of `vsetm`):
 
 | Operation | First write | Last write |
 | --- | --- | --- |

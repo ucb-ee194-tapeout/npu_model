@@ -53,6 +53,25 @@ Accumulator-buffer rules:
 - accumulation buffers are loaded from and stored to tensor registers only
 - accumulation buffers are not directly addressed as `m` registers
 
+## Row Count
+
+The row count `M`, `1` through `32`, is part of the scalar state:
+
+- `vsetm imm` sets `M` to `imm`; it is `32` after reset and at every start
+  (`EXEC_CONTROL <- 1`), so a program that does not use `vsetm` runs on all rows
+- a tensor instruction of the `M`-row kind reads and writes rows `0` to `M - 1` of
+  each register and accumulator that it names; the other rows of its destinations
+  keep their values
+- a BF16 tile instruction uses rows `0` to `M - 1` of both registers of the tile
+  (`2M` of their `64` rows), an FP32 tile instruction rows `0` to `M - 1` of its
+  four registers
+- `vmatpush.weight.*`, `vpack.bf16.fp8`, `vunpack.fp8.bf16`, `vtrpose.xlu`,
+  `vload.scale` and `vstore.scale` ignore `M`; so do DMA and the scalar
+  instructions. The instruction table's `m` key gives the kind of each instruction
+- each unit takes `M` from the command when the instruction issues, so `vsetm`
+  changes `M` only for later instructions and is no hazard
+- no CSR shows `M`
+
 ## DMA and Control State
 
 The DMA architectural state includes:

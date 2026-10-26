@@ -79,6 +79,29 @@ instruction; see Spacing instructions with `DELAY`.
 For the default hardware configuration, a DMA transfer of `N` bytes takes
 `max(2 * ceil((N + 8) / 4), ceil(N / 64))` cycles, with a minimum of one cycle.
 
+The latency classes, access windows and gaps in this section are for the row
+count `M = 32` (§3, Row Count). An instruction of `M` rows streams `M` rows of
+each register, one per cycle, so its windows end `32 - M` cycles earlier per
+register that it streams in turn:
+
+| Operation | Latency class at `M` rows |
+| --- | ---: |
+| `vload`, `vstore` | `M + 3` |
+| MXU1 matmul and matmul-accumulate | `M + 3` |
+| MXU1 accumulator push and pop; FP32 push and pop | `M + 1`; `2M + 1` |
+| VPU BF16 arithmetic and moves on a tile (`.vx` too); `.vr` | `2M + 2`; `2M + 3` |
+| VPU `vgelu.bf16` | `2M + 11` |
+| VPU `vredsum`, `vredmin`, `vredmax` (the pair is read twice) | `4M + 2` |
+| VPU `vredsum.row`; `vredmin.row`, `vredmax.row` | `M + 7`; `M + 2` |
+| VPU `vli.all`, `vli.row`; `vli.col`, `vli.one` | `2M + 1`; `M + 1` |
+| weight push, `vpack`, `vunpack`, `vtrpose` | unchanged |
+
+A matmul on an accumulator issues only after the previous matmul on it has
+written row 0 (T+3 on MXU1). So a matmul issues at least `M` cycles after the
+previous matmul (the activation read port) and at least 4 cycles after the
+previous one on its accumulator: every `max(M, 4)` cycles on one accumulator.
+MXU1 tracks up to three matmuls in flight.
+
 ### Spacing instructions with `DELAY`
 
 In npu_model, units never stall each other. An instruction that issues too early

@@ -65,6 +65,14 @@ For a command issued at T (default 32 rows):
 | VLI column/one | T+1 | T+32 |
 | XLU transpose | T+34 | T+65 |
 
+With the row count M (`vsetm`, npu_spec §3), a command streams rows 0..M-1 of each register: its
+last write comes 32 - M cycles earlier for each register that it streams in turn, 2(32 - M) for a
+BF16 tile and an FP32 transfer. A column reduction reads its tile twice: it writes from T+2M+2 to
+T+4M+1. A weight push, pack, unpack and transpose take all rows. A matmul on an accumulator issues
+only after the previous matmul on it has written row 0 (T+3), so matmuls on one accumulator issue
+every max(M, 4) cycles, and MXU1 keeps up to three in flight. The units take M at issue
+(`ArchState.rows`), and the trace replays (`tests/test_rtl_*_traces.py`) cover M from 1 to 31.
+
 The MXU table lists row-write edges; command issue checks can impose additional
 spacing when operations reuse a port, register or accumulator. The bank-conflict
 tests distinguish these cases: MXU1 requires `delay 30` before a matmul reads a
