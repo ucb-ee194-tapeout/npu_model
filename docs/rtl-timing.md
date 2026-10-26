@@ -72,6 +72,11 @@ T+4M+1. A weight push, pack, unpack and transpose take all rows. A matmul on an 
 only after the previous matmul on it has written row 0 (T+3), so matmuls on one accumulator issue
 every max(M, 4) cycles, and MXU1 keeps up to three in flight. The units take M at issue
 (`ArchState.rows`), and the trace replays (`tests/test_rtl_*_traces.py`) cover M from 1 to 31.
+At M = 1 a row reduction reads its one row on each port in its issue cycle (`rsum_m1`, `rmax_m1`),
+so a `vload` of its source can issue in the next cycle. A reader of a register that an MXU1 pop of
+one row writes issues 2 cycles after the pop (3 for m[r+2] and m[r+3] of an FP32 pop): the RTL
+holds it until the pop has written row 0, so that no SRAM row is read in the cycle that it is
+written. The model's reservation of the pop's registers ends at the same edge.
 
 The MXU table lists row-write edges; command issue checks can impose additional
 spacing when operations reuse a port, register or accumulator. The bank-conflict

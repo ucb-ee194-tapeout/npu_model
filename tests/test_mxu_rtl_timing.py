@@ -238,3 +238,16 @@ def test_fp32_transfer_frees_its_first_pair_after_32_steps(mxu):
     checker.reserve_mreg("writer", reads=frozenset(), writes=frozenset({4, 5}))
     with pytest.raises(BankConflictError):
         checker.reserve_mreg("writer", reads=frozenset(), writes=frozenset({6}))
+
+
+def test_a_pop_of_one_row_holds_its_registers_until_after_its_write(mxu):
+    """At M = 1 a pop writes row 0 in its last step, and the RTL holds a reader of its registers
+    until the next cycle: no read of row 0 in the cycle that the pop writes it."""
+    checker = mxu.arch_state.conflict_checker
+    mxu.arch_state.rows = 1
+    tick(mxu, instruction(mxu, "VMATPOP_BF16_ACC", vd=m(8), vs2=acc(0)))
+    tick(mxu)
+    with pytest.raises(BankConflictError):
+        checker.reserve_mreg("reader", reads=frozenset({8}), writes=frozenset())
+    checker.begin_cycle(mxu.cycle + 1)
+    checker.reserve_mreg("reader", reads=frozenset({8, 9}), writes=frozenset())
