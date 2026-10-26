@@ -50,7 +50,7 @@ class NpuModelVectorTraceTest extends AnyFlatSpec {
         Seq("add_m3" -> 0, "mul_vx_m1" -> 2, "sub_vr_m5" -> 1, "rsum_m7" -> 13, "rmax_m2" -> 19,
           "csum_m3" -> 14, "cmax_m1" -> 21, "cmin_m6" -> 22, "fp8pack_m3" -> 16, "fp8unpack_m5" -> 17,
           "vliOne_m2" -> 26, "vliCol_m4" -> 27, "vliRow_m3" -> 28, "vliAll_m1" -> 29, "gelu_m2" -> 30,
-          "exp_m31" -> 9, "mov_overlap_m3" -> 25, "add_vx_overlap_m1" -> 0)
+          "exp_m31" -> 9, "mov_overlap_m3" -> 25, "add_vx_overlap_m1" -> 0, "rsum_m1" -> 13, "rmax_m1" -> 19)
       for ((scenario, code) <- scenarios) {
         val rows = "_m(\\d+)$".r.findFirstMatchIn(scenario).map(_.group(1).toInt).getOrElse(32)
         val name = scenario.replaceAll("_m\\d+$", "")
