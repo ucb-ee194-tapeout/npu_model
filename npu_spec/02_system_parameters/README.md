@@ -24,6 +24,7 @@
 | `VPU_LANES_BF16` | `16` | BF16 lanes in the baseline VPU |
 | `DMA_CHANNELS` | `8` | Architected DMA channels |
 | `DMA_ALIGN` | `32` bytes | DMA alignment and granularity |
+| `DMA_MAX_BYTES` | `4096` bytes | Largest DMA transfer |
 | `IMEM_BASE` | `0x0002_0000` | IMEM base address |
 | `IMEM_SIZE` | `128 KiB` | IMEM capacity |
 | `VMEM_BASE` | `0x2000_0000` | VMEM base address |

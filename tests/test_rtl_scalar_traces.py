@@ -47,7 +47,7 @@ def test_scalar_core_matches_recorded_rtl_cycle_trace(name: str, tmp_path: Path)
                 assert s1 is not None
                 assert state.read_xrf(s1.insn.rs1) == row["csr_data"], (name, row)
             if row["illegal"]:
-                with pytest.raises(RuntimeError, match="Illegal jump target"):
+                with pytest.raises(RuntimeError, match="Illegal (jump target|DMA transfer size)"):
                     core.tick()
                 assert state.halted
                 assert state.pc == row["next_pc"]

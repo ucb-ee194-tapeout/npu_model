@@ -66,7 +66,7 @@ class HardwareConfig:
     dma_max_in_flight: int = 64
     """Outstanding TileLink beats; source IDs are 2^ceil(log2(this))."""
     dma_max_transfer_bytes: int = 4096
-    """Largest single transfer."""
+    """Largest single transfer (DMA_MAX_BYTES)."""
 
     # Off-chip memory behind the DMA port (hardware/memory_backend.py).
     dma_memory_backend: str = "curve"

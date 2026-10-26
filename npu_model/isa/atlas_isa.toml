@@ -740,8 +740,8 @@ select = { funct7 = 0x00 }
 operands = { rd = "x", rs1 = "x", rs2 = "x", ch = "ch" }
 syntax = "dma.load x(rd), x(rs1), x(rs2), ch"
 unit = "dma"
-operation = "channel ch: VMEM[x[rd]] = DRAM[{dma.base, x[rs1]}], x[rs2] bytes"
-ver = "1.0"
+operation = "channel ch: VMEM[x[rd]] = DRAM[{dma.base, x[rs1]}], x[rs2] bytes (32 to 4096, a multiple of 32)"
+ver = "2.0"
 
 [[instruction]]
 mnemonic = "dma.store"
@@ -751,8 +751,8 @@ select = { funct7 = 0x01 }
 operands = { rd = "x", rs1 = "x", rs2 = "x", ch = "ch" }
 syntax = "dma.store x(rd), x(rs1), x(rs2), ch"
 unit = "dma"
-operation = "channel ch: DRAM[{dma.base, x[rd]}] = VMEM[x[rs1]], x[rs2] bytes"
-ver = "1.0"
+operation = "channel ch: DRAM[{dma.base, x[rd]}] = VMEM[x[rs1]], x[rs2] bytes (32 to 4096, a multiple of 32)"
+ver = "2.0"
 
 [[instruction]]
 mnemonic = "dma.config"

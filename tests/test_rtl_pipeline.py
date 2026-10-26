@@ -9,7 +9,7 @@ import pytest
 
 from npu_model.configs.hardware.default import DefaultHardwareConfig
 from npu_model.configs.isa_definition import (
-    ADDI, AUIPC, BEQ, BNE, BLT, BGE, JAL, JALR, DELAY, DMA_WAIT,
+    ADDI, AUIPC, BEQ, BNE, BLT, BGE, JAL, JALR, LUI, DELAY, DMA_LOAD, DMA_STORE, DMA_WAIT,
     ECALL, EBREAK, SLL, SLT, SRLI, CSRRW, CSRRS, CSRRC, CSRRSI, CSRRCI,
 )
 from npu_model.hardware.core import Core
@@ -87,6 +87,20 @@ def test_jump_to_a_target_with_bit_1_set_is_illegal(make_core, jump, target):
     assert core.arch_state.halt_reason == "illegal"
     assert core.arch_state.execute_pc == 1
     assert core.arch_state.xrf[2:4] == [0, 0]
+
+
+@pytest.mark.parametrize('size, setup', [
+    (0, [ADDI(x(1), x(0), 0)]), (48, [ADDI(x(1), x(0), 48)]),
+    (4128, [LUI(x(1), 1), ADDI(x(1), x(1), 32)]), (0xFFFF_FFE0, [ADDI(x(1), x(0), -32)])])
+@pytest.mark.parametrize('dma', [DMA_LOAD, DMA_STORE])
+def test_a_dma_size_the_engine_does_not_take_is_illegal(make_core, dma, size, setup):
+    core = make_core([*setup, dma(x(0), x(0), x(1), 2), ADDI(x(3), x(0), 3)])
+    step(core, len(setup) + 1)
+    with pytest.raises(RuntimeError, match=f"Illegal DMA transfer size {size} of '{dma.mnemonic}'"):
+        step(core)
+    assert core.arch_state.halt_reason == "illegal"
+    assert core.arch_state.execute_pc == len(setup)
+    assert not core.arch_state.check_flag(2)
 
 
 def test_a_word_that_is_no_instruction_is_illegal(make_core):

@@ -219,10 +219,15 @@ class Core(Module):
             return None
 
         state.execute_pc = self.s1_uop.pc
-        # A jump target with bit 1 set is illegal (RV32I without C); the RTL checks it at issue.
+        # A jump target with bit 1 set is illegal (RV32I without C), and so is a DMA transfer size
+        # that the DMA engine does not take; the RTL checks both at issue.
         jump = insn.jump_target(state)
         if jump is not None and jump & 2:
             self._illegal(f"Illegal jump target {jump:#x} of '{insn.mnemonic}'")
+        if insn.mnemonic in ("dma.load", "dma.store"):
+            nbytes = state.read_xrf(insn.rs2)
+            if self.exu_map[EXU.DMA].illegal_size(nbytes):
+                self._illegal(f"Illegal DMA transfer size {nbytes} of '{insn.mnemonic}'")
         self.issued_uop = self.s1_uop
         self.s1_uop = None
         target: ExecutionUnit | None = None

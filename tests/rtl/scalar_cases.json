@@ -84,6 +84,16 @@
       "00000073"
     ]
   },
+  "illegal_dma_size": {
+    "source": "addi x1, x0, 48\ndma.load x0, x0, x1, ch1\naddi x2, x0, 1\ncsrrw x0, 0x800, x2\necall\n",
+    "words": [
+      "03000093",
+      "0010107b",
+      "00100113",
+      "80011073",
+      "00000073"
+    ]
+  },
   "load_response_no_bypass": {
     "source": "addi x2, x0, 7\nlw x2, 0(x0)\nnop\nnop\ncsrrw x0, 0x800, x2\ncsrrw x0, 0x800, x2\necall\n",
     "words": [

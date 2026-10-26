@@ -24,6 +24,9 @@ Conventions used in the opcode tables:
 - `pc` is the byte address of the instruction, as in RV32I. Branch and `jal`
   offsets are byte offsets, and `jal` and `jalr` write `pc + 4`. There is no
   delay slot. A taken branch or jump to a target with bit 1 set is illegal.
+- `dma.load` and `dma.store` move `x[rs2]` bytes: a multiple of 32 from 32 to
+  4096. Another size is illegal. The core checks the size, and the jump
+  target, when the instruction would issue.
 - The tensor operations act on rows `0` to `M - 1` of each register and
   accumulator, `M` the row count that `vsetm` sets (32 after a start;
   `03_registers_and_execution_state`, Row Count), except `vmatpush.weight.*`,
@@ -410,8 +413,8 @@ Rows are ordered by hex value.
 | `csrrwi x(rd), csr, uimm` | I | `73/5` | `00005073` / `0000707f` | scalar | all | `x[rd] = CSR[csr]; CSR[csr] = uimm` |
 | `csrrsi x(rd), csr, uimm` | I | `73/6` | `00006073` / `0000707f` | scalar | all | `x[rd] = CSR[csr]; if (uimm != 0) CSR[csr] = CSR[csr] \| uimm` |
 | `csrrci x(rd), csr, uimm` | I | `73/7` | `00007073` / `0000707f` | scalar | all | `x[rd] = CSR[csr]; if (uimm != 0) CSR[csr] = CSR[csr] & ~uimm` |
-| `dma.load x(rd), x(rs1), x(rs2), ch` | R | `7B/00` | `0000007b` / `fe00007f` | dma | all | `channel ch: VMEM[x[rd]] = DRAM[{dma.base, x[rs1]}], x[rs2] bytes` |
-| `dma.store x(rd), x(rs1), x(rs2), ch` | R | `7B/01` | `0200007b` / `fe00007f` | dma | all | `channel ch: DRAM[{dma.base, x[rd]}] = VMEM[x[rs1]], x[rs2] bytes` |
+| `dma.load x(rd), x(rs1), x(rs2), ch` | R | `7B/00` | `0000007b` / `fe00007f` | dma | all | `channel ch: VMEM[x[rd]] = DRAM[{dma.base, x[rs1]}], x[rs2] bytes (32 to 4096, a multiple of 32)` |
+| `dma.store x(rd), x(rs1), x(rs2), ch` | R | `7B/01` | `0200007b` / `fe00007f` | dma | all | `channel ch: DRAM[{dma.base, x[rd]}] = VMEM[x[rs1]], x[rs2] bytes (32 to 4096, a multiple of 32)` |
 | `dma.config x(rs1), ch` | R | `7B/02` | `0400007b` / `fff00fff` | dma | all | `dma.base = x[rs1]` |
 | `dma.wait ch` | R | `7B/03` | `0600007b` / `ffff8fff` | dma | all | `hold issue until channel ch is idle` |
 | `seld e(rd), x(rs1)` | R | `7B/04` | `0800007b` / `fff0707f` | lsu | all | `e[rd] = VMEM[x[rs1]]` |

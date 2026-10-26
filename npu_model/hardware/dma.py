@@ -225,6 +225,11 @@ class DmaExecutionUnit(ExecutionUnit):
     # Launch
     # ------------------------------------------------------------------
 
+    def illegal_size(self, nbytes: int) -> bool:
+        """ScalarCore halts on a transfer of 0 bytes, of more than max_transfer_bytes, or of a size
+        that is not a multiple of beat_bytes."""
+        return nbytes <= 0 or nbytes > self.max_transfer_bytes or nbytes % self.beat_bytes != 0
+
     def _make_slot(self, uop: Uop) -> _Slot:
         insn = uop.insn
         if not isinstance(insn, RType):
@@ -235,7 +240,7 @@ class DmaExecutionUnit(ExecutionUnit):
         if not is_store and not mnemonic.startswith("dma.load"):
             raise ValueError(f"Unknown DMA instruction {mnemonic}")
         nbytes = state.read_xrf(insn.rs2)
-        if nbytes <= 0 or nbytes > self.max_transfer_bytes or nbytes % self.beat_bytes:
+        if self.illegal_size(nbytes):
             raise RuntimeError(
                 f"{mnemonic} transfer of {nbytes} bytes: sizes must be multiples of "
                 f"{self.beat_bytes} up to {self.max_transfer_bytes}"
