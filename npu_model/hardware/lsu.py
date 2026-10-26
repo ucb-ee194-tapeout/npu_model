@@ -2,7 +2,8 @@
 
 Cycles name the combinational work before the clock edge. An instruction issued
 at T writes scalar stores at T+1, scalar load results at T+3, and vector rows at
-T+3 through T+34. ScalarCore's command and response registers are included.
+T+3 through T+M+2 (M: the row count). ScalarCore's command and response
+registers are included.
 Values come from Instruction.exec; this unit decides only when they move.
 """
 from __future__ import annotations
@@ -23,8 +24,6 @@ _SCALAR_STORES = {"sb", "sh", "sw"}
 LSU_OP_LATENCIES = {
     **dict.fromkeys(_SCALAR_LOADS, 4),
     **dict.fromkeys(_SCALAR_STORES, 2),
-    "vload": 35,
-    "vstore": 35,
 }
 
 
@@ -34,6 +33,7 @@ class _Operation:
     issued: int
     address: int
     staged: StagedExecution
+    rows: int = 0     # vload and vstore: M
 
 
 class LoadStoreUnit(ExecutionUnit):
@@ -77,7 +77,7 @@ class LoadStoreUnit(ExecutionUnit):
 
     def _get_latency(self, uop: Uop) -> int:
         if uop.insn.mnemonic in {"vload", "vstore"}:
-            return self.arch_state.cfg.mrf_depth + 3
+            return self.arch_state.rows + 3
         return LSU_OP_LATENCIES[uop.insn.mnemonic]
 
     def _finish(self, op: _Operation) -> None:
@@ -130,7 +130,7 @@ class LoadStoreUnit(ExecutionUnit):
         else:
             raise ValueError(f"Unknown LSU instruction {mnemonic}")
         op = _Operation(uop, self.cycle, address,
-                        StagedExecution(uop, self.arch_state, reads, writes, "LSU"))
+                        StagedExecution(uop, self.arch_state, reads, writes, "LSU"), self.arch_state.rows)
         if vector:
             setattr(self, path, op)
         else:
@@ -143,17 +143,16 @@ class LoadStoreUnit(ExecutionUnit):
         """(mnemonic, byte address) of every LSU VMEM port request on ``cycle``.
 
         Determined by operations issued before ``cycle``: scalar ports fire at
-        issue+1, VLOAD reads rows at issue+1..+32, VSTORE writes at issue+3..+34.
+        issue+1, VLOAD reads rows at issue+1..+M, VSTORE writes at issue+3..+M+2.
         """
         accesses: list[tuple[str, int]] = []
         for op in self._scalar:
             if cycle - op.issued == 1:
                 accesses.append((op.uop.insn.mnemonic, op.address))
-        rows = self.arch_state.cfg.mrf_depth
-        if self._vload and 1 <= cycle - self._vload.issued <= rows:
+        if self._vload and 1 <= cycle - self._vload.issued <= self._vload.rows:
             row = cycle - self._vload.issued - 1
             accesses.append(("vload", self._vload.address + row * self.arch_state.cfg.mrf_width))
-        if self._vstore and 3 <= cycle - self._vstore.issued <= rows + 2:
+        if self._vstore and 3 <= cycle - self._vstore.issued <= self._vstore.rows + 2:
             row = cycle - self._vstore.issued - 3
             accesses.append(("vstore", self._vstore.address + row * self.arch_state.cfg.mrf_width))
         return accesses
@@ -231,7 +230,7 @@ class LoadStoreUnit(ExecutionUnit):
         if op is None:
             return
         age = self.cycle - op.issued
-        rows, width = self.arch_state.cfg.mrf_depth, self.arch_state.cfg.mrf_width
+        rows, width = op.rows, self.arch_state.cfg.mrf_width
         reg = int(op.uop.insn.vd)
         owner = f"{self.name}:{op.uop.id}"
         if 1 <= age <= rows:

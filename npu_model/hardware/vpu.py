@@ -2,7 +2,8 @@
 
 Timing follows the registered MREG read and lane-box valid pipelines. Values
 come from Instruction.exec; this unit decides only which rows are read and
-written on which cycle.
+written on which cycle. An instruction streams rows 0..M-1 of each register of
+its tiles, M the row count at its issue; vpack and vunpack take all 32 rows.
 """
 from dataclasses import dataclass
 
@@ -40,26 +41,24 @@ _OP_ORDER = (
     "vli.one", "vli.col", "vli.row", "vli.all", "vgelu.bf16",
 )
 
-# Inclusive issue-to-last-write cycles for the default 32-row geometry.
-VPU_OP_LATENCIES = {
-    **dict.fromkeys(_TWO_INPUT | _COL_REDUCE | {
-        "vmov", "vrecip.bf16", "vexp.bf16", "vexp2.bf16", "vpack.bf16.fp8",
-        "vrelu.bf16", "vsin.bf16", "vcos.bf16", "vtanh.bf16", "vlog2.bf16",
-        "vsqrt.bf16", "vsquare.bf16", "vcube.bf16",
-    }, 66),
-    **dict.fromkeys(_COL_REDUCE, 130),
-    "vredsum.row.bf16": 39,
-    "vredmin.row.bf16": 34,
-    "vredmax.row.bf16": 34,
-    "vli.all": 65,
-    "vli.row": 65,
-    "vli.col": 33,
-    "vli.one": 33,
-    "vunpack.fp8.bf16": 67,
-    "vgelu.bf16": 75,
-    **dict.fromkeys(_VX, 66),
-    **dict.fromkeys(_VR, 67),
-}
+VPU_MNEMONICS = tuple(name for name in _OP_ORDER if name != "reserved.fp8") + tuple(sorted(_VX | _VR))
+_ALL_ROWS = {"vpack.bf16.fp8", "vunpack.fp8.bf16"}
+
+
+def vpu_latency(name: str, rows: int) -> int:
+    """Inclusive issue-to-last-write cycles of an instruction of M = rows rows (66 for a BF16 tile
+    of 32 rows)."""
+    if name in _ALL_ROWS:
+        return 66 if name == "vpack.bf16.fp8" else 67
+    if name in _ROW_REDUCE:
+        return rows + (7 if name == "vredsum.row.bf16" else 2)
+    if name in {"vli.col", "vli.one"}:
+        return rows + 1
+    if name in {"vli.all", "vli.row"}:
+        return 2 * rows + 1
+    if name in _COL_REDUCE:
+        return 4 * rows + 2
+    return 2 * rows + (11 if name == "vgelu.bf16" else 3 if name in _VR else 2)
 
 
 def _base(name: str) -> str:
@@ -78,6 +77,7 @@ class _VectorOperation:
     read_last: int
     write_last: int
     staged: StagedExecution
+    rows: int     # M; 32 for vpack and vunpack
 
 
 class VectorExecutionUnit(ExecutionUnit):
@@ -134,9 +134,6 @@ class VectorExecutionUnit(ExecutionUnit):
     def can_handle(self, uop: Uop) -> bool:
         return uop.insn.exu == EXU.VECTOR
 
-    def _execution_latency(self, uop: Uop) -> int:
-        return VPU_OP_LATENCIES[uop.insn.mnemonic]
-
     def _accept(self, uop: Uop) -> None:
         insn = uop.insn
         name = insn.mnemonic
@@ -163,8 +160,10 @@ class VectorExecutionUnit(ExecutionUnit):
                 if source2 & 1:
                     raise RuntimeError("VPU pair-read secondary bank must be even")
                 reads.update({source2, source2 + 1})
-        read_last = -1 if vli else (31 if name in _ROW_REDUCE | {"vunpack.fp8.bf16"}
-                                    else 127 if name in _COL_REDUCE else 64 if name in _VR else 63)
+        rows = 32 if name in _ALL_ROWS else self.arch_state.rows
+        read_last = -1 if vli else (rows - 1 if name in _ROW_REDUCE | {"vunpack.fp8.bf16"}
+                                    else 4 * rows - 1 if name in _COL_REDUCE else 2 * rows if name in _VR
+                                    else 2 * rows - 1)
         owner = f"{self.name}:{uop.id}:{name}"
         checker = self.arch_state.conflict_checker
         sampled = set(reads)
@@ -174,11 +173,11 @@ class VectorExecutionUnit(ExecutionUnit):
             checker.reserve_mreg(owner, row0, frozenset())
             sampled |= row0
         checker.reserve_mreg(owner, frozenset(reads), writes)
-        latency = self._execution_latency(uop)
+        latency = vpu_latency(name, rows)
         staged = StagedExecution(uop, self.arch_state, [("mrf", bank) for bank in sampled],
                                  [("mrf", bank) for bank in writes], "VectorFSM")
         op = _VectorOperation(uop, self.cycle, slot, owner, frozenset(reads), writes,
-                              read_last, latency - 1, staged)
+                              read_last, latency - 1, staged, rows)
         self.operations.append(op)
         uop.execute_delay = latency
         self._total_instructions += 1
@@ -197,7 +196,7 @@ class VectorExecutionUnit(ExecutionUnit):
         """(bank, row) requests VectorFSM issues at this age."""
         if not 0 <= age <= op.read_last:
             return []
-        insn, name = op.uop.insn, op.uop.insn.mnemonic
+        insn, name, m = op.uop.insn, op.uop.insn.mnemonic, op.rows
         if name in _VR:
             if age == 0:
                 return [(int(insn.vs2), 0), (int(insn.vs2) + 1, 0)]
@@ -206,36 +205,36 @@ class VectorExecutionUnit(ExecutionUnit):
             return [(int(insn.vs1), age), (int(insn.vs1) + 1, age)]
         if name == "vunpack.fp8.bf16":
             return [(int(insn.vs2), age)]
-        # Column reductions keep reading for 128 cycles, wrapping the pair.
+        # Column reductions read the pair twice (4M cycles).
         source = int(insn.vs2 if name == "vpack.bf16.fp8" else insn.vs1)
-        reads = [(source + ((age // 32) & 1), age % 32)]
+        reads = [(source + ((age // m) & 1), age % m)]
         if name in _TWO_INPUT:
-            reads.append((int(insn.vs2) + age // 32, age % 32))
+            reads.append((int(insn.vs2) + age // m, age % m))
         return reads
 
     @staticmethod
     def _writes(op: _VectorOperation, age: int) -> list[tuple[int, int]]:
         """(bank, row) results committed at this age."""
-        name, vd = op.uop.insn.mnemonic, int(op.uop.insn.vd)
+        name, vd, m = op.uop.insn.mnemonic, int(op.uop.insn.vd), op.rows
         if name in _ROW_REDUCE:
             # Both halves of row r land together, after the reduction tree.
             row = age - (7 if name == "vredsum.row.bf16" else 2)
-            return [(vd, row), (vd + 1, row)] if 0 <= row < 32 else []
+            return [(vd, row), (vd + 1, row)] if 0 <= row < m else []
         if name == "vpack.bf16.fp8":
             # FP8 row k packs BF16 rows 2k and 2k + 1, two cycles after the second.
             return [(vd, (age - 3) // 2)] if 3 <= age <= 65 and age % 2 else []
         # The rest write one row per cycle across the pair, starting at `first`.
         first = (1 if name.startswith("vli.") else 3 if name == "vunpack.fp8.bf16" or name in _VR
-                 else 11 if name == "vgelu.bf16" else 66 if name in _COL_REDUCE else 2)
+                 else 11 if name == "vgelu.bf16" else 2 * m + 2 if name in _COL_REDUCE else 2)
         index = age - first
-        count = 32 if name in {"vli.col", "vli.one"} else 64
-        return [(vd + index // 32, index % 32)] if 0 <= index < count else []
+        count = m if name in {"vli.col", "vli.one"} else 2 * m
+        return [(vd + index // m, index % m)] if 0 <= index < count else []
 
     def _advance(self, op: _VectorOperation) -> None:
         age = self.cycle - op.issued
         for bank, row in self._reads(op, age):
             # Only the first pass of a column reduction over the pair feeds the result.
-            self._read(op, bank, row, sample=op.uop.insn.mnemonic not in _COL_REDUCE or age < 64)
+            self._read(op, bank, row, sample=op.uop.insn.mnemonic not in _COL_REDUCE or age < 2 * op.rows)
         if age == op.read_last:
             self.arch_state.conflict_checker.release_mreg(op.owner, reads=True, writes=False)
         for bank, row in self._writes(op, age):

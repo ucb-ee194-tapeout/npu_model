@@ -16,8 +16,8 @@ from npu_model.configs.numerics import NUMERICS
 from npu_model.hardware.arch_state import ArchState
 from npu_model.hardware.dma import DmaExecutionUnit
 from npu_model.hardware.lsu import LoadStoreUnit
-from npu_model.hardware.mxu import MXU_OP_LATENCIES, MatrixExecutionUnitInner
-from npu_model.hardware.vpu import VPU_OP_LATENCIES, VectorExecutionUnit
+from npu_model.hardware.mxu import MXU_MNEMONICS, MatrixExecutionUnitInner
+from npu_model.hardware.vpu import VPU_MNEMONICS, VectorExecutionUnit
 from npu_model.hardware.xlu import CrossLaneExecutionUnit
 from npu_model.logging.logger import Logger
 from npu_model.software import acc, e, m, w, x
@@ -117,17 +117,19 @@ MEMORY_CASES = [
         DMA_CONFIG(ch=0, rs1=x(7)),
     )
 ]
-CASES = ([("VPU", name) for name in sorted(VPU_OP_LATENCIES)]
-         + [(f"MXU{name[-1]}", name) for name in sorted(MXU_OP_LATENCIES)]
+CASES = ([("VPU", name) for name in sorted(VPU_MNEMONICS)]
+         + [(f"MXU{name[-1]}", name) for name in sorted(MXU_MNEMONICS)]
          + [("XLU", "vtrpose.xlu")] + MEMORY_CASES)
 
 
+@pytest.mark.parametrize("rows", [32, 3])
 @pytest.mark.parametrize("unit,name", CASES, ids=lambda case: getattr(case, "mnemonic", case))
-def test_unit_commits_exec_results_on_a_numerics_independent_schedule(unit, name):
+def test_unit_commits_exec_results_on_a_numerics_independent_schedule(unit, name, rows):
     insn = name if not isinstance(name, str) else stream_to_instrs(StringIO(asm(name)))[0]
     schedules = []
     for numerics in ("rtl", "pytorch"):
         exu, reference = make(unit, numerics), make(unit, numerics).arch_state
+        exu.arch_state.rows = reference.rows = rows
         insn.exec(reference)
         schedules.append(run(exu, insn))
         assert_same_state(exu.arch_state, reference)
