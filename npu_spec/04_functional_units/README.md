@@ -353,10 +353,13 @@ t = vtanh(t); t = vadd(t, 1);  y = vmul(x, t); y = vmul(y, 0.5)
 c1 = 0x3D37 and c2 = 0x3F4C are 0.044715 and sqrt(2/pi) rounded to BF16, nearest even. The result
 equals the result of the eight instructions bit for bit, also for NaN, infinite, subnormal and zero
 inputs and results. For example, -Inf gives the NaN 0x7FC0 (vtanh gives -1, then -Inf x +0), +Inf
-gives +Inf, and the final multiply by 0.5 rounds only a BF16 subnormal result. The VPU runs the
+gives +Inf, and the final multiply by 0.5 rounds only a BF16 subnormal result. The inputs 0x7F00
+to 0x7F7F (x >= 2^127) also give +Inf, because vmul(x, t) with t = 2 overflows. The VPU runs the
 eight steps in a chain of their lane boxes, one row per cycle, so `vgelu.bf16` takes the time of
 one unary operation plus 9 cycles. It has its own lane boxes: it overlaps any other single-input
-operation except another `vgelu.bf16`.
+operation except another `vgelu.bf16`. A second `vgelu.bf16`, a two-input `.bf16` operation or a
+row reduction waits until the first `vgelu.bf16` has written its last row: it issues 74 cycles
+after it (`2M + 10` at `M` rows).
 
 Latency classes are listed in the Timing Reference.
 
