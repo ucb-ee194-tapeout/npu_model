@@ -9,6 +9,7 @@ import torch
 
 from npu_model.configs import cvt
 from npu_model.configs.hardware.default import DefaultHardwareConfig
+from npu_model.configs.numerics import TorchNumerics
 from npu_model.configs.isa_definition import (
     VMATPOP_BF16_ACC_NV, VMATPOP_BF16_SCALED_ACC_MXU1, VMATPOP_BF16_SCALED_ACC_NV, VMATPOP_FP32_ACC_MXU1,
     VMATPUSH_ACC_FP32_MXU1,
@@ -115,3 +116,15 @@ def test_fp32_push_and_pop_copy_every_bit_pattern(state):
     VMATPOP_FP32_ACC_MXU1(vd=m(12), vs2=acc(1)).exec(state)
     for q in range(4):
         assert torch.equal(state.mrf[12 + q], state.mrf[8 + q]), f"m{12 + q}"
+
+
+def test_pytorch_numerics_pop_rounds_once_as_cvt():
+    """The default numerics ("pytorch") give cvt.bf16_rne's bits at every e: the SCALED cases, the FP32
+    classes and random words."""
+    rng = np.random.default_rng(5)
+    words = np.concatenate([np.array([x for x, _, _ in SCALED] + FP32_CLASSES, np.uint32),
+                            rng.integers(0, 1 << 32, 4096, dtype=np.uint64).astype(np.uint32)])
+    x = torch.from_numpy(words.view(np.int32)).view(torch.float32)
+    for scale in range(256):
+        got = TorchNumerics.f32_to_bf16(x, scale).view(torch.int16).numpy().view(np.uint16)
+        assert (got == cvt.bf16_rne(words, scale)).all(), f"e = {scale}"

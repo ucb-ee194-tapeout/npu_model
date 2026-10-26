@@ -177,7 +177,12 @@ class TorchNumerics:
 
     @staticmethod
     def f32_to_bf16(x: torch.Tensor, scale: int = 127) -> torch.Tensor:
-        return (x.double() * 2.0 ** (int(scale) - 127)).to(torch.bfloat16)
+        """BF16_RNE(x * 2**(scale - 127)), rounded once as cvt.bf16_rne; NaN gives 0x7FFF."""
+        y = x.double() * 2.0 ** (int(scale) - 127)
+        # Round in FP64, where y is exact, to the BF16 quantum of y; the cast is then exact.
+        quantum = torch.exp2((torch.frexp(y).exponent.clamp(min=-125) - 8).double())
+        bits = (torch.round(y / quantum) * quantum).to(torch.bfloat16).view(torch.int16)
+        return torch.where(y.isnan(), 0x7FFF, bits).to(torch.int16).view(torch.bfloat16)
 
     @staticmethod
     def inner_product_matmul(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
