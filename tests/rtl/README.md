@@ -9,9 +9,9 @@ No production RTL is modified.
 From `npu-model`, with Java and Verilator on `PATH`:
 
 ```sh
-python scripts/regenerate_rtl_fixtures.py --chipyard CHIPYARD
-python scripts/regenerate_rtl_fixtures.py --check
-python -m pytest tests/test_rtl_*traces.py tests/test_rtl_arithmetic.py tests/test_rtl_artifacts.py
+python3 scripts/regenerate_rtl_fixtures.py --chipyard CHIPYARD
+python3 scripts/regenerate_rtl_fixtures.py --check
+python3 -m pytest tests/test_rtl_*traces.py tests/test_rtl_arithmetic.py tests/test_rtl_artifacts.py
 ```
 
 Regeneration also recreates the exhaustive unary BF16 tables in
@@ -20,13 +20,14 @@ full 32×32 MXUs. `provenance.json` has one record for each harness suite: the
 fingerprints of its fixtures, and one fingerprint of the RTL and harness sources
 that recorded them. Python tests detect stale fixtures when the adjacent RTL changes.
 The standalone Python checkout checks the fixture fingerprints without requiring RTL.
-`--only TEXT` runs only the suites whose names contain `TEXT`. The other suites
-keep their records, so a stale suite stays stale until it runs again.
+`--only TEXT` runs only the suites whose names contain `TEXT` (case-sensitive; no
+match is an error). The other suites keep their records, so a stale suite stays
+stale until it runs again.
 
 | Fixture | Real RTL instantiated | Signals compared / coverage |
 | --- | --- | --- |
 | `scalar_cases.json`, `scalar_traces.json` | `ScalarCore` | Fetch/S1 PCs, issue, halt, illegal, CSR write data; 16 branch, jump, delay, load and DMA-wait scenarios |
-| `vector_traces.json` | `VectorEngineTop` | Every MREG read/write cycle, address and output bit; 29 operations, special encodings, overlap, mirrored reads, in-place move and last-write handoff; `.vx` and `.vr` forms; issue-busy of each form |
+| `vector_traces.json` | `VectorEngineTop` | Every MREG read/write cycle, address and output bit; 30 operations, special encodings, overlap, mirrored reads, in-place move and last-write handoff; `.vx` and `.vr` forms; issue-busy of each form |
 | `ipt_traces.json` | `InnerProductTreesTop` | Every MREG read/write cycle/address/data; all ten commands, accumulator chaining and overlapping weight push/compute |
 | `memory_traces.json` | `LSU`, `XluEngine` | Concurrent scalar/VLOAD/VSTORE and transpose requests, write data, scalar writeback; VMEM and MREG accesses |
 | `dma_traces.json` | `DmaEngine`, `Vmem` | Per-cycle TileLink A/D fires, VMEM read/write requests and grants, channel busy; six interleaved load/store commands, out-of-order responses, A-channel backpressure, LSU bank denials |
@@ -62,8 +63,8 @@ the trace fixtures separately verify indexing, scheduling and writeback.
 
 ## Chipyard for the DMA suite
 
-The DMA suite runs in Chipyard's sbt project `sp26atlas`, so one generator
-directory of that Chipyard must be this checkout (`generators/atlas-npu`). Give the
+The DMA suite runs in Chipyard's sbt project `sp26atlas`, which is
+`generators/atlas-npu`, so that directory of the Chipyard must be this checkout. Give the
 Chipyard root with `--chipyard DIR` or `CY_DIR`. The default is two directories
 above this checkout, as in `chipyard/generators/atlas-npu`.
 
@@ -73,11 +74,13 @@ tree. The shadow tree does not change the Chipyard checkout:
 ```sh
 scripts/chipyard_shadow.sh CHIPYARD SHADOW
 export COURSIER_CACHE=SHADOW/.coursier PATH=CHIPYARD/.conda-env/bin:$PATH
-python scripts/regenerate_rtl_fixtures.py --chipyard SHADOW
+python3 scripts/regenerate_rtl_fixtures.py --chipyard SHADOW
 ```
 
-The shadow tree has copies of `build.sbt`, `project/` and `scripts/sbt-launch.jar`,
-and links to the other Chipyard directories. Its `generators/atlas-npu` is a link
+The shadow tree has copies of `build.sbt`, the sbt files of `project/`
+(`build.properties` and `*.sbt`) and `scripts/sbt-launch.jar`, and links to the other
+Chipyard directories. It adds `project/ShadowTargets.scala`, an sbt plugin that puts
+every `target/` into the shadow tree. Its `generators/atlas-npu` is a link
 to this checkout. sbt writes its outputs (`target/`) and its caches (`.sbt`,
 `.ivy2`, and Coursier with `COURSIER_CACHE`) in the shadow tree. Chipyard's sbt
 1.8.2 needs a Java that its Scala 2.12.17 can read, for example Java 20 of the

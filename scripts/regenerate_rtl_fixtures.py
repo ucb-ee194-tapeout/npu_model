@@ -83,7 +83,7 @@ def main():
     parser.add_argument('--check',action='store_true',help='Check source/artifact fingerprints without simulating')
     parser.add_argument('--only',metavar='TEXT',help='Run only suites whose name contains TEXT (keep the records of the others)')
     parser.add_argument('--chipyard',metavar='DIR',type=Path,default=Path(os.environ.get('CY_DIR',RTL.parents[1])),
-                        help='Chipyard root for the sbt suites; one of its generators must be this checkout '
+                        help='Chipyard root for the sbt suites; its generators/atlas-npu must be this checkout '
                              '(default: $CY_DIR, else two levels above this checkout)')
     args=parser.parse_args()
     if args.check:
@@ -93,9 +93,12 @@ def main():
     selected = lambda suite: args.only is None or args.only in suite
     mill_suites = [s for s in SUITES if selected(s)]
     sbt_suites = [s for s in SBT_SUITES if selected(s)]
+    if not mill_suites + sbt_suites:
+        raise SystemExit(f'No suite name contains {args.only!r} (the match is case-sensitive)')
     chipyard = args.chipyard.resolve()
-    if sbt_suites and RTL not in [path.resolve() for path in (chipyard/'generators').glob('*')]:
-        raise SystemExit(f'No generator of {chipyard} is {RTL}; see tests/rtl/README.md')
+    # Chipyard's sbt project sp26atlas is generators/atlas-npu.
+    if sbt_suites and (chipyard/'generators/atlas-npu').resolve() != RTL:
+        raise SystemExit(f'{chipyard}/generators/atlas-npu is not {RTL}; see tests/rtl/README.md')
     if mill_suites:
         # Mill includes this test-source tree. Keep the canonical harnesses in the
         # model repo, and install temporary copies only for the simulator invocation.
