@@ -16,7 +16,7 @@ from .exu import ExecutionUnit
 from .exu import ScalarExecutionUnit  # type: ignore # noqa: F401, F403
 from .mxu import MatrixExecutionUnitInner  # type: ignore # noqa: F401, F403
 from .dma import DmaExecutionUnit  # type: ignore # noqa: F401, F403
-from .vpu import VectorExecutionUnit  # type: ignore # noqa: F401, F403
+from .vpu import _TWO_INPUT, VectorExecutionUnit  # type: ignore # noqa: F401, F403
 from .xlu import CrossLaneExecutionUnit  # noqa: F401
 from .lsu import LoadStoreUnit  # type: ignore # noqa: F401, F403 
 
@@ -26,6 +26,17 @@ def _x_regs(insn: Instruction) -> dict[str, int]:
     ScalarCore's decode column xr), with their registers."""
     operands = TABLE.entries[insn.mnemonic].operands
     return {field: int(getattr(insn, field)) for field in ("rd", "rs1", "rs2") if operands.get(field) == "x"}
+
+
+def _operand_illegal(insn: Instruction) -> str | None:
+    """ScalarCore's operand rules that the encoding does not give: a two-input .bf16 VPU operation
+    with two different source pairs in one physical bank (m_i and m_i+32), and vpack.bf16.fp8 with
+    vd = vs2 + 1 (it writes m[vd] before it reads m[vs2+1])."""
+    if insn.mnemonic in _TWO_INPUT and int(insn.vs1) % 32 == int(insn.vs2) % 32 and insn.vs1 != insn.vs2:
+        return "two source pairs in one physical bank"
+    if insn.mnemonic == "vpack.bf16.fp8" and int(insn.vd) == int(insn.vs2) + 1:
+        return "vd = vs2 + 1"
+    return None
 
 
 class Core(Module):
@@ -193,6 +204,8 @@ class Core(Module):
                 self._illegal(f"Illegal instruction word {insn.word:#010x}")
             if isinstance(insn, CSRType) and state.csr_illegal(insn.imm, insn.writes):
                 self._illegal(f"Illegal CSR access '{mnemonic}' to CSR {insn.imm:#x}")
+            if (rule := _operand_illegal(insn)) is not None:
+                self._illegal(f"Illegal operands of '{mnemonic}': {rule}")
             if mnemonic in {"ecall", "ebreak"}:
                 state.execute_pc = self.s1_uop.pc
                 self.s1_uop.insn.exec(state)

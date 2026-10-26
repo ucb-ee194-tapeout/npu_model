@@ -271,6 +271,14 @@ consume or produce `{m[r], m[r + 1]}`:
 - the encoded tensor register field names the low register of the pair
 - encoding `r = 63` for such a field is illegal
 
+Decode must also enforce two operand rules that the encoding does not give:
+
+- a two-input `.bf16` `VPU` operation with two different source pairs in one
+  physical bank (`m[r]` and `m[r + 32]`) is illegal: the pairs are never
+  readable in the same cycles
+- `vpack.bf16.fp8` with `vd = vs2 + 1` is illegal: it writes rows of `m[vd]`
+  before it has read them as `m[vs2 + 1]` (`vd = vs2` is legal)
+
 ## Control Flow
 
 There is no delay slot. A taken branch or jump drops the sequential word that is

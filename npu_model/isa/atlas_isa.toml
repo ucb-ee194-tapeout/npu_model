@@ -1369,7 +1369,7 @@ operands = { vd = "m", vs2 = "mp", vs1 = "e" }
 syntax = "vpack.bf16.fp8 m(vd), m(vs2), e(vs1)"
 unit = "vpu"
 m = "all"
-operation = "m[vd] = E4M3_RN_SATFINITE({m[vs2], m[vs2+1]} * 2^(e[vs1] - 127)) (row k: 2k, 2k+1)"
+operation = "m[vd] = E4M3_RN_SATFINITE({m[vs2], m[vs2+1]} * 2^(e[vs1] - 127)) (row k: 2k, 2k+1); vd = vs2 + 1 is illegal"
 ver = "2.0"
 
 [[instruction]]

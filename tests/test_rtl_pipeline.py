@@ -10,12 +10,12 @@ import pytest
 from npu_model.configs.hardware.default import DefaultHardwareConfig
 from npu_model.configs.isa_definition import (
     ADDI, AUIPC, BEQ, BNE, BLT, BGE, JAL, JALR, LUI, DELAY, DMA_LOAD, DMA_STORE, DMA_WAIT,
-    ECALL, EBREAK, SLL, SLT, SRLI, CSRRW, CSRRS, CSRRC, CSRRSI, CSRRCI,
+    ECALL, EBREAK, SLL, SLT, SRLI, CSRRW, CSRRS, CSRRC, CSRRSI, CSRRCI, VADD_BF16, VPACK_BF16_FP8,
 )
 from npu_model.hardware.core import Core
 from npu_model.isa import ISA_VERSION, Word
 from npu_model.logging import Logger, LoggerConfig
-from npu_model.software import x
+from npu_model.software import e, m, x
 from npu_model.software.program import InstantiableProgram
 
 
@@ -101,6 +101,25 @@ def test_a_dma_size_the_engine_does_not_take_is_illegal(make_core, dma, size, se
     assert core.arch_state.halt_reason == "illegal"
     assert core.arch_state.execute_pc == len(setup)
     assert not core.arch_state.check_flag(2)
+
+
+@pytest.mark.parametrize('insn, rule', [
+    (VPACK_BF16_FP8(vd=m(3), vs2=m(2), es1=e(0)), 'vd = vs2 \\+ 1'),
+    (VADD_BF16(vd=m(8), vs1=m(4), vs2=m(36)), 'two source pairs in one physical bank')])
+def test_operands_that_scalar_core_rejects_are_illegal(make_core, insn, rule):
+    core = make_core([ADDI(x(1), x(0), 1), insn, ADDI(x(2), x(0), 2)])
+    step(core, 2)
+    with pytest.raises(RuntimeError, match=f"Illegal operands of '{insn.mnemonic}': {rule}"):
+        step(core)
+    assert core.arch_state.halt_reason == "illegal"
+    assert core.arch_state.execute_pc == 1
+
+
+@pytest.mark.parametrize('insn', [VPACK_BF16_FP8(vd=m(2), vs2=m(2), es1=e(0)), VADD_BF16(vd=m(8), vs1=m(4), vs2=m(4))])
+def test_vpack_in_place_and_one_pair_twice_are_legal(make_core, insn):
+    core = make_core([insn, ECALL()])
+    step(core, 4)
+    assert core.arch_state.halt_reason == "ecall"
 
 
 def test_a_word_that_is_no_instruction_is_illegal(make_core):

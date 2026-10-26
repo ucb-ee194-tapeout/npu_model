@@ -21,6 +21,11 @@ Conventions used in the opcode tables:
   `m[r..r+3]`, `r` is a multiple of 4. Another `r` makes the word illegal, and
   so do an `e`-register above `e31` and an accumulator or weight slot above 1 in
   a 6-bit field.
+- Two operand rules are not in the encoding. A two-input `.bf16` VPU
+  instruction (`vadd`, `vsub`, `vmul`, `vminimum`, `vmaximum`) with two
+  different source pairs in one physical bank (`m[r]` and `m[r+32]`) is
+  illegal. `vpack.bf16.fp8` with `vd = vs2 + 1` is illegal: it writes rows of
+  `m[vd]` before it has read them as `m[vs2+1]`. `vd = vs2` is legal.
 - `pc` is the byte address of the instruction, as in RV32I. Branch and `jal`
   offsets are byte offsets, and `jal` and `jalr` write `pc + 4`. There is no
   delay slot. A taken branch or jump to a target with bit 1 set is illegal.
@@ -331,7 +336,7 @@ Rows are ordered by hex value.
 | `vrecip.bf16 m(vd), m(vs1)` | VR | `0B/41` | `8200000b` / `fff820ff` | vpu | all | `{m[vd], m[vd+1]} = 1 / {m[vs1], m[vs1+1]}` |
 | `vexp.bf16 m(vd), m(vs1)` | VR | `0B/42` | `8400000b` / `fff820ff` | vpu | all | `{m[vd], m[vd+1]} = exp({m[vs1], m[vs1+1]})` |
 | `vexp2.bf16 m(vd), m(vs1)` | VR | `0B/43` | `8600000b` / `fff820ff` | vpu | all | `{m[vd], m[vd+1]} = 2^{m[vs1], m[vs1+1]}` |
-| `vpack.bf16.fp8 m(vd), m(vs2), e(vs1)` | VR | `0B/44` | `8800000b` / `fe0c007f` | vpu | all | `m[vd] = E4M3_RN_SATFINITE({m[vs2], m[vs2+1]} * 2^(e[vs1] - 127)) (row k: 2k, 2k+1)` |
+| `vpack.bf16.fp8 m(vd), m(vs2), e(vs1)` | VR | `0B/44` | `8800000b` / `fe0c007f` | vpu | all | `m[vd] = E4M3_RN_SATFINITE({m[vs2], m[vs2+1]} * 2^(e[vs1] - 127)) (row k: 2k, 2k+1); vd = vs2 + 1 is illegal` |
 | `vunpack.fp8.bf16 m(vd), m(vs2), e(vs1)` | VR | `0B/45` | `8a00000b` / `fe0400ff` | vpu | all | `{m[vd], m[vd+1]} = BF16_RNE(m[vs2] * 2^(e[vs1] - 127)) (vpack's row layout)` |
 | `vsquare.bf16 m(vd), m(vs1)` | VR | `0B/46` | `8c00000b` / `fff820ff` | vpu | all | `{m[vd], m[vd+1]} = {m[vs1], m[vs1+1]}^2` |
 | `vcube.bf16 m(vd), m(vs1)` | VR | `0B/47` | `8e00000b` / `fff820ff` | vpu | all | `{m[vd], m[vd+1]} = {m[vs1], m[vs1+1]}^3` |
