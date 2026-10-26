@@ -22,16 +22,6 @@ def _mask(val: int, bits: int):
 
 class IsaSpec:
     operations: dict[str,type[Instruction]] = {}
-    R: dict[str,type[RType]] = {}
-    I: dict[str,type[IType[Any, Any]]] = {}
-    S: dict[str,type[SType]] = {}
-    SB: dict[str,type[SBType]] = {}
-    U: dict[str,type[UType]] = {}
-    UJ: dict[str,type[UJType]] = {}
-    VLS: dict[str,type[VLSType]] = {}
-    VR: dict[str,type[VRType[Any,Any]]] = {}
-    VI: dict[str,type[VIType]] = {}
-    CSR: dict[str,type[CSRType]] = {}
 
 class Instruction(ABC):
     mnemonic: str  = NotImplemented
@@ -39,8 +29,6 @@ class Instruction(ABC):
     exu: EXU       = NotImplemented
     fmt: ClassVar[str]
     """The instruction type's format in the ISA table."""
-    registry: ClassVar[dict[str, type["Instruction"]]]
-    """The instruction type's dictionary in IsaSpec."""
 
     def __str__(self):
         values = [str(v) for v in self.__dict__.values()]
@@ -75,7 +63,6 @@ class Instruction(ABC):
         for field, value in (entry.select | entry.fixed).items():
             setattr(cls, field, value)
         IsaSpec.operations[cls.mnemonic] = cls
-        cls.registry[cls.mnemonic] = cls
 
 class Word(Instruction, instr=False):
     """A word that is no instruction (`.word` in assembly), for example a v1 word or a word with a
@@ -98,7 +85,6 @@ class Word(Instruction, instr=False):
 
 class RType(Instruction, instr=False):
     fmt = "R"
-    registry = IsaSpec.R
     funct3: Funct3 = NotImplemented
     funct7: Funct7 = NotImplemented
     rd: ScalarReg  = ScalarReg(0)
@@ -125,7 +111,6 @@ class RType(Instruction, instr=False):
 
 class IType[RD: (ScalarReg, ExponentReg) = ScalarReg, IMM: (Imm12, SBImm12) = Imm12](Instruction, instr=False):
     fmt = "I"
-    registry = IsaSpec.I
     funct3: Funct3         = NotImplemented
     rd: RD
     rs1: ScalarReg         = ScalarReg(0)
@@ -144,7 +129,6 @@ class IType[RD: (ScalarReg, ExponentReg) = ScalarReg, IMM: (Imm12, SBImm12) = Im
 
 class SType(Instruction, instr=False):
     fmt = "S"
-    registry = IsaSpec.S
     funct3: Funct3    = NotImplemented
     rs1: ScalarReg    = ScalarReg(0)
     rs2: ScalarReg    = ScalarReg(0)
@@ -175,7 +159,6 @@ class SType(Instruction, instr=False):
 
 class SBType(Instruction, instr=False):
     fmt = "B"
-    registry = IsaSpec.SB
     funct3: Funct3    = NotImplemented
     rs1: ScalarReg    = ScalarReg(0)
     rs2: ScalarReg    = ScalarReg(0)
@@ -209,7 +192,6 @@ class SBType(Instruction, instr=False):
 
 class UType(Instruction, instr=False):
     fmt = "U"
-    registry = IsaSpec.U
     rd: ScalarReg = ScalarReg(0)
     imm: Imm20    = Imm20(0)
 
@@ -222,7 +204,6 @@ class UType(Instruction, instr=False):
 
 class UJType(Instruction, instr=False):
     fmt = "J"
-    registry = IsaSpec.UJ
     rd: ScalarReg = ScalarReg(0)
     imm: Imm21    = Imm21(0)
 
@@ -246,7 +227,6 @@ class UJType(Instruction, instr=False):
 
 class VLSType(Instruction, instr=False):
     fmt = "VLS"
-    registry = IsaSpec.VLS
     funct2: Funct2 = NotImplemented
     vd: MatrixReg  = MatrixReg(0)
     rs1: ScalarReg = ScalarReg(0)
@@ -263,7 +243,6 @@ class VLSType(Instruction, instr=False):
 
 class VRType[VD: (MatrixReg,Accumulator,WeightBuffer) = MatrixReg, VS2: (MatrixReg,Accumulator,WeightBuffer) = MatrixReg](Instruction, instr=False):
     fmt = "VR"
-    registry = IsaSpec.VR
     funct7: Funct7    = NotImplemented
     vs1: MatrixReg
     es1: ExponentReg
@@ -294,7 +273,6 @@ class VRType[VD: (MatrixReg,Accumulator,WeightBuffer) = MatrixReg, VS2: (MatrixR
 
 class VIType(Instruction, instr=False):
     fmt = "VI"
-    registry = IsaSpec.VI
     funct3: Funct3 = NotImplemented
     vd: MatrixReg  = MatrixReg(0)
     imm: Imm16     = Imm16(0)
@@ -309,7 +287,6 @@ class VIType(Instruction, instr=False):
 
 class CSRType(Instruction, instr=False):
     fmt = "I"
-    registry = IsaSpec.CSR
     funct3: Funct3 = NotImplemented
     rs1: ScalarReg = ScalarReg(0)
     rd: ScalarReg  = ScalarReg(0)
@@ -341,58 +318,3 @@ def is_scalar_itype(insn: Instruction) -> TypeIs[IType[ScalarReg]]:
 
 def is_exponent_itype(insn: Instruction) -> TypeIs[IType[ExponentReg]]:
     return isinstance(insn, IType) and hasattr(cast(IType[Any], insn), 'rd') and is_exponent_reg(cast(IType[Any], insn).rd)
-
-# Global registry accumulating decode table rows
-# FIXME: Not typed but idk the type.
-_decode_table: list[dict[Any, Any]] = []
-
-# Column order — matches the signal list in AtlasCtrlSigs.decode()
-_COL_HEADERS = [
-    "valid",
-    "br_type",
-    "src1",
-    "src2",
-    "dst",
-    "msrc1",
-    "msrc2",
-    "mdst",
-    "mem_read",
-    "mem_write",
-    "wb",
-    "pc",
-    "mxu_0_valid",
-    "mxu_1_valid",
-    "scalar_valid",
-    "vpu_valid",
-    "xlu_valid",
-    "dma_valid",
-    "alu_op",
-    "vpu_op",
-    "xlu_op",
-]
-
-# Default row — emitted by AtlasCtrlSigs.default
-# Analogous to IntCtrlSigs.default in Rocket
-_DEFAULT = {
-    "valid": "N",
-    "br_type": "BR_X",
-    "src1": "X",
-    "src2": "X",
-    "dst": "X",
-    "msrc1": "X",
-    "msrc2": "X",
-    "mdst": "X",
-    "mem_read": "N",
-    "mem_write": "N",
-    "wb": "X",
-    "pc": "X",
-    "mxu_0_valid": "N",
-    "mxu_1_valid": "N",
-    "scalar_valid": "N",
-    "vpu_valid": "N",
-    "xlu_valid": "N",
-    "dma_valid": "N",
-    "alu_op": "ALU_OP_X",
-    "vpu_op": "VPU_OP_X",
-    "xlu_op": "XLU_OP_X",
-}

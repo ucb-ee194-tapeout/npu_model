@@ -9,7 +9,8 @@ from pathlib import Path
 import pytest
 
 import npu_model.configs.isa_definition  # noqa: F401  (registers the instructions)
-from npu_model.isa import TABLE, IsaSpec
+from npu_model.isa import (TABLE, CSRType, IsaSpec, IType, RType, SBType, SType, UJType, UType, VIType, VLSType,
+                           VRType)
 from npu_model.isa.gen import instructions_scala
 from tests.helpers import words
 
@@ -18,6 +19,8 @@ INSTRUCTIONS_SCALA = ATLAS_SRC / "scalar/Instructions.scala"
 
 # Word bits (high, low) of each field, as ScalarDecoder.scala and Instructions.scala place them;
 # the opcode is [6:0].
+FORMATS = {"R": RType, "I": IType, "S": SType, "SB": SBType, "U": UType, "UJ": UJType, "CSR": CSRType,
+           "VLS": VLSType, "VR": VRType, "VI": VIType}
 FIELDS = {
     "R": {"funct7": [(31, 25)], "rs2": [(24, 20)], "rs1": [(19, 15)], "funct3": [(14, 12)], "rd": [(11, 7)]},
     "I": {"imm": [(31, 20)], "rs1": [(19, 15)], "funct3": [(14, 12)], "rd": [(11, 7)]},
@@ -84,7 +87,7 @@ def bits(ranges: list[tuple[int, int]]) -> int:
 def test_encoder_fields_have_the_decoder_bits(fmt: str) -> None:
     fields = FIELDS[fmt] | {"opcode": [(6, 0)]}
     assert sum(map(bits, fields.values())) == 0xFFFFFFFF  # the fields tile the word
-    insn = object.__new__(next(iter(getattr(IsaSpec, fmt).values())))
+    insn = object.__new__(next(c for c in IsaSpec.operations.values() if issubclass(c, FORMATS[fmt])))
     for field, ranges in fields.items():
         for name in fields:
             setattr(insn, name, 0)
