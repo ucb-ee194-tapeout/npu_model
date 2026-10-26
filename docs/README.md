@@ -1,7 +1,7 @@
 # Matching the Atlas performance model to RTL
 
 This README describes the changes made to `npu-model` to match the RTL in
-`sp26-atlas-acc/src/main/scala`: what the hardware implements, how the Python
+`atlas-npu/src/main/scala`: what the hardware implements, how the Python
 model represents it, and how the behavior is checked. It covers the scalar
 pipeline, assembler, IMEM, LSU, tensor engines, numerical behavior, workload
 migration, and the new RTL comparison workflow.
@@ -383,7 +383,6 @@ Run from the `npu-model` directory. Python package tests require Python 3.14+
 and the project's dependencies. The example uses the repository's `uv` workflow:
 
 ```bash
-cd /scratch/kellytou/chipyard/generators/sp26-atlas-acc/npu-model
 uv sync
 
 # All Python checks, using already generated RTL fixtures.
@@ -413,11 +412,10 @@ Java, Verilator, and the dependencies needed by the parent accelerator's Mill
 build must be available. The DMA suite also needs a Chipyard whose sbt project
 `sp26atlas` builds this checkout. [tests/rtl/README.md](../tests/rtl/README.md)
 tells how to use a shadow Chipyard tree for it. The local Chipyard environment used
-for verification provides tools under `.conda-env/bin`:
+for verification provides tools under `.conda-env/bin` (`CHIPYARD` is the Chipyard root):
 
 ```bash
-cd /scratch/kellytou/chipyard/generators/sp26-atlas-acc/npu-model
-export PATH="/scratch/kellytou/chipyard/.conda-env/bin:$PATH"
+export PATH="CHIPYARD/.conda-env/bin:$PATH"
 java -version
 verilator --version
 
