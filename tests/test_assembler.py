@@ -261,3 +261,20 @@ def test_operands_that_the_isa_reserves_are_rejected(source: str, error: str) ->
     assert any(error in diagnostic.message for diagnostic in lint_text(source))
     with pytest.raises(ExceptionGroup):
         input_to_program(io.StringIO(source))
+
+
+@pytest.mark.parametrize("source", ["addi x1, x0, 2048", "addi x1, x0, 4095", "andi x1, x2, 0xfff",
+                                    "jalr x1, x2, 2048", "lw x1, 0xff8(x2)", "vload m1, 2048(x2)"])
+def test_12_bit_immediates_above_2047_are_rejected_as_gnu_as_does(source: str) -> None:
+    assert any("out of range" in diagnostic.message for diagnostic in lint_text(source))
+    with pytest.raises(ExceptionGroup):
+        input_to_program(io.StringIO(source))
+
+
+@pytest.mark.parametrize("source, expected", [
+    ("addi x1, x0, 2047", _i_type(0b0010011, 0b000, 1, 0, 2047)),
+    ("addi x1, x0, -2048", _i_type(0b0010011, 0b000, 1, 0, -2048)),
+    ("csrrs x1, 0xc00, x0", _i_type(0b1110011, 0b010, 1, 0, 0xC00)),
+])
+def test_12_bit_immediate_ends_and_csr_numbers_assemble(source: str, expected: int) -> None:
+    assert input_to_program(io.StringIO(source)).assemble() == [expected]

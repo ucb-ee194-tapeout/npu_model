@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Callable, ClassVar, Self, Any, get_type_hints
 
 from .isa import UJType, SBType
-from .isa_types import Named, Bundled, AsmError, BoundedInt, ScalarReg, ExponentReg, MatrixReg, MatrixPair, MatrixQuad, WeightBuffer, Accumulator, Channel, Funct3, Shamt, Imm12, SBImm12, Imm16, Imm20, Imm21, UImm8, UImm12, Rows
+from .isa_types import Named, Bundled, AsmError, BoundedInt, ScalarReg, ExponentReg, MatrixReg, MatrixPair, MatrixQuad, WeightBuffer, Accumulator, Channel, Funct3, Shamt, Imm12, SImm12, SBImm12, Imm16, Imm20, Imm21, UImm8, UImm12, Rows
 
 # - Named Args ----------------------------------------------
 # Used to significantly clean up linting and assembling code
@@ -45,7 +45,7 @@ ch       = Named(Channel, "DMA channel", "ch")
 
 # Immediates and Labels
 shamt    = Named(Shamt, "shift amount", "imm")
-imm12    = Named(Imm12, "12-bit immediate", "imm")
+imm12    = Named(SImm12, "12-bit immediate", "imm")
 sbimm12  = Named(SBImm12, "12-bit SB immediate or label", "imm", True)
 imm16    = Named(Imm16, "16-bit immediate", "imm")
 uimm8    = Named(UImm8, "8-bit unsigned immediate", "imm")
@@ -668,7 +668,7 @@ class CSRReg(InstructionPattern):
     rd: ScalarReg
     imm: Imm12
     rs1: ScalarReg
-    params = [x_rd, imm12, x_rs1]
+    params = [x_rd, uimm12, x_rs1]
 
     def __init__(self, rd: ScalarReg, rs1: ScalarReg, imm: Imm12):
         self.rd = rd
@@ -690,7 +690,7 @@ class CSRImm(InstructionPattern):
     rd: ScalarReg
     imm: Imm12
     rs1: Shamt
-    params = [x_rd, imm12, uimm5]
+    params = [x_rd, uimm12, uimm5]
 
     def __init__(self, rd: ScalarReg, rs1: Shamt, imm: Imm12):
         self.rd = rd

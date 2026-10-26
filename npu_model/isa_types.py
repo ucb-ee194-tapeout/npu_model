@@ -415,6 +415,13 @@ class Imm12(BoundedInt):
     fmt = "imm12"
 
 
+class SImm12(Imm12):
+    """A 12-bit immediate in assembly text: -2048 to 2047, as GNU as takes it. Imm12 also takes
+    the patterns 2048 to 4095 (-2048 to -1) that programs build."""
+
+    upper_bound = 2048
+
+
 # SBImm12
 class SBImm12(BoundedInt):
     """
