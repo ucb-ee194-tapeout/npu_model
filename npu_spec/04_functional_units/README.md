@@ -137,9 +137,11 @@ reservation instead requires B to issue no earlier than its free-from cycle.
 **3. What counts as shared.** Four kinds of check apply:
 
 - **Register reservations**, checked when B issues: B may not read or write a
-  register that A will write, or write a register that A still reads (VLOAD is
-  exempt from the latter). Each reservation ends at a fixed cycle (last column
-  of the access-window table); B may issue from that cycle on.
+  register that A will write, or write a register that A still reads. `vload`
+  follows these rules too: a VPU pair op reads `vs+1` only after all rows of
+  `vs`, so a `vload` of `vs+1` can overwrite a row before the VPU reads it.
+  Each reservation ends at a fixed cycle (last column of the access-window
+  table); B may issue from that cycle on.
 - **Physical register ports**, checked every cycle: each physical bank has one
   read port and one write port, and a read and write of the same row in the
   same cycle is an error. `mN` and `m(N+32)` share a physical bank.

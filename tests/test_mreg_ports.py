@@ -3,16 +3,16 @@ import pytest
 from npu_model.hardware.bank_conflict import BankConflictChecker, BankConflictError
 
 
-def test_logical_hazards_and_vload_write_exception():
+def test_logical_hazards():
     checker = BankConflictChecker()
     checker.begin_cycle(1)
     checker.reserve_mreg('reader', frozenset({0}), frozenset())
     checker.reserve_mreg('other-reader', frozenset({0}), frozenset())
     with pytest.raises(BankConflictError, match='MRF bank conflict'):
         checker.reserve_mreg('writer', frozenset(), frozenset({0}))
-    checker.reserve_mreg('vload', frozenset(), frozenset({0}), allow_write_during_read=True)
+    checker.reserve_mreg('writer', frozenset(), frozenset({1}))
     with pytest.raises(BankConflictError):
-        checker.reserve_mreg('late-reader', frozenset({0}), frozenset())
+        checker.reserve_mreg('late-reader', frozenset({1}), frozenset())
 
 
 def test_releases_visible_only_after_clock_edge():

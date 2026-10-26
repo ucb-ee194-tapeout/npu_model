@@ -29,6 +29,17 @@ class _VmemConflictProgram(Program):
     ]
 
 
+class _VloadWarConflictProgram(Program):
+    instructions: list[Instruction] = [
+        VADD_BF16(vd=m(8), vs1=m(2), vs2=m(6)),
+        # vload may not write m3 while the VPU still has to read it.
+        VLOAD(vd=m(3), imm=0, rs1=x(0)),
+    ]
+    memory_regions: List[Tuple[int, torch.Tensor]] = [
+        (0, torch.zeros(1024, dtype=torch.uint8)),
+    ]
+
+
 class _WeightBufConflictProgram(Program):
     instructions: list[Instruction] = [
         VMATPUSH_WEIGHT_MXU1(vd=w(0), vs1=m(0)),
@@ -184,12 +195,14 @@ class _NoPopAfterPushProgram(Program):
     [
         (_MrfConflictProgram(), BankConflictError),
         (_VmemConflictProgram(), BankConflictError),
+        (_VloadWarConflictProgram(), BankConflictError),
         (_WeightBufConflictProgram(), RuntimeError),
         (_AccBufConflictProgram(), RuntimeError),
     ],
     ids=[
         "MrfBankConflict",
         "VmemBankConflict",
+        "VloadWarConflict",
         "WeightBufSchedulingViolation",
         "AccBufSchedulingViolation",
     ],

@@ -242,21 +242,17 @@ class BankConflictChecker:
         self._mreg_ports.clear()
         self._mreg_cycle = cycle
 
-    def reserve_mreg(self, owner: str, reads: frozenset[int],
-                     writes: frozenset[int], *, allow_write_during_read: bool = False) -> None:
+    def reserve_mreg(self, owner: str, reads: frozenset[int], writes: frozenset[int]) -> None:
         """ScalarCore's direction-aware logical-register issue assertions.
 
-        VLOAD deliberately checks pending writes only. Physical SRAM port
-        conflicts are checked separately on actual read/write request cycles.
+        Physical SRAM port conflicts are checked separately on actual read/write request cycles.
         """
         if any(reg < 0 or reg >= 64 for reg in reads | writes):
             raise BankConflictError("MRF register outside m0..m63")
         for other, (busy_reads, busy_writes) in self._mreg_reservations.items():
             if other == owner:
                 continue
-            conflict = (reads & busy_writes) | (writes & busy_writes)
-            if not allow_write_during_read:
-                conflict |= writes & busy_reads
+            conflict = (reads & busy_writes) | (writes & (busy_writes | busy_reads))
             if conflict:
                 raise BankConflictError(
                     f"MRF bank conflict: '{owner}' accesses register(s) {sorted(conflict)} held by '{other}'"

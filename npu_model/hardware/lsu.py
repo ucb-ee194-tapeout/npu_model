@@ -123,7 +123,6 @@ class LoadStoreUnit(ExecutionUnit):
                 f"{self.name}:{uop.id}",
                 reads=banks if mnemonic == "vstore" else frozenset(),
                 writes=banks if mnemonic == "vload" else frozenset(),
-                allow_write_during_read=mnemonic == "vload",
             )
             reads = [] if mnemonic == "vload" else [("mrf", int(insn.vd))]
             writes = [("mrf", int(insn.vd))] if mnemonic == "vload" else [("vmem",)]
