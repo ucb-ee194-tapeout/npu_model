@@ -5,32 +5,32 @@
       "fixtures": {
         "tests/rtl/dma_traces.json": "60883fc8d4f0de0ecfd3049a2d810532d0440474245d494e760ded3194c63bb4"
       },
-      "sources": "20a17ba40b2e1443d60ec658ae81adc495182d8716288485b2c4bf6c9c9becbf"
+      "sources": "c9496b0781815148dc14bd6edf2779377fc560485b9848d280ebaaec881bde59"
     },
     "atlas.lsu.NpuModelMemoryTraceTest": {
       "fixtures": {
         "tests/rtl/memory_traces.json": "a53d288350c53b29c71a95923ef978a89ad7a26855100ce5ba64c8f85dfacc2c"
       },
-      "sources": "20a17ba40b2e1443d60ec658ae81adc495182d8716288485b2c4bf6c9c9becbf"
+      "sources": "c9496b0781815148dc14bd6edf2779377fc560485b9848d280ebaaec881bde59"
     },
     "atlas.mxu.NpuModelArithmeticTraceTest": {
       "fixtures": {
         "tests/rtl/arithmetic.json": "6b1d0373f90505be802c219fe38376756cc0e6a14dcb7292f1af38f63a5fc6a6"
       },
-      "sources": "20a17ba40b2e1443d60ec658ae81adc495182d8716288485b2c4bf6c9c9becbf"
+      "sources": "c9496b0781815148dc14bd6edf2779377fc560485b9848d280ebaaec881bde59"
     },
     "atlas.mxu.NpuModelMatrixTraceTest": {
       "fixtures": {
         "tests/rtl/ipt_traces.json": "8f8bd4c335833c358c12cc80471788ba94163d65b7fb4d9ebe7743dfefcd45f5"
       },
-      "sources": "20a17ba40b2e1443d60ec658ae81adc495182d8716288485b2c4bf6c9c9becbf"
+      "sources": "c9496b0781815148dc14bd6edf2779377fc560485b9848d280ebaaec881bde59"
     },
     "atlas.scalar.NpuModelScalarTraceTest": {
       "fixtures": {
-        "tests/rtl/scalar_cases.json": "c2f61e02aeafc66c833d1e89ee807fb87c4ffec6d46482f4d9bcc866cdce8ba6",
-        "tests/rtl/scalar_traces.json": "1e0b8919f753f314efbf48a83b9759a9a9158126f32068775a75e7ddd50f03d2"
+        "tests/rtl/scalar_cases.json": "5fe4837b2388f8d003f27caf8117afddca8d7326111f483e19b5ad748ebc560f",
+        "tests/rtl/scalar_traces.json": "736aea98d0c74d7fe9c6b6cdcf67371a5a7114f4927b595e47e1719e44ff5d77"
       },
-      "sources": "20a17ba40b2e1443d60ec658ae81adc495182d8716288485b2c4bf6c9c9becbf"
+      "sources": "c9496b0781815148dc14bd6edf2779377fc560485b9848d280ebaaec881bde59"
     },
     "atlas.vector.NpuModelUnaryTableTest": {
       "fixtures": {
@@ -47,13 +47,13 @@
         "npu_model/configs/data/square.bin.gz": "ba64d6bd2d5bc38054134cf08aa50a6598d68f581bd3d6f4b94e4c8f92f86f3c",
         "npu_model/configs/data/tanh.bin.gz": "197b7875b3345b3061386d62e09a53ffecae1ae22c8fb5cc6a0b91085242744a"
       },
-      "sources": "20a17ba40b2e1443d60ec658ae81adc495182d8716288485b2c4bf6c9c9becbf"
+      "sources": "c9496b0781815148dc14bd6edf2779377fc560485b9848d280ebaaec881bde59"
     },
     "atlas.vector.NpuModelVectorTraceTest": {
       "fixtures": {
         "tests/rtl/vector_traces.json": "53044aba5001f24a20823324817a286229fdb7e423c0e404b04b60e46cf38efc"
       },
-      "sources": "20a17ba40b2e1443d60ec658ae81adc495182d8716288485b2c4bf6c9c9becbf"
+      "sources": "c9496b0781815148dc14bd6edf2779377fc560485b9848d280ebaaec881bde59"
     }
   }
 }

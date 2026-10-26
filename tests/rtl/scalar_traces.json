@@ -496,6 +496,35 @@
       "next_pc": 4
     }
   ],
+  "illegal_dma_size": [
+    {
+      "cycle": 1,
+      "fetch_pc": 0,
+      "s1_pc": 0,
+      "s1_fire": false,
+      "halted": false,
+      "illegal": false,
+      "next_pc": 1
+    },
+    {
+      "cycle": 2,
+      "fetch_pc": 1,
+      "s1_pc": 0,
+      "s1_fire": true,
+      "halted": false,
+      "illegal": false,
+      "next_pc": 2
+    },
+    {
+      "cycle": 3,
+      "fetch_pc": 2,
+      "s1_pc": 4,
+      "s1_fire": false,
+      "halted": true,
+      "illegal": true,
+      "next_pc": 2
+    }
+  ],
   "load_response_no_bypass": [
     {
       "cycle": 1,
