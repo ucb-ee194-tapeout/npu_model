@@ -2290,5 +2290,80 @@
       "illegal": false,
       "next_pc": 53
     }
+  ],
+  "vsetm": [
+    {
+      "cycle": 1,
+      "fetch_pc": 0,
+      "s1_pc": 0,
+      "s1_fire": false,
+      "halted": false,
+      "illegal": false,
+      "next_pc": 1
+    },
+    {
+      "cycle": 2,
+      "fetch_pc": 1,
+      "s1_pc": 0,
+      "s1_fire": true,
+      "halted": false,
+      "illegal": false,
+      "next_pc": 2
+    },
+    {
+      "cycle": 3,
+      "fetch_pc": 2,
+      "s1_pc": 4,
+      "s1_fire": true,
+      "halted": false,
+      "illegal": false,
+      "next_pc": 3
+    },
+    {
+      "cycle": 4,
+      "fetch_pc": 3,
+      "s1_pc": 8,
+      "s1_fire": true,
+      "halted": false,
+      "illegal": false,
+      "next_pc": 4
+    },
+    {
+      "cycle": 5,
+      "fetch_pc": 4,
+      "s1_pc": 12,
+      "s1_fire": true,
+      "halted": false,
+      "illegal": false,
+      "next_pc": 5
+    },
+    {
+      "cycle": 6,
+      "fetch_pc": 5,
+      "s1_pc": 16,
+      "s1_fire": true,
+      "halted": false,
+      "illegal": false,
+      "next_pc": 6
+    },
+    {
+      "cycle": 7,
+      "fetch_pc": 6,
+      "s1_pc": 20,
+      "s1_fire": true,
+      "halted": false,
+      "illegal": false,
+      "csr_data": 3,
+      "next_pc": 7
+    },
+    {
+      "cycle": 8,
+      "fetch_pc": 7,
+      "s1_pc": 24,
+      "s1_fire": false,
+      "halted": true,
+      "illegal": false,
+      "next_pc": 7
+    }
   ]
 }

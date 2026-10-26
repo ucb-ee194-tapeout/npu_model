@@ -1,5 +1,6 @@
 """Cycle-by-cycle replay of actual VectorEngineTop/Verilator port traces."""
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -17,11 +18,14 @@ MNEMONICS = dict(zip(
     'add sub mul rcp sqrt sin cos tanh log exp exp2 square cube rsum csum fp8pack fp8unpack relu rmax rmin cmax cmin pairmax pairmin mov vliOne vliCol vliRow vliAll gelu'.split(),
     'vadd.bf16 vsub.bf16 vmul.bf16 vrecip.bf16 vsqrt.bf16 vsin.bf16 vcos.bf16 vtanh.bf16 vlog2.bf16 vexp.bf16 vexp2.bf16 vsquare.bf16 vcube.bf16 vredsum.row.bf16 vredsum.bf16 vpack.bf16.fp8 vunpack.fp8.bf16 vrelu.bf16 vredmax.row.bf16 vredmin.row.bf16 vredmax.bf16 vredmin.bf16 vmaximum.bf16 vminimum.bf16 vmov vli.one vli.col vli.row vli.all vgelu.bf16'.split()))
 
-@pytest.mark.parametrize('name', TRACES)
-def test_vector_rtl_port_trace(vpu, name):
+@pytest.mark.parametrize('scenario', TRACES)
+def test_vector_rtl_port_trace(vpu, scenario):
     state = vpu.arch_state
-    case = name
-    name = name.split("_")[0]
+    # A scenario that ends in _mM runs its instructions with M rows.
+    rows = re.search(r'_m(\d+)$', scenario)
+    state.rows = int(rows[1]) if rows else 32
+    case = re.sub(r'_m\d+$', '', scenario)
+    name = case.split("_")[0]
     for bank in range(64):
         state.mrf[bank][:] = torch.tensor([
             ([0,0x8000,1,0x8001,0x007f,0x807f,0x7f80,0xff80,0x7fc1,0xffa1,0x7f7f,0xff7f,0x3f80,0xbf80,0x3c80,0x43ef][(bank*3+row+lane)%16] if case.endswith("_special") else 0x3e80 + bank * 32 + row * 4 + lane)
@@ -46,7 +50,7 @@ def test_vector_rtl_port_trace(vpu, name):
         original(cycle, bank, row, write, owner)
         accesses.append((bank, row, write))
     state.conflict_checker.access_mreg = record
-    for expected in TRACES[case]:
+    for expected in TRACES[scenario]:
         accesses.clear()
         assert vpu.has_in_flight == expected['busy'], (case, expected['cycle'], 'busy')
         for form, key in (('', 'issue_busy'), ('.vx', 'issue_busy_vx'), ('.vr', 'issue_busy_vr')):

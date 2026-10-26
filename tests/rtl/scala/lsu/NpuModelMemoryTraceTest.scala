@@ -56,6 +56,9 @@ class NpuModelMemoryTraceHarness extends Module {
 
 class NpuModelMemoryTraceTest extends AnyFlatSpec {
   it should "trace concurrent LSU scalar/vector paths and XLU transpose" in {
+    // vload and vstore: cycle -> (op, register, VMEM line, row count M)
+    val vector = Map(1 -> (1, 0, 0, 32), 2 -> (2, 2, 8192, 32), 40 -> (1, 8, 32, 3), 41 -> (2, 10, 8224, 5),
+      50 -> (1, 12, 64, 1))
     val events = ujson.Arr()
     simulate(new NpuModelMemoryTraceHarness) { dut =>
       dut.io.cmd.valid.poke(false.B)
@@ -75,10 +78,13 @@ class NpuModelMemoryTraceTest extends AnyFlatSpec {
       dut.clock.step(2)
       dut.reset.poke(false.B)
       for (cycle <- 1 to 70) {
-        dut.io.cmd.valid.poke((cycle == 1 || cycle == 2).B)
-        dut.io.cmd.bits.op.poke((if(cycle == 1) 1 else 2).U)
-        dut.io.cmd.bits.mregBank.poke((if(cycle == 1) 0 else 2).U)
-        dut.io.cmd.bits.vmemLineAddr.poke((if(cycle == 1) 0 else 8192).U)
+        dut.io.cmd.valid.poke(vector.contains(cycle).B)
+        for ((op, reg, line, rows) <- vector.get(cycle)) {
+          dut.io.cmd.bits.op.poke(op.U)
+          dut.io.cmd.bits.mregBank.poke(reg.U)
+          dut.io.cmd.bits.vmemLineAddr.poke(line.U)
+          dut.io.cmd.bits.rows.poke((rows % 32).U)
+        }
         dut.io.scalar.valid.poke((cycle == 3 || cycle == 10).B)
         dut.io.scalar.bits.isStore.poke((cycle == 10).B)
         dut.io.scalar.bits.byteAddr.poke((2*262144 + (if(cycle==10) 4 else 0)).U)

@@ -45,8 +45,15 @@ class NpuModelVectorTraceTest extends AnyFlatSpec {
         Seq("mov_overlap" -> 25, "add_mirrored" -> 0, "mov_inplace" -> 25, "mov_handoff" -> 25) ++
         Seq("add_vx" -> 0, "mul_vx_special" -> 2, "pairmin_vx" -> 24, "sub_vr" -> 1, "pairmax_vr_special" -> 23,
           "add_vr_inplace" -> 0, "add_vx_overlap" -> 0, "mov_row0" -> 25) ++
-        Seq("gelu_overlap" -> 30)
-      for ((name, code) <- scenarios) {
+        Seq("gelu_overlap" -> 30) ++
+        // Row counts M: a scenario name that ends in _mM runs its commands with M rows.
+        Seq("add_m3" -> 0, "mul_vx_m1" -> 2, "sub_vr_m5" -> 1, "rsum_m7" -> 13, "rmax_m2" -> 19,
+          "csum_m3" -> 14, "cmax_m1" -> 21, "cmin_m6" -> 22, "fp8pack_m3" -> 16, "fp8unpack_m5" -> 17,
+          "vliOne_m2" -> 26, "vliCol_m4" -> 27, "vliRow_m3" -> 28, "vliAll_m1" -> 29, "gelu_m2" -> 30,
+          "exp_m31" -> 9, "mov_overlap_m3" -> 25, "add_vx_overlap_m1" -> 0)
+      for ((scenario, code) <- scenarios) {
+        val rows = "_m(\\d+)$".r.findFirstMatchIn(scenario).map(_.group(1).toInt).getOrElse(32)
+        val name = scenario.replaceAll("_m\\d+$", "")
         val mem = Array.tabulate(64, 32) { (bank, row) =>
           (0 until 16).foldLeft(BigInt(0)) { (bits, lane) =>
             val edge = Seq(0,0x8000,1,0x8001,0x007f,0x807f,0x7f80,0xff80,0x7fc1,0xffa1,0x7f7f,0xff7f,0x3f80,0xbf80,0x3c80,0x43ef)
@@ -64,6 +71,7 @@ class NpuModelVectorTraceTest extends AnyFlatSpec {
         dut.io.cmd.bits.vd.poke((if(name == "mov_inplace") 0 else if(name == "add_vr_inplace") 2 else 4).U)
         dut.io.cmd.bits.scaleE8M0.poke(127.U)
         dut.io.cmd.bits.imm.poke((if(name == "mul_vx_special") 0xff80 else 0x3f80).U)
+        dut.io.cmd.bits.rows.poke((rows % 32).U)
         dut.io.readData.foreach(_.poke(0.U))
         dut.reset.poke(true.B)
         dut.clock.step(2)
@@ -109,7 +117,7 @@ class NpuModelVectorTraceTest extends AnyFlatSpec {
             "issue_busy_vr" -> dut.io.issueBusy(2).peek().litValue.toDouble)
           dut.clock.step()
         }
-        traces(name) = events
+        traces(scenario) = events
       }
     }
     Files.writeString(root.resolve("npu-model/tests/rtl/vector_traces.json"), ujson.write(traces, indent = 2) + "\n")

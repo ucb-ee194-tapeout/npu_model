@@ -1,4 +1,4 @@
-"""Replay actual IPT ports, arithmetic, accumulator chaining and overlap."""
+"""Replay actual IPT ports, arithmetic, accumulator chaining, overlap and row counts M."""
 import json
 from pathlib import Path
 from io import StringIO
@@ -18,8 +18,8 @@ def test_matrix_rtl_port_trace(mxu):
         else:
             raw = torch.tensor([0x20 + (bank*7+row*3+lane)%48 + (128 if (row+lane)%3==0 else 0) for row in range(32) for lane in range(32)], dtype=torch.uint8)
         state.mrf[bank][:] = raw
-    instructions = {}
-    for cycle, op, bank, acc, weight in trace['commands']:
+    instructions, rows = {}, {}
+    for cycle, op, bank, acc, weight, rows[cycle] in trace['commands']:
         assembly = [f'vmatpush.weight.{mxu.mxu} w{weight}, m{bank}',
                     f'vmatpush.acc.fp8.{mxu.mxu} acc{acc}, m{bank}',
                     f'vmatpush.acc.bf16.{mxu.mxu} acc{acc}, m{bank}',
@@ -41,6 +41,7 @@ def test_matrix_rtl_port_trace(mxu):
     state.conflict_checker.access_mreg = record
     for expected in trace['events']:
         accesses.clear()
+        state.rows = rows.get(expected['cycle'], state.rows)
         tick(mxu, instructions.get(expected['cycle']))
         reads = [[b,r] for b,r,w in accesses if not w]
         writes = [[b,r, format(int.from_bytes(bytes(state.mrf[b][r*32:(r+1)*32].tolist()),'little'),'x')] for b,r,w in accesses if w]
