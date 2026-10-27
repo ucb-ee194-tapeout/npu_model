@@ -1,18 +1,18 @@
 """Parameterized bf16→fp8 requantization kernel for arbitrary M×N.
 
-Reads row-major bf16 input tiles (two contiguous 16×32 halves) and packs them into
+Reads bf16 input tiles (two 32×16 column halves) and packs them into
 contiguous 32×32 fp8 output tiles via vpack.bf16.fp8 with unit scale.
 
 Constraints:
     - M and N must be multiples of 32.
 
 DRAM layout (per _make_program):
-  [dram_x  ]  M_tiles × N_tiles × 2 × 1024 B  — row-major bf16 input
+  [dram_x  ]  M_tiles × N_tiles × 2 × 1024 B  — bf16 input, column halves per tile
   [dram_out ]  M_tiles × N_tiles     × 1024 B  — fp8 output (32×32 × 1 B)
 
 VMEM slots:
-  0x2000  VMEM_X_H0  1 KB — bf16 H0 (rows 0–15)
-  0x2400  VMEM_X_H1  1 KB — bf16 H1 (rows 16–31)
+  0x2000  VMEM_X_H0  1 KB — bf16 H0 (columns 0–15)
+  0x2400  VMEM_X_H1  1 KB — bf16 H1 (columns 16–31)
   0x3000  VMEM_OUT   1 KB — fp8 tile (32×32 × 1 B)
 """
 
@@ -47,10 +47,15 @@ def _tile_fp8(mat: torch.Tensor, M: int, N: int) -> torch.Tensor:
     return torch.cat(parts)
 
 
-def _rowmajor_bf16(mat: torch.Tensor, M: int, N: int) -> torch.Tensor:
-    """VPU pack consumes each BF16 tile as 64 consecutive 16-lane rows."""
-    return torch.cat([mat[r:r+32, c:c+32].contiguous().reshape(-1)
-                      for r in range(0, M, 32) for c in range(0, N, 32)])
+def _column_halves_bf16(mat: torch.Tensor, M: int, N: int) -> torch.Tensor:
+    """VPU pack consumes each BF16 tile as its left 16 columns, then its right 16."""
+    parts = []
+    for r in range(0, M, TILE):
+        for c in range(0, N, TILE):
+            tile = mat[r : r + TILE, c : c + TILE]
+            parts.append(tile[:, : TILE // 2].reshape(-1))
+            parts.append(tile[:, TILE // 2 :].reshape(-1))
+    return torch.cat(parts)
 
 
 def requant_reference(x: torch.Tensor) -> torch.Tensor:
@@ -71,7 +76,7 @@ def _make_program(M: int, N: int, seed: int):
     x = torch.randn(M, N, dtype=torch.bfloat16) * 0.5
     expected = requant_reference(x)
 
-    regions = [(dram_x, _rowmajor_bf16(x, M, N))]
+    regions = [(dram_x, _column_halves_bf16(x, M, N))]
     golden = (dram_out, _tile_fp8(expected, M, N))
     return regions, golden
 

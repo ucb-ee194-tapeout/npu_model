@@ -1,7 +1,7 @@
 """SmolVLA requant kernel.
 
 bf16 → fp8 requantization with unit scale (seli imm=127).
-Reads two contiguous 16x32 bf16 halves and packs to a contiguous 32x32
+Reads the two 32x16 bf16 column halves and packs to a contiguous 32x32
 fp8 tile via vpack.bf16.fp8.
 """
 
@@ -107,8 +107,8 @@ class SmolVLARequantProgram(Program):
     instructions: list[Instruction] = load_asm(ASM_FOLDER / 'smolvla_requant.S')
 
     memory_regions: list[tuple[int, torch.Tensor]] = [
-        (DRAM_X_H0, INPUT[:16, :].contiguous()),
-        (DRAM_X_H1, INPUT[16:, :].contiguous()),
+        (DRAM_X_H0, INPUT[:, :16].contiguous()),
+        (DRAM_X_H1, INPUT[:, 16:].contiguous()),
     ]
 
     golden_result: tuple[int, torch.Tensor] = (DRAM_OUT, EXPECTED)

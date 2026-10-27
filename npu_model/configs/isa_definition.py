@@ -578,17 +578,18 @@ class VPACK_BF16_FP8(
     TensorComputeMixed, VRType, exu=EXU.VECTOR, opcode=0b1010111, funct7=0b1000100
 ):
     def exec(self, state: ArchState) -> None:
-        # Converts the pair in register order (FP8 row k holds BF16 rows 2k and
-        # 2k + 1), dividing by the ERF scale.
-        x = _read_mrf_bf16_rows(state, self.vs2)
-        state.write_mrf_fp8(self.vd, state.math.to_fp8(x.flatten(), state.read_erf(self.es1)))
+        # Converts the pair as one tile (FP8 row k holds row k of both
+        # registers, like vmatpop.fp8.acc), dividing by the ERF scale.
+        x = _read_mrf_bf16_pair(state, self.vs2)
+        state.write_mrf_fp8(self.vd, state.math.to_fp8(x, state.read_erf(self.es1)))
 
 
 class VUNPACK_FP8_BF16(
     TensorComputeMixed, VRType, exu=EXU.VECTOR, opcode=0b1010111, funct7=0b1000101
 ):
     def exec(self, state: ArchState) -> None:
-        # Inverse layout of vpack, multiplying by the ERF scale.
+        # Unpacks in register order (FP8 row k fills BF16 rows 2k and 2k + 1),
+        # multiplying by the ERF scale.
         x = state.read_mrf_fp8(self.vs2).flatten()
         y = state.math.from_fp8(x, state.read_erf(self.es1))
         _write_mrf_bf16_rows(state, self.vd, y.reshape(2 * state.cfg.mrf_depth, -1))

@@ -188,8 +188,11 @@ class VectorExecutionUnit(ExecutionUnit):
             return [(int(insn.vs1), age), (int(insn.vs1) + 1, age)]
         if name == "vunpack.fp8.bf16":
             return [(int(insn.vs2), age)]
+        if name == "vpack.bf16.fp8":
+            # Alternates banks, reading row k of both halves at ages 2k and 2k + 1.
+            return [(int(insn.vs2) + (age & 1), age // 2)]
         # Column reductions keep reading for 128 cycles, wrapping the pair.
-        source = int(insn.vs2 if name == "vpack.bf16.fp8" else insn.vs1)
+        source = int(insn.vs1)
         reads = [(source + ((age // 32) & 1), age % 32)]
         if name in _TWO_INPUT:
             reads.append((int(insn.vs2) + age // 32, age % 32))
@@ -204,7 +207,7 @@ class VectorExecutionUnit(ExecutionUnit):
             row = age - (7 if name == "vredsum.row.bf16" else 2)
             return [(vd, row), (vd + 1, row)] if 0 <= row < 32 else []
         if name == "vpack.bf16.fp8":
-            # FP8 row k packs BF16 rows 2k and 2k + 1, two cycles after the second.
+            # FP8 row k packs row k of both banks, two cycles after the second.
             return [(vd, (age - 3) // 2)] if 3 <= age <= 65 and age % 2 else []
         # The rest write one row per cycle across the pair, starting at `first`.
         first = (1 if name.startswith("vli.") else 3 if name == "vunpack.fp8.bf16"

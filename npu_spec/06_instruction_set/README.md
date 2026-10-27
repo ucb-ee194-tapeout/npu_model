@@ -333,7 +333,7 @@ Rows are ordered by hex value.
 | `vrecip.bf16`            | `VR`     | `1010111` |                         | `1000001`        | `57/41`    | Vector Reciprocal                 | `{m[vd], m[vd+1]} = 1.f / {m[vs1], m[vs1+1]};` |
 | `vexp.bf16`              | `VR`     | `1010111` |                         | `1000010`        | `57/42`    | Vector Exponential                | `{m[vd], m[vd+1]} = bf16_exp({m[vs1], m[vs1+1]});` |
 | `vexp2.bf16`             | `VR`     | `1010111` |                         | `1000011`        | `57/43`    | Vector Base 2 Exponential         | `{m[vd], m[vd+1]} = bf16_exp2({m[vs1], m[vs1+1]});` |
-| `vpack.bf16.fp8`         | `VR`     | `1010111` |                         | `1000100`        | `57/44`    | Vector Packing                    | `m[vd] = quantize(m[vs2], m[vs2+1], e[es1]);` |
+| `vpack.bf16.fp8`         | `VR`     | `1010111` |                         | `1000100`        | `57/44`    | Vector Packing                    | `m[vd] = quantize({m[vs2], m[vs2+1]}, e[es1]);` |
 | `vunpack.fp8.bf16`       | `VR`     | `1010111` |                         | `1000101`        | `57/45`    | Vector Unpacking                  | `m[vd], m[vd+1] = dequantize(m[vs2], e[es1]);` |
 | `vsquare.bf16`           | `VR`     | `1010111` |                         | `1000110`        | `57/46`    | Vector Square                     | `{m[vd], m[vd+1]} = {m[vs1], m[vs1+1]} * {m[vs1], m[vs1+1]};` |
 | `vcube.bf16`             | `VR`     | `1010111` |                         | `1000111`        | `57/47`    | Vector Cube                       | `{m[vd], m[vd+1]} = {m[vs1], m[vs1+1]} ** 3;` |

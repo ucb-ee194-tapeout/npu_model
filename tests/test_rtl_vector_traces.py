@@ -14,8 +14,13 @@ MNEMONICS = dict(zip(
     'add sub mul rcp sqrt sin cos tanh log exp exp2 square cube rsum csum fp8pack fp8unpack relu rmax rmin cmax cmin pairmax pairmin mov vliOne vliCol vliRow vliAll'.split(),
     'vadd.bf16 vsub.bf16 vmul.bf16 vrecip.bf16 vsqrt.bf16 vsin.bf16 vcos.bf16 vtanh.bf16 vlog2.bf16 vexp.bf16 vexp2.bf16 vsquare.bf16 vcube.bf16 vredsum.row.bf16 vredsum.bf16 vpack.bf16.fp8 vunpack.fp8.bf16 vrelu.bf16 vredmax.row.bf16 vredmin.row.bf16 vredmax.bf16 vredmin.bf16 vmaximum.bf16 vminimum.bf16 vmov vli.one vli.col vli.row vli.all'.split()))
 
+# vpack packs the pair as one tile; the RTL still packs it in register order.
+AHEAD_OF_RTL = {'fp8pack', 'fp8pack_special'}
+
 @pytest.mark.parametrize('name', TRACES)
-def test_vector_rtl_port_trace(vpu, name):
+def test_vector_rtl_port_trace(vpu, name, request):
+    if name in AHEAD_OF_RTL:
+        request.applymarker(pytest.mark.xfail(strict=True, reason='vpack layout is ahead of the RTL'))
     state = vpu.arch_state
     case = name
     name = name.split("_")[0]

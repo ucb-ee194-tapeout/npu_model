@@ -4,8 +4,8 @@ Fuses an elementwise bf16 addition (x + bias) with an fp8 quantization
 (unit-scale bf16 → fp8_e4m3fn cast via vpack.bf16.fp8).
 
 DRAM layout (per _make_program):
-  [dram_x   ]  2 × 1024 B  — row-major bf16 x   (H0 then H1)
-  [dram_bias ]  2 × 1024 B  — row-major bf16 bias (H0 then H1)
+  [dram_x   ]  2 × 1024 B  — bf16 x column halves   (H0 then H1)
+  [dram_bias ]  2 × 1024 B  — bf16 bias column halves (H0 then H1)
   [dram_out  ]      1024 B  — fp8 output tile (32×32 × 1 B)
 
 VMEM slots:
@@ -42,9 +42,9 @@ VMEM_BIAS = 0x2800
 VMEM_OUT = 0x3000
 
 
-def _rowmajor_bf16(mat: torch.Tensor) -> torch.Tensor:
-    """VPU pair stream: first 16 full rows, then the next 16 full rows."""
-    return mat.contiguous().reshape(-1)
+def _column_halves_bf16(mat: torch.Tensor) -> torch.Tensor:
+    """VPU pair: the left 16 columns, then the right 16 columns."""
+    return torch.cat((mat[:, : TILE // 2].reshape(-1), mat[:, TILE // 2 :].reshape(-1)))
 
 
 def _tile_fp8(mat: torch.Tensor) -> torch.Tensor:
@@ -70,8 +70,8 @@ def _make_program(seed: int):
     expected = bias_add_cast_reference(x, bias)
 
     regions = [
-        (dram_x, _rowmajor_bf16(x)),
-        (dram_bias, _rowmajor_bf16(bias)),
+        (dram_x, _column_halves_bf16(x)),
+        (dram_bias, _column_halves_bf16(bias)),
     ]
     golden = (dram_out, _tile_fp8(expected))
     return regions, golden

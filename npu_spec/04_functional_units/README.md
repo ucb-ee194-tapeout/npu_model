@@ -132,7 +132,7 @@ the register.
 | VPU `vredmin.row`, `vredmax.row` | `vs`, `vs+1`: T..T+31 | `vd`, `vd+1`: T+2..T+33 | reads T+32, writes T+34 |
 | VPU `vredsum.row` | `vs`, `vs+1`: T..T+31 | `vd`, `vd+1`: T+7..T+38 | reads T+32, writes T+39 |
 | VPU `vredsum`, `vredmin`, `vredmax` | `vs`: T..T+31 and T+64..T+95, `vs+1`: T+32..T+63 and T+96..T+127 | `vd`: T+66..T+97, `vd+1`: T+98..T+129 | reads T+128, writes T+130 |
-| `vpack.bf16.fp8` | `vs2`: T..T+31, `vs2+1`: T+32..T+63 | `vd`: every other cycle, T+3..T+65 | reads T+64, writes T+66 |
+| `vpack.bf16.fp8` | row k of `vs2` at T+2k, of `vs2+1` at T+2k+1 (T..T+63) | `vd`: every other cycle, T+3..T+65 | reads T+64, writes T+66 |
 | `vunpack.fp8.bf16` | `vs2`: T..T+31 | `vd`: T+3..T+34, `vd+1`: T+35..T+66 | reads T+32, writes T+67 |
 | `vli.all`, `vli.row` | none | `vd`: T+1..T+32, `vd+1`: T+33..T+64 | T+65 |
 | `vli.col`, `vli.one` | none | `vd`: T+1..T+32 | T+33 |
@@ -316,6 +316,11 @@ have no source, `vli.col` and `vli.one` write a single register, `vpack` reads a
 BF16 pair and writes one FP8 register, and `vunpack` reads one FP8 register and
 writes a BF16 pair. Pair fields name the low register, which the VPU requires
 to be even.
+
+`vpack` converts the pair as one tile: FP8 row k holds row k of `m[vs2]`
+followed by row k of `m[vs2 + 1]`, the same layout `vmatpop.fp8.acc` writes.
+`vunpack` fills the pair in register order: FP8 row k becomes rows 2k and
+2k + 1 of the 64-row stream `m[vd]`, then `m[vd + 1]`.
 
 Latency classes are listed in the Timing Reference.
 
