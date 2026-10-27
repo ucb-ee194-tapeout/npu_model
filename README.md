@@ -139,7 +139,7 @@ uv run scripts/run.py --hardware_config DefaultHardwareConfig -p AddiProgram -o 
 
 ### Speed of Light
 
-`npu_speed_of_light/roofline.py` reports the fewest cycles a program's work
+`npu_performance/speed_of_light.py` reports the fewest cycles a program's work
 could take. It runs the program, charges each throughput-limited resource
 (DRAM, each MXU, the VPU, the XLU, the VLOAD and VSTORE paths, and S1) for the
 work it did, and compares the largest charge with the measured cycles. The
@@ -148,8 +148,8 @@ backend's beat spacing or the curve backend's fastest peak across all read/write
 mixes (when pacing is enabled), so the bound follows the model as it changes.
 
 ```bash
-uv run python -m npu_speed_of_light.roofline MatmulProgram
-uv run python -m npu_speed_of_light.roofline program.S --memory fixed --latency 43 --cycles-per-beat 1
+uv run python -m npu_performance.speed_of_light MatmulProgram
+uv run python -m npu_performance.speed_of_light program.S --memory fixed --latency 43 --cycles-per-beat 1
 ```
 
 The memory backend defaults to the measured Mess curve; `--curve` names
@@ -157,6 +157,25 @@ another curve file, and `--memory fixed` selects the fixed-latency link
 (`--latency` and `--cycles-per-beat` default to the spec's link parameters).
 `--json` prints the report for scripts, and `speed_of_light(program, config)`
 returns it from Python.
+
+### Roofline
+
+`npu_performance/roofline.py` is the kernel-independent counterpart: the
+machine's compute ceilings (both MXUs in FP8 FLOPs, the VPU in BF16 element
+operations) and bandwidth ceilings (DRAM, and VMEM through VLOAD and VSTORE),
+taken from the same unit definitions, with each program plotted as a point
+under them. A program's arithmetic intensity is its work per byte moved from
+DRAM, from VMEM, and in compulsory traffic (its inputs and golden output);
+its roof is the lowest of the compute ceiling and intensity × bandwidth.
+
+```bash
+uv run python -m npu_performance.roofline                      # ceilings and ridge points only
+uv run python -m npu_performance.roofline GemmaMlpProgram SmolVLASoftmaxProgram --plot roofline.png
+```
+
+It takes the same `--memory`, `--curve`, `--latency` and `--cycles-per-beat`
+options as the speed of light. `--clock-ghz` reports rates per second instead
+of per cycle, and `--json` prints the ceilings and points for scripts.
 
 
 ### Running tests
@@ -220,8 +239,9 @@ npu_model/
 │   │   └── logger.py      # Perfetto trace logger
 │   ├── isa.py             # ISA framework
 │   └── simulation.py      # Simulation orchestration
-├── npu_speed_of_light/
-│   └── roofline.py        # Speed of light and roofline of a program
+├── npu_performance/
+│   ├── speed_of_light.py  # Fewest cycles a program's work could take
+│   └── roofline.py        # Machine ceilings and programs' roofline points
 ├── scripts/
 │   └── run.py             # Main simulation runner
 └── pyproject.toml         # Project dependencies

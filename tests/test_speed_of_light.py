@@ -17,7 +17,7 @@ from npu_model.logging.logger import Logger
 from npu_model.software.instruction import Uop
 from npu_model.software.program import InstantiableProgram
 from npu_model.util.converter import stream_to_instrs
-from npu_speed_of_light.roofline import configure_memory, main, mxu_cycles, speed_of_light, vpu_cycles
+from npu_performance.speed_of_light import configure_memory, main, mxu_cycles, speed_of_light, vpu_cycles
 
 
 MEMORIES = {
