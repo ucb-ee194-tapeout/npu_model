@@ -5,32 +5,32 @@
       "fixtures": {
         "tests/rtl/dma_traces.json": "60883fc8d4f0de0ecfd3049a2d810532d0440474245d494e760ded3194c63bb4"
       },
-      "sources": "c9496b0781815148dc14bd6edf2779377fc560485b9848d280ebaaec881bde59"
+      "sources": "d0534c32e6dfece17c14eb9d8b176eeb547f482db9f76fe6207e0987f7a25ce5"
     },
     "atlas.lsu.NpuModelMemoryTraceTest": {
       "fixtures": {
         "tests/rtl/memory_traces.json": "a53d288350c53b29c71a95923ef978a89ad7a26855100ce5ba64c8f85dfacc2c"
       },
-      "sources": "c9496b0781815148dc14bd6edf2779377fc560485b9848d280ebaaec881bde59"
+      "sources": "d0534c32e6dfece17c14eb9d8b176eeb547f482db9f76fe6207e0987f7a25ce5"
     },
     "atlas.mxu.NpuModelArithmeticTraceTest": {
       "fixtures": {
         "tests/rtl/arithmetic.json": "6b1d0373f90505be802c219fe38376756cc0e6a14dcb7292f1af38f63a5fc6a6"
       },
-      "sources": "c9496b0781815148dc14bd6edf2779377fc560485b9848d280ebaaec881bde59"
+      "sources": "d0534c32e6dfece17c14eb9d8b176eeb547f482db9f76fe6207e0987f7a25ce5"
     },
     "atlas.mxu.NpuModelMatrixTraceTest": {
       "fixtures": {
         "tests/rtl/ipt_traces.json": "8f8bd4c335833c358c12cc80471788ba94163d65b7fb4d9ebe7743dfefcd45f5"
       },
-      "sources": "c9496b0781815148dc14bd6edf2779377fc560485b9848d280ebaaec881bde59"
+      "sources": "d0534c32e6dfece17c14eb9d8b176eeb547f482db9f76fe6207e0987f7a25ce5"
     },
     "atlas.scalar.NpuModelScalarTraceTest": {
       "fixtures": {
         "tests/rtl/scalar_cases.json": "5fe4837b2388f8d003f27caf8117afddca8d7326111f483e19b5ad748ebc560f",
         "tests/rtl/scalar_traces.json": "736aea98d0c74d7fe9c6b6cdcf67371a5a7114f4927b595e47e1719e44ff5d77"
       },
-      "sources": "c9496b0781815148dc14bd6edf2779377fc560485b9848d280ebaaec881bde59"
+      "sources": "d0534c32e6dfece17c14eb9d8b176eeb547f482db9f76fe6207e0987f7a25ce5"
     },
     "atlas.vector.NpuModelUnaryTableTest": {
       "fixtures": {
@@ -47,13 +47,13 @@
         "npu_model/configs/data/square.bin.gz": "ba64d6bd2d5bc38054134cf08aa50a6598d68f581bd3d6f4b94e4c8f92f86f3c",
         "npu_model/configs/data/tanh.bin.gz": "197b7875b3345b3061386d62e09a53ffecae1ae22c8fb5cc6a0b91085242744a"
       },
-      "sources": "c9496b0781815148dc14bd6edf2779377fc560485b9848d280ebaaec881bde59"
+      "sources": "d0534c32e6dfece17c14eb9d8b176eeb547f482db9f76fe6207e0987f7a25ce5"
     },
     "atlas.vector.NpuModelVectorTraceTest": {
       "fixtures": {
-        "tests/rtl/vector_traces.json": "53044aba5001f24a20823324817a286229fdb7e423c0e404b04b60e46cf38efc"
+        "tests/rtl/vector_traces.json": "d4fe8db0dd89c8673b91b8904f834d6225dabee8847289736b163fbe1db9a3cc"
       },
-      "sources": "c9496b0781815148dc14bd6edf2779377fc560485b9848d280ebaaec881bde59"
+      "sources": "d0534c32e6dfece17c14eb9d8b176eeb547f482db9f76fe6207e0987f7a25ce5"
     }
   }
 }
