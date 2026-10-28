@@ -165,7 +165,8 @@ machine's compute ceilings (both MXUs in FP8 FLOPs, the VPU in BF16 element
 operations) and bandwidth ceilings (DRAM, and VMEM through VLOAD and VSTORE),
 taken from the same unit definitions, with each program plotted as a point
 under them. A program's arithmetic intensity is its work per byte moved from
-DRAM, from VMEM, and in compulsory traffic (its inputs and golden output);
+DRAM, from VMEM, and in the bytes it declares (its preloaded regions and
+golden output, which it may not all load);
 its roof is the lowest of the compute ceiling and intensity × bandwidth.
 
 ```bash
