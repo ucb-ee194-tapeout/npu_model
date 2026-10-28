@@ -22,7 +22,7 @@ so a short program, or one made of a single dependence chain, stays well above
 it.
 
 Usage:
-    uv run python -m npu_speed_of_light.roofline PROGRAM [options]
+    uv run python -m npu_performance.speed_of_light PROGRAM [options]
 
 PROGRAM is a program class from ``npu_model.configs.programs`` or a ``.S``
 file. The memory backend defaults to the measured Mess curve; ``--memory
@@ -59,7 +59,7 @@ from npu_model.simulation import Simulation
 from npu_model.software.program import InstantiableProgram, Program
 from npu_model.util.converter import load_asm
 
-_MXUS = {EXU.MATRIX_SYSTOLIC: MatrixExecutionUnitSystolic, EXU.MATRIX_INNER: MatrixExecutionUnitInner}
+MXUS = {EXU.MATRIX_SYSTOLIC: MatrixExecutionUnitSystolic, EXU.MATRIX_INNER: MatrixExecutionUnitInner}
 
 
 @dataclass
@@ -134,6 +134,20 @@ def execute(program: Program, config: HardwareConfig, max_cycles: int) -> Execut
         sim.close()
 
 
+def configured_mxus(config: HardwareConfig) -> list[EXU]:
+    """The MXUs the hardware config instantiates."""
+    return [exu for exu in MXUS if exu.value in config.execution_units.values()]
+
+
+def matmul_flops(config: HardwareConfig) -> int:
+    """FLOPs in one matmul: a rows x inner FP8 tile times an inner x columns
+    weight tile, two per multiply-accumulate."""
+    arch = config.arch_state_config
+    rows, inner = arch.mrf_depth, arch.mrf_width
+    columns = arch.wb_width // inner
+    return 2 * rows * inner * columns
+
+
 def command_kinds(launches: Counter[str]) -> Counter[str]:
     """MXU launches counted by ``mxu.PORT_CHOICES`` kind; both MXUs classify alike."""
     kinds: Counter[str] = Counter()
@@ -206,17 +220,11 @@ def speed_of_light(program: Program, config: HardwareConfig, max_cycles: int = 1
     dram = math.ceil(run.dram_cycles)
     resources = [Resource("DRAM", f"{loaded:,} B loaded, {stored:,} B stored", dram)]
 
-    # A matmul multiplies a rows x inner FP8 tile by an inner x columns weight tile.
-    arch = config.arch_state_config
-    rows, inner = arch.mrf_depth, arch.mrf_width
-    columns = arch.wb_width // inner
-    flops_per_matmul = 2 * rows * inner * columns
+    flops_per_matmul = matmul_flops(config)
     matmuls = 0
-    units = 0
-    for exu, unit in _MXUS.items():
-        if exu.value not in config.execution_units.values():
-            continue
-        units += 1
+    units = configured_mxus(config)
+    for exu in units:
+        unit = MXUS[exu]
         launches = by_unit.get(exu, Counter())
         kinds = command_kinds(launches)
         pushes = 0
@@ -245,7 +253,7 @@ def speed_of_light(program: Program, config: HardwareConfig, max_cycles: int = 1
         measured=run.cycles,
         resources=resources,
         flops=matmuls * flops_per_matmul,
-        peak_flops_per_cycle=units * flops_per_matmul / mxu.PORT_CYCLES,
+        peak_flops_per_cycle=len(units) * flops_per_matmul / mxu.PORT_CYCLES,
         dram_bytes=loaded + stored,
         dram_cycles=dram,
     )
@@ -324,9 +332,9 @@ def format_report(label: str, memory: str, report: SpeedOfLight) -> str:
     return "\n".join(lines)
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("program", help="program class name or .S file")
+def add_hardware_arguments(parser: argparse.ArgumentParser) -> None:
+    """Options that select the hardware config, its DMA memory backend and the
+    simulation's cycle limit."""
     parser.add_argument("--hardware", default="DefaultHardwareConfig", help="HardwareConfig class name")
     parser.add_argument("--memory", choices=("curve", "fixed"), default="curve",
                         help="DMA memory backend (default: curve)")
@@ -337,8 +345,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--cycles-per-beat", type=int,
                         help="minimum cycles between beats (fixed only; default: the spec's link)")
     parser.add_argument("--max-cycles", type=int, default=1_000_000)
-    parser.add_argument("--json", action="store_true", help="print the report as JSON")
-    args = parser.parse_args(argv)
+
+
+def hardware_from_arguments(parser: argparse.ArgumentParser, args: argparse.Namespace) -> HardwareConfig:
+    """The hardware config that ``add_hardware_arguments``'s options select."""
     if args.memory == "curve" and (args.latency is not None or args.cycles_per_beat is not None):
         parser.error("--latency and --cycles-per-beat apply to --memory fixed")
     if args.memory == "fixed" and args.curve is not None:
@@ -347,13 +357,23 @@ def main(argv: list[str] | None = None) -> int:
     hardware = getattr(hardware_configs, args.hardware, None)
     if hardware is None:
         parser.error(f"unknown hardware config {args.hardware!r}")
+    config = hardware()
+    configure_memory(config, args.memory, curve=args.curve, latency=args.latency,
+                     cycles_per_beat=args.cycles_per_beat)
+    return config
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("program", help="program class name or .S file")
+    add_hardware_arguments(parser)
+    parser.add_argument("--json", action="store_true", help="print the report as JSON")
+    args = parser.parse_args(argv)
+    config = hardware_from_arguments(parser, args)
     try:
         program = load_program(args.program)
     except (OSError, ValueError) as error:
         parser.error(str(error))
-    config = hardware()
-    configure_memory(config, args.memory, curve=args.curve, latency=args.latency,
-                     cycles_per_beat=args.cycles_per_beat)
     memory = describe_memory(config)
     try:
         report = speed_of_light(program, config, args.max_cycles)
