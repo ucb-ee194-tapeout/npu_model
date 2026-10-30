@@ -239,10 +239,14 @@ def op_from_instruction(insn, xrf: Sequence[int] | None = None, push_port: int |
         if name in SCALAR_LOADS:
             return Op("sload", rd=None if name == "seld" else int(insn.rd), rs=(int(insn.rs1),), vmem_addr=addr)
         return Op("sstore", rs=(int(insn.rs1), int(insn.rs2)), vmem_addr=addr)
-    if name.startswith("dma.wait"):
-        return Op("dma_wait", channel=int(insn.funct3))
-    if name.startswith("dma.load") or name.startswith("dma.store"):
-        return Op("dma", channel=int(insn.funct3))
+    if name.startswith("dma."):
+        channel = int(getattr(insn, "ch", getattr(insn, "funct3", 0)))
+        if name.startswith("dma.wait"):
+            return Op("dma_wait", channel=channel)
+        if name.startswith("dma.load") or name.startswith("dma.store"):
+            rs = tuple(int(getattr(insn, f)) for f in ("rd", "rs1", "rs2") if hasattr(insn, f))
+            return Op("dma", channel=channel, rs=rs)
+        return Op("scalar", rs=(int(insn.rs1),) if hasattr(insn, "rs1") else ())  # dma.config
     if name == "seli":
         return Op("seli")
     if name == "delay":
