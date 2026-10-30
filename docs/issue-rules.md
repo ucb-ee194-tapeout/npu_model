@@ -1,12 +1,6 @@
 # Issue rules: when may the next tensor instruction issue?
 
 `npu_model/scheduling/issue_rules.py` answers that question programmatically.
-The rules were checked against the performance model for every ordered pair
-of operations and every gap (see Validation), and the sequencer gates and
-buffer hazards below were confirmed on the RTL under Verilator. This note is the
-human-readable version, aimed at the question "is a matmul in isolation any
-different from matmuls back to back, and can the spacing be stated as rules
-rather than per-case delays?"
 
 ## The one rule
 
@@ -153,41 +147,3 @@ constraints. A DMA transfer holds its channel until a `dma.wait` on it;
 `Scheduler.place` raises if a second transfer is placed without one, and
 treats issue cycles after a `dma.wait` as relative to its release (the
 wait's length is the memory system's, see `rtl-timing.md`).
-
-## Validation
-
-The engine was swept against the performance model: every ordered pair of
-the seven MXU operations on each MXU with the same or different register,
-accumulator and weight slot; every MXU0-then-MXU1 pair sharing a register;
-sixteen VPU representatives (one per timing and grouping shape), XLU, vload
-and vstore as producer or consumer of an MXU operand; every ordered pair of
-the VPU representatives on disjoint registers and with read-after-write,
-write-after-read and read-read register hazards; XLU against VPU and XLU;
-the LSU pairs (vector and scalar loads and stores on the same or another
-VMEM bank, the scalar writeback slot); and readers and writers on the two
-halves of a shared physical bank. Each pair ran at every gap from 1 up to the
-largest gap any rule asks for plus four, and chains (matmul patterns, VPU
-streams, VPU/MXU and LSU/MXU pipelines) at every stride from 1 to 96.
-
-Result (2026-10-29/30, 65,681 model runs): all 1618 pairs agree with the
-model at every scanned gap, 13 of them with non-monotone legality; all 16
-chains agree at every stride, and every earliest schedule the engine
-proposes runs on the model. `tests/test_bank_conflict.py` covers the spec's
-tested examples in the model itself.
-
-The cases that are sequencer gates or buffer hazards rather than plain data
-flow were also run on the actual `SystolicArrayTop`, `InnerProductTreesTop`
-and `VectorEngineTop` under Verilator (chiselsim), driving the command port
-directly: MXU0 pop at 64, weight push at 63 and accumulator push at 94 after
-a matmul are clean, while accumulator push at 64 and weight push at 62
-assert; MXU1 matmul at 33 after an accumulator push, pop at 4 after a matmul
-and accumulator push at 34 after a matmul are clean, while 32, 3 and 33
-assert (the two accumulator-push cases through the AccumulationBuffers
-assertion, not the dispatcher); and a `vmov` 64 cycles after a column
-reduction of the same register produces one merged MREG read stream, no
-cycle with both read ports on one bank.
-
-Not covered: DMA transfer durations (the memory system's, not the core's),
-DMA-versus-LSU VMEM arbitration (it delays the DMA and is never an error),
-and encoding constraints that are not timing (even register pairs for BF16
-ops, operand alignment), which belong to the assembler.
