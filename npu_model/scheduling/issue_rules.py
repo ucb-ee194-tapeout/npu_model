@@ -10,14 +10,15 @@ There is one rule, applied to every resource the two instructions share:
 * **Exclusive occupancy** (a register-file port, an MXU read/write port, a
   push write path, the accumulator's single read or write port, a VMEM bank,
   an engine path): the two occupancy intervals may not overlap.
-      G >= last_A - first_B + 1
+      G >= last_A - first_B + 1 (when B's occupancy follows A's)
 * **Row data flow** on a buffer row (an accumulator row, a weight-slot
   column, a tensor-register row, a VMEM line, a scalar register): a read must
   come strictly after the write it depends on (RAW, read >= write + 1), and a
   write must not come before a read of the old value (WAR, write >= read;
   the same cycle is fine because every unit samples reads before it applies
-  writes).
-      G >= max over rows of (producer cycle - consumer offset + 1)
+  writes, except a physical MREG SRAM same-row read/write collision, checked
+  separately).
+      RAW: G >= max over rows of (producer cycle - consumer offset + 1)
 * **Logical register reservation** (ScalarCore's MregBankTracker): B may not
   read or write a tensor register A still has a pending write on, nor write
   one A still reads (VLOAD is exempt from the latter). Each reservation ends
@@ -39,15 +40,14 @@ operation, which resources it holds for which issue-relative cycles, which
 rows it reads and writes when, and what it reserves. Those windows are
 transcribed from the RTL sequencers (SystolicArraySequencer.scala,
 InnerProductTreesSequencer.scala, VectorFSM, XLU, LSU) and from the model in
-``npu_model/hardware``; ``scripts/sweep_issue_rules.py`` checks that the
-rules reproduce the model's accept/reject decision for every pair and gap.
+``npu_model/hardware``.
 
 The issue gap G is B's issue cycle minus A's. ``DELAY N`` between A and B
 gives G = N + 2; G = 1 needs no DELAY.
 
 DMA transfers are the one thing without a fixed window: a channel stays busy
-until the memory system finishes the transfer, so the only rule is that a
-second transfer on the same channel needs a ``dma.wait`` in between. The
+until the memory system finishes the transfer, so the engine conservatively
+requires a ``dma.wait`` before a second transfer on the same channel. The
 engine reports that, and treats every issue cycle after a ``dma.wait`` as
 relative to that wait's release.
 """
@@ -76,9 +76,9 @@ class Hold:
     resource: Resource
     first: int
     last: int
-    phase: int | None = None
-    """VectorFSM read-port holds carry the issue offset of row 0: two VPU ops whose
-    streams over one bank are in phase (same row, same cycle) share one SRAM read."""
+    phase: tuple[int, int] | None = None
+    """VectorFSM read-port holds carry the logical register and issue offset of row 0:
+    two VPU ops reading the same register and row in the same cycle share one SRAM read."""
 
 
 @dataclass(frozen=True)
@@ -256,7 +256,8 @@ def op_from_instruction(insn, xrf: Sequence[int] | None = None, push_port: int |
         rd = int(insn.rd) if hasattr(insn, "rd") else None
         return Op("branch", rd=rd, rs=rs)
     rd = int(insn.rd) if hasattr(insn, "rd") else None
-    rs = tuple(int(getattr(insn, f)) for f in ("rs1", "rs2") if hasattr(insn, f))
+    rs = () if name in {"csrrwi", "csrrsi", "csrrci"} else tuple(
+        int(getattr(insn, f)) for f in ("rs1", "rs2") if hasattr(insn, f))
     return Op("scalar", rd=rd, rs=rs)
 
 
@@ -268,7 +269,8 @@ def _mreg_stream(bank: int, first: int, write: bool, rows: Iterable[int] = range
                  stride: int = 1, phase: int | None = None) -> tuple[Hold, list[RowAccess]]:
     """Rows of tensor register ``bank`` from ``first``, one per ``stride`` cycles."""
     rows = list(rows)
-    port = Hold(("mrf_port", bank % 32, "w" if write else "r"), first, first + stride * (len(rows) - 1), phase)
+    port = Hold(("mrf_port", bank % 32, "w" if write else "r"), first, first + stride * (len(rows) - 1),
+                (bank, phase) if phase is not None else None)
     # mN and m(N+32) share a physical 1R1W bank; a read and a write of the same physical row
     # in the same cycle return undefined data (MregFile.scala SyncReadMem).
     accesses = [RowAccess(("mrf", bank), r, first + stride * i, write) for i, r in enumerate(rows)]
@@ -572,7 +574,9 @@ def pair_violations(a: Profile, b: Profile, gap: int) -> list[Violation]:
 
     def add(rule: str, resource: Resource, required: int) -> None:
         if gap < required:
-            enforced = resource[0] not in {"xrf", "vmem"}
+            enforced = (resource[0] not in {"xrf", "vmem"}
+                        and not (rule == "write after read" and resource[0] == "mrf"
+                                 and b.writer_ignores_readers))
             out.append(Violation(rule, resource, a.name, b.name, gap, required, enforced))
 
     holds_a: dict[Resource, list[Hold]] = {}
@@ -581,7 +585,8 @@ def pair_violations(a: Profile, b: Profile, gap: int) -> list[Violation]:
     for hb in b.holds:
         for ha in holds_a.get(hb.resource, ()):
             if gap + hb.first <= ha.last and gap + hb.last >= ha.first:
-                if ha.phase is not None and hb.phase is not None and ha.phase == gap + hb.phase:
+                if (ha.phase is not None and hb.phase is not None and ha.phase[0] == hb.phase[0]
+                        and ha.phase[1] == gap + hb.phase[1]):
                     continue  # in-phase VectorFSM streams: one read serves both
                 out.append(Violation("exclusive", hb.resource, a.name, b.name, gap,
                                      ha.last - hb.first + 1))
@@ -609,6 +614,8 @@ def pair_violations(a: Profile, b: Profile, gap: int) -> list[Violation]:
                 add("read after write", rb.resource + (rb.row,), ra.at - rb.at + 1)
             elif not ra.write and rb.write:
                 add("write after read", rb.resource + (rb.row,), ra.at - rb.at)
+            elif ra.write and rb.write and rb.resource[0] == "xrf":
+                add("write after write", rb.resource + (rb.row,), ra.at - rb.at + 1)
 
     if b.reads & a.writes or b.writes & a.writes:
         add("pending write", ("mreg", *sorted((b.reads | b.writes) & a.writes)), a.writes_free)
