@@ -4,6 +4,7 @@ import torch
 from npu_model.software.program import Program
 from npu_model.software.instruction import Uop
 from npu_model.logging.logger import Logger, LaneType
+from npu_model.logging.performance import PerformanceCounters, atlas_counter_specs
 from npu_model.hardware.arch_state import ArchState
 from npu_model.isa import RType, SBType, UJType
 from npu_model.isa_types import EXU
@@ -42,6 +43,15 @@ class Core(Module):
     ) -> None:
         self.config = config
         self.logger = logger
+        if self.logger.performance is None:
+            cfg = config.arch_state_config
+            num_mreg_banks = min(32, cfg.num_m_registers)
+            num_vmem_banks = (cfg.vmem_size + config.vmem_bank_bytes - 1) // config.vmem_bank_bytes
+            self.logger.performance = PerformanceCounters(
+                atlas_counter_specs(num_mreg_banks, num_vmem_banks), logger
+            )
+        assert self.logger.performance is not None
+        self.performance = self.logger.performance
 
         self.arch_state = ArchState(
             config=self.config.arch_state_config,
@@ -91,6 +101,8 @@ class Core(Module):
         self.cycle_count = 0
         self.last_cycle = {}
         self.total_completed = 0
+        self.performance.reset()
+        self.logger.instruction_tags.clear()
 
     def tick(self) -> None:
         """Advance one edge, evaluating S1 against the previous edge's state.
@@ -101,6 +113,8 @@ class Core(Module):
         """
         self.logger.log_cycle(1)
         self.cycle_count += 1
+        self.performance.begin_cycle(enabled=True)
+        self.performance.add("core.run_cycles", cycle=self.cycle_count)
         state = self.arch_state
         state.conflict_checker.begin_cycle(self.cycle_count)
         state.begin_csr_cycle()
@@ -131,6 +145,33 @@ class Core(Module):
         if self.issued_uop is not None:
             # RTL inst_retire counts S1 launches, not asynchronous completions.
             self.total_completed += 1
+            insn = self.issued_uop.insn
+            unit_counters = {
+                EXU.VECTOR: "vpu.commands",
+                EXU.MATRIX_SYSTOLIC: "mxu0.commands",
+                EXU.MATRIX_INNER: "mxu1.commands",
+                EXU.XLU: "xlu.commands",
+            }
+            if insn.exu == EXU.DMA and not insn.mnemonic.startswith(("dma.config", "dma.wait")):
+                self.performance.add("dma.commands", instruction_id=self.issued_uop.id,
+                                     lane=target.lane_id if target else LaneType.EXU_BASE.value,
+                                     cycle=self.cycle_count)
+            elif insn.exu == EXU.LSU:
+                if insn.mnemonic == "vload":
+                    self.performance.add("lsu.vload_commands", instruction_id=self.issued_uop.id,
+                                         lane=target.lane_id if target else LaneType.EXU_BASE.value,
+                                         cycle=self.cycle_count)
+                elif insn.mnemonic == "vstore":
+                    self.performance.add("lsu.vstore_commands", instruction_id=self.issued_uop.id,
+                                         lane=target.lane_id if target else LaneType.EXU_BASE.value,
+                                         cycle=self.cycle_count)
+            elif insn.exu in unit_counters:
+                self.performance.add(
+                    unit_counters[insn.exu],
+                    instruction_id=self.issued_uop.id,
+                    lane=target.lane_id if target else LaneType.EXU_BASE.value,
+                    cycle=self.cycle_count,
+                )
         if state.redirect_requested:
             state.in_delay_slot = True
         state.finish_csr_cycle(retired=self.issued_uop is not None)
@@ -216,6 +257,8 @@ class Core(Module):
         if insn.mnemonic.startswith("dma.wait") and state.check_flag(insn.funct3):
             self._s1_stalled = True
             self.stall_reason = "dma.wait"
+            self.performance.add("dma.fence_wait_cycles", instruction_id=self.s1_uop.id,
+                                 lane=LaneType.EXU_BASE.value, cycle=self.cycle_count)
             return None
 
         state.execute_pc = self.s1_uop.pc

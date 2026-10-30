@@ -20,7 +20,9 @@ class ArchState:
         self.reset()
 
     def initialize_buffers(self) -> None:
-        self.conflict_checker: BankConflictChecker = BankConflictChecker()
+        self.conflict_checker: BankConflictChecker = BankConflictChecker(
+            self.logger.performance if self.logger is not None else None
+        )
         self.dram: SparseMemory = SparseMemory(self.cfg.dram_size)
         self.vmem: torch.Tensor = torch.zeros(self.cfg.vmem_size, dtype=torch.uint8)
         self.xrf: list[int] = [0] * self.cfg.num_x_registers

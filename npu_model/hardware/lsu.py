@@ -200,17 +200,22 @@ class LoadStoreUnit(ExecutionUnit):
             insn = op.uop.insn
             mnemonic = insn.mnemonic
             if mnemonic in _SCALAR_STORES and age == 1:
+                self.count_event("lsu.scalar_stores", uop=op.uop, cycle=self.cycle)
                 size = {"sb": 1, "sh": 2, "sw": 4}[mnemonic]
                 # Hardware ignores bit 0 for halfwords and bits 1:0 for words.
                 address = op.address & ~(size - 1)
+                self.count_vmem_access(address, size, write=True, uop=op.uop)
                 self.arch_state.write_vmem(address, 0, self._vmem_write(op, address, size))
                 self._finish(op)
                 continue
             if mnemonic in _SCALAR_LOADS:
                 if age == 1:
+                    self.count_event("lsu.scalar_loads", uop=op.uop, cycle=self.cycle)
                     word = op.address & ~3
+                    self.count_vmem_access(word, 4, write=False, uop=op.uop)
                     op.staged.sample(("vmem",), slice(word, word + 4), self.arch_state.read_vmem(word, 0, 4))
                 if age == 3:
+                    self.count_event("lsu.scalar_load_completions", uop=op.uop, cycle=self.cycle)
                     self._check_writeback()
                     if mnemonic == "seld":
                         self.arch_state.write_erf(insn.rd, op.staged.result(("erf", int(insn.rd))))
@@ -231,19 +236,28 @@ class LoadStoreUnit(ExecutionUnit):
         if 1 <= age <= rows:
             row = age - 1
             if load:
+                self.count_event("lsu.vload_lines_issued", uop=op.uop, cycle=self.cycle)
                 start = op.address + row * width
+                self.count_vmem_access(start, width, write=False, uop=op.uop)
                 op.staged.sample(("vmem",), slice(start, start + width), self.arch_state.read_vmem(start, 0, width))
             else:
+                self.count_event("lsu.vstore_rows_read", uop=op.uop, cycle=self.cycle)
                 self.arch_state.conflict_checker.access_mreg(self.cycle, reg, row, False, owner)
+                self.count_mreg_access(reg, write=False, uop=op.uop)
                 op.staged.sample(("mrf", reg), row, self.arch_state.read_mrf_u8(reg)[row])
         if 3 <= age <= rows + 2:
             row = age - 3
             if load:
+                self.count_event("lsu.vload_rows_written", uop=op.uop, cycle=self.cycle)
                 self.arch_state.conflict_checker.access_mreg(self.cycle, reg, row, True, owner)
+                self.count_mreg_access(reg, write=True, uop=op.uop)
                 self.arch_state.read_mrf_u8(reg)[row] = op.staged.result(("mrf", reg))[row]
             else:
+                self.count_event("lsu.vstore_lines_written", uop=op.uop, cycle=self.cycle)
                 data = self._vmem_write(op, op.address, rows * width)
-                self.arch_state.write_vmem(op.address + row * width, 0, data[row * width:(row + 1) * width])
+                address = op.address + row * width
+                self.count_vmem_access(address, width, write=True, uop=op.uop)
+                self.arch_state.write_vmem(address, 0, data[row * width:(row + 1) * width])
         if age == rows + 2:
             self.arch_state.conflict_checker.release_mreg(owner)
             self._finish(op)
@@ -263,6 +277,14 @@ class LoadStoreUnit(ExecutionUnit):
             self._accept(uop)
         if self.has_in_flight:
             self._busy_cycles += 1
+        if self._scalar:
+            op = self._scalar[0]
+            if op.uop.insn.mnemonic in _SCALAR_LOADS:
+                self.count_event("lsu.scalar_busy_cycles", uop=op.uop, cycle=self.cycle)
+        for op, name in ((self._vload, "lsu.vload_active_cycles"),
+                         (self._vstore, "lsu.vstore_active_cycles")):
+            if op is not None:
+                self.count_event(name, uop=op.uop, cycle=self.cycle)
         self._check_vmem_ports()
         self._tick_scalar()
         self._tick_vector(self._vload, load=True)

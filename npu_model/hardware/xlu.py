@@ -60,11 +60,13 @@ class CrossLaneExecutionUnit(ExecutionUnit):
         if self.in_flight is None:
             return
         self._busy_cycles += 1
+        self.count_event("xlu.active_cycles", uop=self.in_flight, cycle=self.cycle)
         age = self.cycle - self.issued
         insn = self.in_flight.insn
         if 1 <= age <= 32:
             row = age - 1
             checker.access_mreg(self.cycle, int(insn.vs1), row, False, self.owner)
+            self.count_mreg_access(int(insn.vs1), write=False, uop=self.in_flight)
             # Capture the value at the request edge; the response appears one
             # cycle later. The last response changes ReadMreg to WriteMreg.
             source = int(insn.vs1)
@@ -75,7 +77,9 @@ class CrossLaneExecutionUnit(ExecutionUnit):
             row = age - 34
             destination = int(insn.vd)
             checker.access_mreg(self.cycle, destination, row, True, self.owner)
+            self.count_mreg_access(destination, write=True, uop=self.in_flight)
             self.arch_state.read_mrf_u8(destination)[row] = self.staged.result(("mrf", destination))[row]
+            self.count_event("xlu.mreg_write_rows", uop=self.in_flight, cycle=self.cycle)
         self.in_flight.execute_delay = max(0, TRANSPOSE_CYCLES - 1 - age)
         if age == TRANSPOSE_CYCLES - 1:
             checker.release_mreg(self.owner)

@@ -178,7 +178,8 @@ class BankConflictChecker:
         self.arch_state.conflict_checker.release_vmem(banks)
     """
 
-    def __init__(self) -> None:
+    def __init__(self, performance=None) -> None:
+        self.performance = performance
         self._mrf_in_use: dict[int, str] = {}
         self._vmem_in_use: dict[int, str] = {}
         # Add tracking for MXU buffers
@@ -279,15 +280,35 @@ class BankConflictChecker:
         if key in self._mreg_ports:
             other = self._mreg_ports[key][2]
             direction = "write" if write else "read"
+            self._count_mreg_contention(bank, direction, owner, cycle)
             raise BankConflictError(
                 f"MRF bank conflict: multiple {direction} ports targeting physical bank {bank}: {other}, {owner}"
             )
         opposite = self._mreg_ports.get((not write, bank))
         if opposite is not None and opposite[1] == physical_row:
+            self._count_mreg_contention(bank, "read", owner, cycle)
+            self._count_mreg_contention(bank, "write", owner, cycle)
             raise BankConflictError(
                 f"Undefined MRF same-row read/write collision on physical bank {bank}, row {physical_row}"
             )
         self._mreg_ports[key] = (reg, physical_row, owner)
+
+    def _count_mreg_contention(self, bank: int, direction: str, owner: str, cycle: int) -> None:
+        if self.performance is None:
+            return
+        instruction_id = None
+        parts = owner.split(":")
+        if len(parts) > 1:
+            try:
+                instruction_id = int(parts[1])
+            except ValueError:
+                pass
+        self.performance.add(
+            f"mreg.bank_{bank:02d}.{direction}_contended_cycles",
+            instruction_id=instruction_id,
+            lane=1,
+            cycle=cycle,
+        )
 
     # ------------------------------------------------------------------
     # MRF

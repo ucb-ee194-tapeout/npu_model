@@ -19,6 +19,7 @@ class SimulationStatistics:
     ipc: float
     runtime_errors: int
     exu_stats: dict[str, ExecutionUnitStatistics]
+    performance_counters: dict[str, dict[str, int | str]]
 
 
 class Simulation:
@@ -170,7 +171,8 @@ class Simulation:
                 else 0.0
             ),
             runtime_errors=len(self.runtime_errors),
-            exu_stats={}
+            exu_stats={},
+            performance_counters=self.core.performance.snapshot(),
         )
 
         for exu in self.core.exus:

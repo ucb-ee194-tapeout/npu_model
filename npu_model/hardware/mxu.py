@@ -188,6 +188,7 @@ class _MatrixExecutionUnit(ExecutionUnit):
             return
         for bank in op.banks:
             state.conflict_checker.access_mreg(self.cycle, bank, row, False, op.owner)
+            self.count_mreg_access(bank, write=False, uop=op.uop)
             op.staged.sample(("mrf", bank), row, state.read_mrf_u8(bank)[row])
 
     def _weight_uses(self, age: int) -> tuple[torch.Tensor, torch.Tensor]:
@@ -217,6 +218,7 @@ class _MatrixExecutionUnit(ExecutionUnit):
     def _pop_row(self, op: _Operation, row: int) -> None:
         for bank in op.banks:
             self.arch_state.conflict_checker.access_mreg(self.cycle, bank, row, True, op.owner)
+            self.count_mreg_access(bank, write=True, uop=op.uop)
         for bank in op.banks:
             self.arch_state.read_mrf_u8(bank)[row] = op.staged.result(("mrf", bank))[row]
 
@@ -229,6 +231,16 @@ class _MatrixExecutionUnit(ExecutionUnit):
             self._accept(uop)
         if self._ops:
             self._busy_cycles += 1
+            data_ops = [op for op in self._ops if 0 <= self.cycle - op.issued < PORT_CYCLES]
+            compute_ops = [
+                op for op in self._ops
+                if op.kind == "compute"
+                and self.compute_first <= self.cycle - op.issued <= self.compute_first + 31
+            ]
+            if data_ops:
+                self.count_event(f"{self.mxu}.data_cycles", uop=data_ops[0].uop, cycle=self.cycle)
+            if compute_ops:
+                self.count_event(f"{self.mxu}.compute_cycles", uop=compute_ops[0].uop, cycle=self.cycle)
         # Read all SRAM operands before applying this edge's writes. Each
         # accumulator has one read port, shared by pops and accumulate-mode
         # computes; an overwrite compute never reads it.

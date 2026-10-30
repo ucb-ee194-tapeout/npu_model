@@ -313,6 +313,13 @@ class DmaExecutionUnit(ExecutionUnit):
                                        for ch in range(self.num_channels)])
         if slots:
             self._busy_cycles += 1
+            self.count_event("dma.active_cycles", uop=slots[0].uop, cycle=cycle)
+        if in_flight_reg:
+            self.count_event("dma.outstanding_cycles", uop=slots[0].uop if slots else None, cycle=cycle)
+            self.count_event("dma.response_wait_beat_cycles", in_flight_reg,
+                             uop=slots[0].uop if slots else None, cycle=cycle)
+        if in_flight_reg >= self.max_in_flight:
+            self.count_event("dma.saturated_cycles", uop=slots[0].uop if slots else None, cycle=cycle)
 
         # Channel D: load data needs the VMEM write grant; store acks retire freely.
         d_fire = False
@@ -328,9 +335,14 @@ class DmaExecutionUnit(ExecutionUnit):
                 granted = checker.vmem_bank_owner(cycle, bank) is None
                 record.vmem_write = [bank, bank_line, granted]
                 if granted:
+                    self.count_vmem_access(line, self.beat_bytes, write=True, uop=meta.slot.uop)
                     write_bank = bank
                     state.write_vmem(line, 0, self._load_bytes(meta.slot, meta.index))
                     d_fire = True
+                else:
+                    self.count_event("dma.vmem_stall_cycles", uop=meta.slot.uop, cycle=cycle)
+                    self.count_vmem_access(line, self.beat_bytes, write=True,
+                                           uop=meta.slot.uop, contended=True)
             else:
                 d_fire = True
             if d_fire:
@@ -347,12 +359,17 @@ class DmaExecutionUnit(ExecutionUnit):
             granted = checker.vmem_bank_owner(cycle, bank) is None and bank != write_bank
             record.vmem_read = [bank, bank_line, granted]
             if granted:
+                self.count_vmem_access(line, self.beat_bytes, write=False, uop=head.uop)
                 head.staged.sample(("vmem",), slice(line, line + self.beat_bytes),
                                    state.read_vmem(line, 0, self.beat_bytes))
                 # SyncReadMem data next cycle, then one cycle through storeDataQueue.
                 self._store_queue.append(_StoreBeat(head, self._vmem_read_beat, cycle + 2))
                 read_granted = True
                 read_last = self._vmem_read_beat == head.beats - 1
+            else:
+                self.count_event("dma.vmem_stall_cycles", uop=head.uop, cycle=cycle)
+                self.count_vmem_access(line, self.beat_bytes, write=False,
+                                       uop=head.uop, contended=True)
 
         # Channel A: one beat of the oldest undispatched slot.
         a_fire = False
@@ -360,6 +377,9 @@ class DmaExecutionUnit(ExecutionUnit):
         if head is not None:
             data_ready = (not head.is_store) or (
                 bool(self._store_queue) and self._store_queue[0].available <= cycle)
+            if (in_flight_reg >= self.max_in_flight and data_ready
+                    and self._next_source not in ids_reg and self.backend.can_accept(cycle)):
+                self.count_event("dma.limit_blocked_cycles", uop=head.uop, cycle=cycle)
             if (in_flight_reg < self.max_in_flight and data_ready
                     and self._next_source not in ids_reg and self.backend.can_accept(cycle)):
                 index = self._request_beat
@@ -375,6 +395,7 @@ class DmaExecutionUnit(ExecutionUnit):
                 self._source_meta[self._next_source] = _BeatMeta(head, index, not head.is_store)
                 record.a = [self._next_source, address, head.is_store]
                 a_fire = True
+                self.count_event("dma.beats_issued", uop=head.uop, cycle=cycle)
                 a_last = index == head.beats - 1
 
         # Slot retirement uses the registered dispatched flag and this cycle's deltas.
@@ -394,6 +415,7 @@ class DmaExecutionUnit(ExecutionUnit):
 
         # Register updates.
         if d_fire:
+            self.count_event("dma.beats_completed", uop=d_slot.uop if d_slot else None, cycle=cycle)
             assert d_source is not None
             self._in_flight -= 1
             self._ids_in_flight.discard(d_source)

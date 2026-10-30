@@ -202,6 +202,38 @@ class ExecutionUnit(Module):
         self.config = config
         self.cycle: int = 0
 
+    def count_event(self, name: str, amount: int = 1, uop: Uop | None = None,
+                    *, cycle: int | None = None) -> None:
+        """Feed one modeled PMU event through the shared counter/tag API."""
+        counters = self.logger.performance
+        if counters is not None:
+            counters.add(
+                name,
+                amount,
+                instruction_id=uop.id if uop is not None else None,
+                lane=self.lane_id,
+                cycle=self.cycle if cycle is None else cycle,
+            )
+
+    def count_mreg_access(self, reg: int, *, write: bool, uop: Uop) -> None:
+        bank = reg % 32
+        direction = "write" if write else "read"
+        self.count_event(f"mreg.bank_{bank:02d}.{direction}_cycles", uop=uop)
+
+    def count_vmem_access(self, address: int, length: int, *, write: bool,
+                          uop: Uop, contended: bool = False) -> None:
+        bank_bytes = self.config.vmem_bank_bytes
+        first = address // bank_bytes
+        last = (address + max(1, length) - 1) // bank_bytes
+        direction = "write" if write else "read"
+        for bank in range(first, last + 1):
+            prefix = f"vmem.bank_{bank:02d}"
+            if bank < (self.config.arch_state_config.vmem_size + bank_bytes - 1) // bank_bytes:
+                if contended:
+                    self.count_event(f"{prefix}.contended_cycles", uop=uop)
+                else:
+                    self.count_event(f"{prefix}.{direction}_cycles", uop=uop)
+
     @abstractmethod
     def can_handle(self, uop: Uop) -> bool:
         """Check if this execution unit can handle the given instruction."""

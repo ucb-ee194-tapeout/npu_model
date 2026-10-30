@@ -4,6 +4,8 @@ from enum import Enum
 import json
 from typing import Any
 
+from .performance import PerformanceCounters
+
 
 class LaneType(Enum):
     IFU = 0
@@ -48,6 +50,8 @@ class Logger:
         self.active: dict[tuple[int, str, int], int] = {}
         self.lane_names = lane_names or {}
         self.arch_threads: dict[tuple[str, int], tuple[int, str]] = {}
+        self.performance: PerformanceCounters | None = None
+        self.instruction_tags: dict[int, dict[str, int]] = {}
         self.ts = 1
 
         self.file.write("[")
@@ -107,6 +111,41 @@ class Logger:
     ) -> None:
         pass
 
+    def log_counter_event(
+        self,
+        insn_id: int | None,
+        name: str,
+        amount: int,
+        unit: str,
+        *,
+        lane: int = 0,
+        cycle: int | None = None,
+    ) -> None:
+        """Tag an instruction with a counter event at its event cycle.
+
+        Chrome Trace instant events remain visible at cycle granularity and
+        carry the instruction ID so the event can be correlated with F/E spans.
+        """
+        args: dict[str, Any] = {"amount": amount, "unit": unit}
+        if insn_id is not None:
+            args["insn_id"] = insn_id
+            args["instruction"] = self.insn_labels.get(insn_id, f"insn-{insn_id}")
+        self._write_event(
+            {
+                "name": name,
+                "cat": "pmu",
+                "ph": "i",
+                "s": "t",
+                "pid": Logger.FU_PID,
+                "tid": lane,
+                "ts": self.ts if cycle is None else cycle,
+                "args": args,
+            }
+        )
+        if insn_id is not None:
+            tags = self.instruction_tags.setdefault(insn_id, {})
+            tags[name] = tags.get(name, 0) + amount
+
     def log_stage_start(
         self, insn_id: int, stage: str, lane: int = 0, cycle: int = 0
     ) -> None:
@@ -137,7 +176,11 @@ class Logger:
                 "tid": lane,
                 "ts": start_ts,
                 "dur": dur,
-                "args": {"insn_id": insn_id, "stage": stage},
+                "args": {
+                    "insn_id": insn_id,
+                    "stage": stage,
+                    "events": self.instruction_tags.get(insn_id, {}),
+                },
             }
         )
 

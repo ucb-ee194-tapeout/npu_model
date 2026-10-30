@@ -174,6 +174,7 @@ class VectorExecutionUnit(ExecutionUnit):
         key = (bank, row)
         if key not in self._read_cache:
             self.arch_state.conflict_checker.access_mreg(self.cycle, bank, row, False, op.owner)
+            self.count_mreg_access(bank, write=False, uop=op.uop)
             self._read_cache[key] = self.arch_state.mrf[bank][row * 32:(row + 1) * 32].clone()
         if sample:
             op.staged.sample(("mrf", bank), row, self._read_cache[key])
@@ -222,6 +223,7 @@ class VectorExecutionUnit(ExecutionUnit):
             self.arch_state.conflict_checker.release_mreg(op.owner, reads=True, writes=False)
         for bank, row in self._writes(op, age):
             self.arch_state.conflict_checker.access_mreg(self.cycle, bank, row, True, op.owner)
+            self.count_mreg_access(bank, write=True, uop=op.uop)
             self.arch_state.read_mrf_u8(bank)[row] = op.staged.result(("mrf", bank))[row]
         op.uop.execute_delay = max(0, op.write_last - age)
         if age == op.write_last:
@@ -239,6 +241,8 @@ class VectorExecutionUnit(ExecutionUnit):
             self._accept(uop)
         if self.operations:
             self._busy_cycles += 1
+            op = min(self.operations, key=lambda item: item.issued)
+            self.count_event("vpu.active_cycles", uop=op.uop, cycle=self.cycle)
         for op in self.operations:
             self._advance(op)
         self.operations = [op for op in self.operations if self.cycle - op.issued < op.write_last]
