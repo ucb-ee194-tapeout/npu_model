@@ -94,6 +94,8 @@ class _Slot:
     launched: int
     outstanding: int = 0
     dispatched: bool = False
+    first_a: int | None = None
+    last_d: int | None = None
 
 
 @dataclass
@@ -112,6 +114,43 @@ class _StoreBeat:
     slot: _Slot
     index: int
     available: int
+
+
+@dataclass
+class BeatRecord:
+    """One TileLink beat from A fire to D fire, for transaction timing."""
+
+    command: int
+    """Uop id of the dma.load/dma.store."""
+    channel: int
+    is_store: bool
+    index: int
+    address: int
+    launched: int
+    """Cycle the command issued (S1)."""
+    a_fire: int
+    backend_latency: float | None
+    """Latency the backend had selected when the beat was issued (curve backends)."""
+    d_fire: int | None = None
+
+    @property
+    def round_trip(self) -> int | None:
+        return None if self.d_fire is None else self.d_fire - self.a_fire
+
+
+@dataclass
+class CommandRecord:
+    """One dma.load/dma.store from issue to retirement."""
+
+    command: int
+    channel: int
+    is_store: bool
+    beats: int
+    address: int
+    launched: int
+    first_a: int | None
+    last_d: int | None
+    retired: int
 
 
 @dataclass
@@ -182,6 +221,9 @@ class DmaExecutionUnit(ExecutionUnit):
         self._total_instructions = 0
         self._busy_cycles = 0
         self.last_cycle = DmaCycle(0)
+        self.beat_trace: list[BeatRecord] = []
+        self.command_trace: list[CommandRecord] = []
+        self._open_beats: dict[int, BeatRecord] = {}
 
     def abort(self) -> None:
         """Drop engine state after an explicitly ignored runtime fault."""
@@ -337,6 +379,10 @@ class DmaExecutionUnit(ExecutionUnit):
                 self.backend.pop_response(cycle)
                 d_slot, d_source = meta.slot, response.source
                 record.d = response.source
+                beat = self._open_beats.pop(response.source, None)
+                if beat is not None:
+                    beat.d_fire = cycle
+                meta.slot.last_d = cycle
 
         # Store path: read VMEM lines ahead of the request stream.
         read_granted = False
@@ -375,6 +421,12 @@ class DmaExecutionUnit(ExecutionUnit):
                 self._source_meta[self._next_source] = _BeatMeta(head, index, not head.is_store)
                 record.a = [self._next_source, address, head.is_store]
                 a_fire = True
+                beat = BeatRecord(head.uop.id, head.channel, head.is_store, index, address,
+                                  head.launched, cycle, getattr(self.backend, "latency", None))
+                self.beat_trace.append(beat)
+                self._open_beats[self._next_source] = beat
+                if head.first_a is None:
+                    head.first_a = cycle
                 a_last = index == head.beats - 1
 
         # Slot retirement uses the registered dispatched flag and this cycle's deltas.
@@ -416,6 +468,9 @@ class DmaExecutionUnit(ExecutionUnit):
         for slot in retired:
             self._slots.remove(slot)
             state.clear_flag(slot.channel)
+            self.command_trace.append(CommandRecord(
+                slot.uop.id, slot.channel, slot.is_store, slot.beats, slot.dram_addr,
+                slot.launched, slot.first_a, slot.last_d, cycle))
             self._pending_completions.append(slot.uop)
             self._complete_count += 1
 
