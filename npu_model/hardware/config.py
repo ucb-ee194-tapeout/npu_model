@@ -94,3 +94,9 @@ class HardwareConfig:
     """"fixed": channel A fire to channel D valid. None derives the spec's command-overhead cycles."""
     dma_memory_cycles_per_beat: int | None = None
     """"fixed": minimum cycles between accepted beats. None derives the spec's serialized-link rate."""
+
+    clock_period_seconds: float = 1.0
+    energy_unit_static_power_w: dict[str, float] = {}
+    energy_event_joules: dict[str, dict[str, float]] = {}
+    energy_mxu_pe_count: dict[str, int] = {"Matrix0": 1024, "Matrix1": 1024}
+    energy_mxu_pe_event_joules: dict[str, dict[str, float]] = {}

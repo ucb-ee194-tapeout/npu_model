@@ -84,6 +84,8 @@ class _MatrixExecutionUnit(ExecutionUnit):
         self._complete_count = 0
         self._total_instructions = 0
         self._busy_cycles = 0
+        self.pe_active_cycles = 0
+        self.pe_active_count = 0
         self._last_compute: dict[int, int] = {}
 
     @property
@@ -229,6 +231,17 @@ class _MatrixExecutionUnit(ExecutionUnit):
             self._accept(uop)
         if self._ops:
             self._busy_cycles += 1
+        # Systolic wavefront: one additional diagonal of PEs becomes active
+        # per cycle, then the full array remains active through the output wave.
+        self.pe_active_count = 0
+        if self.mxu == "mxu0":
+            for op in self._ops:
+                if op.kind == "compute":
+                    age = self.cycle - op.issued
+                    rows = max(0, min(32, age + 1))
+                    cols = max(0, min(32, age + 1))
+                    self.pe_active_count += rows * cols
+            self.pe_active_cycles += self.pe_active_count
         # Read all SRAM operands before applying this edge's writes. Each
         # accumulator has one read port, shared by pops and accumulate-mode
         # computes; an overwrite compute never reads it.
