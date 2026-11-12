@@ -196,6 +196,7 @@ def ipt_row(a: torch.Tensor, weights: torch.Tensor, partial: torch.Tensor) -> to
         lead = mag.bit_length() - 1
         shift = max(0, lead - 7)
         sig, remainder = mag >> shift, mag & ((1 << shift) - 1)
+        sig <<= max(0, 7 - lead)  # the RTL's INToRecFN normalizes sums shorter than eight bits
         if shift and (remainder > (1 << (shift-1)) or (remainder == (1 << (shift-1)) and sig & 1)):
             sig += 1
         if sig >= 256:
