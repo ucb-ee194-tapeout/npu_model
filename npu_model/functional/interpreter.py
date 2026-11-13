@@ -7,6 +7,8 @@ from typing import Mapping
 
 import torch
 
+from npu_model.isa import SBType, UJType
+
 from .program import FunctionalAssemblyError, FunctionalProgram
 from .state import FunctionalConfig, FunctionalState
 
@@ -62,8 +64,9 @@ def _register_file(state: FunctionalState, prefix: str, unit: str = "mxu0"):
 class FunctionalInterpreter:
     """Execute instruction semantics without hardware timing or allocation."""
 
-    def __init__(self, config: FunctionalConfig | None = None):
+    def __init__(self, config: FunctionalConfig | None = None, *, delay_slot: bool = False):
         self.config = config
+        self.delay_slot = delay_slot
 
     def run(
         self,
@@ -83,12 +86,21 @@ class FunctionalInterpreter:
 
         pc = 0
         executed = 0
+        target: int | None = None
         while 0 <= pc < len(program.instructions):
             if executed >= max_instructions:
                 raise RuntimeError(
                     f"functional instruction limit ({max_instructions}) reached at PC {pc}"
                 )
             entry = program.instructions[pc]
+            if target is not None and (
+                isinstance(entry.instruction, (SBType, UJType))
+                or entry.instruction.mnemonic == "jalr"
+            ):
+                raise FunctionalAssemblyError(
+                    f"illegal control flow '{entry.instruction.mnemonic}' in the delay slot at PC {pc}",
+                    entry.line,
+                )
             state.execute_pc = pc
             state.npc = pc + 1
             state.redirect_requested = False
@@ -102,7 +114,14 @@ class FunctionalInterpreter:
             if state.halted:
                 pc += 1
                 break
-            pc = state.npc if state.redirect_requested else pc + 1
+            if target is not None:
+                pc, target = target, None
+            elif state.redirect_requested and self.delay_slot:
+                pc, target = pc + 1, state.npc
+            else:
+                pc = state.npc if state.redirect_requested else pc + 1
+        if target is not None and not state.halted:
+            raise RuntimeError(f"functional delay slot at PC {pc} lies outside the program")
         if pc < 0:
             raise RuntimeError(f"functional control flow reached invalid PC {pc}")
         if pc > len(program.instructions):
