@@ -9,21 +9,10 @@ from dataclasses import dataclass
 import torch
 
 from .exu import ExecutionUnit, StagedExecution
+from ..geometry import (DEFAULT, VPU_GROUPS, VPU_ISSUE_SLOTS, VPU_ROW_REDUCE,
+                       VPU_TWO_INPUT, Geometry, Stream)
 from ..software.instruction import Uop
 from ..isa import EXU
-
-_TWO_INPUT = {"vadd.bf16", "vsub.bf16", "vmul.bf16", "vminimum.bf16", "vmaximum.bf16"}
-_ROW_REDUCE = {"vredsum.row.bf16", "vredmin.row.bf16", "vredmax.row.bf16"}
-_COL_REDUCE = {"vredsum.bf16", "vredmin.bf16", "vredmax.bf16"}
-_GROUPS = (
-    {"vadd.bf16", "vsub.bf16", "vredsum.row.bf16"},
-    {"vexp.bf16", "vexp2.bf16"},
-    {"vsin.bf16", "vcos.bf16"},
-    {"vsquare.bf16", "vcube.bf16"},
-    {"vmaximum.bf16", "vredmax.bf16"},
-    {"vminimum.bf16", "vredmin.bf16"},
-    {"vli.all", "vli.row", "vli.col", "vli.one"},
-)
 
 # ScalarISA numbering (zero is VPU_NONE; sixteen is reserved FP8).
 _OP_ORDER = (
@@ -36,30 +25,13 @@ _OP_ORDER = (
     "vli.one", "vli.col", "vli.row", "vli.all",
 )
 
-# Inclusive issue-to-last-write cycles for the default 32-row geometry.
-VPU_OP_LATENCIES = {
-    **dict.fromkeys(_TWO_INPUT | _COL_REDUCE | {
-        "vmov", "vrecip.bf16", "vexp.bf16", "vexp2.bf16", "vpack.bf16.fp8",
-        "vrelu.bf16", "vsin.bf16", "vcos.bf16", "vtanh.bf16", "vlog2.bf16",
-        "vsqrt.bf16", "vsquare.bf16", "vcube.bf16",
-    }, 66),
-    **dict.fromkeys(_COL_REDUCE, 130),
-    "vredsum.row.bf16": 39,
-    "vredmin.row.bf16": 34,
-    "vredmax.row.bf16": 34,
-    "vli.all": 65,
-    "vli.row": 65,
-    "vli.col": 33,
-    "vli.one": 33,
-    "vunpack.fp8.bf16": 67,
-}
-ISSUE_SLOTS = 2
+ISSUE_SLOTS = VPU_ISSUE_SLOTS
 """Software-scheduled issue slots; two-input instructions and row reductions take both."""
 
 
-def issue_cycles(mnemonic: str) -> int:
+def issue_cycles(mnemonic: str, geometry: Geometry = DEFAULT) -> int:
     """Cycles an instruction holds its issue slot, through its last write."""
-    return VPU_OP_LATENCIES[mnemonic] - 1
+    return geometry.vpu_issue_cycles(mnemonic)
 
 
 @dataclass
@@ -73,6 +45,9 @@ class _VectorOperation:
     read_last: int
     write_last: int
     staged: StagedExecution
+    read_streams: tuple[tuple[int, Stream], ...]
+    """(register, stream) for each register this op reads, in ``Geometry.vpu_reads`` order."""
+    write_streams: tuple[tuple[int, Stream], ...]
 
 
 class VectorExecutionUnit(ExecutionUnit):
@@ -80,8 +55,6 @@ class VectorExecutionUnit(ExecutionUnit):
 
     def __init__(self, name, logger, arch_state, lane_id=0, config=None):
         super().__init__(name, logger, arch_state, lane_id, config)
-        if arch_state.cfg.mrf_depth != 32 or arch_state.cfg.mrf_width != 32:
-            raise ValueError("VectorFSM requires 32 rows of 32 bytes per MREG")
         self.reset()
 
     def reset(self) -> None:
@@ -106,11 +79,11 @@ class VectorExecutionUnit(ExecutionUnit):
 
     @staticmethod
     def _double(mnemonic: str) -> bool:
-        return mnemonic in _TWO_INPUT | _ROW_REDUCE
+        return mnemonic in VPU_TWO_INPUT | VPU_ROW_REDUCE
 
     @staticmethod
     def _share_logic(left: str, right: str) -> bool:
-        return left == right or any(left in group and right in group for group in _GROUPS)
+        return left == right or any(left in group and right in group for group in VPU_GROUPS)
 
     def _issue_blocked(self, name: str, cycle: int) -> bool:
         live = [op for op in self.operations if cycle - op.issued < op.write_last]
@@ -128,9 +101,11 @@ class VectorExecutionUnit(ExecutionUnit):
         return uop.insn.exu == EXU.VECTOR
 
     def _execution_latency(self, uop: Uop) -> int:
-        return VPU_OP_LATENCIES[uop.insn.mnemonic]
+        return self.geometry.vpu_latency(uop.insn.mnemonic)
 
     def _accept(self, uop: Uop) -> None:
+        uop.energy_ops.record("vpu.compute", mnemonic=uop.insn.mnemonic,
+                              rows=self.arch_state.cfg.mrf_depth)
         insn = uop.insn
         name = insn.mnemonic
         # VectorFSM's done includes the final write in this cycle.
@@ -151,20 +126,22 @@ class VectorExecutionUnit(ExecutionUnit):
                 if source & 1:
                     raise RuntimeError("VPU pair-read primary bank must be even")
                 reads.add(source + 1)
-            if name in _TWO_INPUT:
+            if name in VPU_TWO_INPUT:
                 source2 = int(insn.vs2)
                 if source2 & 1:
                     raise RuntimeError("VPU pair-read secondary bank must be even")
                 reads.update({source2, source2 + 1})
-        read_last = -1 if vli else (31 if name in _ROW_REDUCE | {"vunpack.fp8.bf16"}
-                                    else 127 if name in _COL_REDUCE else 63)
+        read_last = self.geometry.vpu_read_last(name)
         owner = f"{self.name}:{uop.id}:{name}"
         self.arch_state.conflict_checker.reserve_mreg(owner, frozenset(reads), writes)
         latency = self._execution_latency(uop)
         staged = StagedExecution(uop, self.arch_state, [("mrf", bank) for bank in reads],
                                  [("mrf", bank) for bank in writes], "VectorFSM")
+        resolve = lambda streams: tuple((int(getattr(insn, s.operand)) + s.offset, s) for s in streams)
         op = _VectorOperation(uop, self.cycle, slot, owner, frozenset(reads), writes,
-                              read_last, issue_cycles(name), staged)
+                              read_last, self.geometry.vpu_issue_cycles(name), staged,
+                              resolve(self.geometry.vpu_reads(name)),
+                              resolve(self.geometry.vpu_writes(name)))
         self.operations.append(op)
         uop.execute_delay = latency
         self._total_instructions += 1
@@ -173,55 +150,26 @@ class VectorExecutionUnit(ExecutionUnit):
     def _read(self, op: _VectorOperation, bank: int, row: int, *, sample: bool) -> None:
         key = (bank, row)
         if key not in self._read_cache:
-            self.arch_state.conflict_checker.access_mreg(self.cycle, bank, row, False, op.owner)
-            self._read_cache[key] = self.arch_state.mrf[bank][row * 32:(row + 1) * 32].clone()
+            self._access_mreg(op.uop, "vpu", bank, row, False, op.owner)
+            self._read_cache[key] = self.arch_state.read_mrf_u8(bank)[row].clone()
         if sample:
             op.staged.sample(("mrf", bank), row, self._read_cache[key])
 
     @staticmethod
-    def _reads(op: _VectorOperation, age: int) -> list[tuple[int, int]]:
-        """(bank, row) requests VectorFSM issues at this age."""
-        if not 0 <= age <= op.read_last:
-            return []
-        insn, name = op.uop.insn, op.uop.insn.mnemonic
-        if name in _ROW_REDUCE:
-            return [(int(insn.vs1), age), (int(insn.vs1) + 1, age)]
-        if name == "vunpack.fp8.bf16":
-            return [(int(insn.vs2), age)]
-        # Column reductions keep reading for 128 cycles, wrapping the pair.
-        source = int(insn.vs2 if name == "vpack.bf16.fp8" else insn.vs1)
-        reads = [(source + ((age // 32) & 1), age % 32)]
-        if name in _TWO_INPUT:
-            reads.append((int(insn.vs2) + age // 32, age % 32))
-        return reads
-
-    @staticmethod
-    def _writes(op: _VectorOperation, age: int) -> list[tuple[int, int]]:
-        """(bank, row) results committed at this age."""
-        name, vd = op.uop.insn.mnemonic, int(op.uop.insn.vd)
-        if name in _ROW_REDUCE:
-            # Both halves of row r land together, after the reduction tree.
-            row = age - (7 if name == "vredsum.row.bf16" else 2)
-            return [(vd, row), (vd + 1, row)] if 0 <= row < 32 else []
-        if name == "vpack.bf16.fp8":
-            # FP8 row k packs BF16 rows 2k and 2k + 1, two cycles after the second.
-            return [(vd, (age - 3) // 2)] if 3 <= age <= 65 and age % 2 else []
-        # The rest write one row per cycle across the pair, starting at `first`.
-        first = (1 if name.startswith("vli.") else 3 if name == "vunpack.fp8.bf16"
-                 else 66 if name in _COL_REDUCE else 2)
-        index = age - first
-        count = 32 if name in {"vli.col", "vli.one"} else 64
-        return [(vd + index // 32, index % 32)] if 0 <= index < count else []
+    def _rows(streams: tuple[tuple[int, Stream], ...], age: int) -> list[tuple[int, int, Stream]]:
+        """(register, row, stream) each stream moves at this age (Geometry.vpu_reads / vpu_writes)."""
+        return [(reg, row, stream) for reg, stream in streams
+                if (row := stream.row_at(age)) is not None]
 
     def _advance(self, op: _VectorOperation) -> None:
         age = self.cycle - op.issued
-        for bank, row in self._reads(op, age):
-            # Only the first pass over the pair feeds the result.
-            self._read(op, bank, row, sample=age < 64)
+        for bank, row, stream in self._rows(op.read_streams, age):
+            # Only the first pass over a pair feeds the result.
+            self._read(op, bank, row, sample=stream.sampled)
         if age == op.read_last:
             self.arch_state.conflict_checker.release_mreg(op.owner, reads=True, writes=False)
-        for bank, row in self._writes(op, age):
-            self.arch_state.conflict_checker.access_mreg(self.cycle, bank, row, True, op.owner)
+        for bank, row, _ in self._rows(op.write_streams, age):
+            self._access_mreg(op.uop, "vpu", bank, row, True, op.owner)
             self.arch_state.read_mrf_u8(bank)[row] = op.staged.result(("mrf", bank))[row]
         op.uop.execute_delay = max(0, op.write_last - age)
         if age == op.write_last:

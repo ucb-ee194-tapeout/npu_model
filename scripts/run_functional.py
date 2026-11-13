@@ -5,6 +5,7 @@ import argparse
 
 import torch
 
+import npu_model.configs.hardware as hardware_configs
 from npu_model.functional import (
     FunctionalConfig,
     FunctionalInterpreter,
@@ -17,12 +18,16 @@ def main() -> None:
     parser.add_argument("program", help="path to a .fs source file")
     parser.add_argument("--max-instructions", type=int, default=1_000_000)
     parser.add_argument("--numerics", choices=("pytorch", "rtl"), default="rtl")
+    parser.add_argument("--hardware-config", default="DefaultHardwareConfig",
+                        help="take tensor register and memory sizes from this config")
     args = parser.parse_args()
 
     if not args.program.endswith(".fs"):
         parser.error("functional assembly source files must use the .fs extension")
     program = load_functional_assembly(args.program)
-    interpreter = FunctionalInterpreter(FunctionalConfig(numerics=args.numerics))
+    hardware = getattr(hardware_configs, args.hardware_config)()
+    interpreter = FunctionalInterpreter(
+        FunctionalConfig.from_arch_state(hardware.arch_state_config, numerics=args.numerics))
     result = interpreter.run(program, max_instructions=args.max_instructions)
     print(f"Executed {result.instructions_executed} functional instructions")
     print(f"Final PC: {result.final_pc}")

@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .exu import ExecutionUnit, StagedExecution
+from ..geometry import LSU_SCALAR_LOADS, LSU_SCALAR_STORES
 from ..logging.logger import Logger
 from .arch_state import ArchState
 from ..software.instruction import Uop
@@ -17,15 +18,8 @@ from ..isa import EXU
 from .config import HardwareConfig
 from .bank_conflict import BankConflictError
 
-_SCALAR_LOADS = {"lb", "lh", "lw", "lbu", "lhu", "seld"}
-_SCALAR_STORES = {"sb", "sh", "sw"}
-# Inclusive execute-stage cycles, including the scalar command/response flops.
-LSU_OP_LATENCIES = {
-    **dict.fromkeys(_SCALAR_LOADS, 4),
-    **dict.fromkeys(_SCALAR_STORES, 2),
-    "vload": 35,
-    "vstore": 35,
-}
+_SCALAR_LOADS = LSU_SCALAR_LOADS
+_SCALAR_STORES = LSU_SCALAR_STORES
 
 
 @dataclass
@@ -76,9 +70,7 @@ class LoadStoreUnit(ExecutionUnit):
         return min(ops, key=lambda op: op.issued).uop if ops else None
 
     def _get_latency(self, uop: Uop) -> int:
-        if uop.insn.mnemonic in {"vload", "vstore"}:
-            return self.arch_state.cfg.mrf_depth + 3
-        return LSU_OP_LATENCIES[uop.insn.mnemonic]
+        return self.geometry.lsu_latency(uop.insn.mnemonic)
 
     def _finish(self, op: _Operation) -> None:
         self._complete_count += 1
@@ -90,16 +82,14 @@ class LoadStoreUnit(ExecutionUnit):
         vector = mnemonic in {"vload", "vstore"}
         imm = int(insn.imm) & 0xFFF
         imm = imm - 0x1000 if imm & 0x800 else imm
-        # The RTL connects only the VMEM-local address bits to LSU.
-        addr_mask = (1 << (self.arch_state.cfg.vmem_size - 1).bit_length()) - 1
         alu_address = self.arch_state.read_xrf(insn.rs1) + (imm << 5 if vector else imm)
         if vector:
-            # VLS operands are word addresses. ScalarCore drops three word
-            # offset bits; LSU expands the resulting 32-byte line address.
-            line_bits = (self.arch_state.cfg.vmem_size // 32 - 1).bit_length()
-            address = ((alu_address >> 3) & ((1 << line_bits) - 1)) * 32
+            # VLS operands are word addresses. ScalarCore drops the word offset
+            # bits; LSU expands the resulting line address.
+            address = self.geometry.vls_byte_address(alu_address)
         else:
-            address = alu_address & addr_mask
+            # The RTL connects only the VMEM-local address bits to LSU.
+            address = self.geometry.scalar_byte_address(alu_address)
         assert address < self.arch_state.cfg.vmem_size, "LSU address exceeds VMEM capacity"
         reads: list[tuple] = []
         if mnemonic in _SCALAR_LOADS:
@@ -112,7 +102,7 @@ class LoadStoreUnit(ExecutionUnit):
         elif vector:
             tile_bytes = self.arch_state.cfg.mrf_depth * self.arch_state.cfg.mrf_width
             bank_bytes = self.config.vmem_bank_bytes
-            assert address % tile_bytes == 0, "VLOAD/VSTORE base must be 1 KiB aligned"
+            assert address % tile_bytes == 0, f"VLOAD/VSTORE base must be {tile_bytes}-byte (one register) aligned"
             assert address + tile_bytes <= self.arch_state.cfg.vmem_size, "LSU vector range exceeds VMEM capacity"
             assert address // bank_bytes == (address + tile_bytes - 1) // bank_bytes, "LSU vector range crosses VMEM bank"
             path = "_vload" if mnemonic == "vload" else "_vstore"
@@ -129,6 +119,13 @@ class LoadStoreUnit(ExecutionUnit):
             writes = [("mrf", int(insn.vd))] if mnemonic == "vload" else [("vmem",)]
         else:
             raise ValueError(f"Unknown LSU instruction {mnemonic}")
+        # Command, sequencing and writeback logic; the SRAM accesses are
+        # recorded separately as vmem.* ops on the cycles they happen.
+        if vector:
+            uop.energy_ops.record("lsu.vector", mnemonic=mnemonic, rows=self.geometry.rows,
+                                  beats=self.geometry.vls_beats)
+        else:
+            uop.energy_ops.record("lsu.scalar", mnemonic=mnemonic)
         op = _Operation(uop, self.cycle, address,
                         StagedExecution(uop, self.arch_state, reads, writes, "LSU"))
         if vector:
@@ -143,19 +140,17 @@ class LoadStoreUnit(ExecutionUnit):
         """(mnemonic, byte address) of every LSU VMEM port request on ``cycle``.
 
         Determined by operations issued before ``cycle``: scalar ports fire at
-        issue+1, VLOAD reads rows at issue+1..+32, VSTORE writes at issue+3..+34.
+        issue+1; VLOAD reads and VSTORE writes lines per ``Geometry.vls_line_stream``.
         """
         accesses: list[tuple[str, int]] = []
         for op in self._scalar:
             if cycle - op.issued == 1:
                 accesses.append((op.uop.insn.mnemonic, op.address))
-        rows = self.arch_state.cfg.mrf_depth
-        if self._vload and 1 <= cycle - self._vload.issued <= rows:
-            row = cycle - self._vload.issued - 1
-            accesses.append(("vload", self._vload.address + row * self.arch_state.cfg.mrf_width))
-        if self._vstore and 3 <= cycle - self._vstore.issued <= rows + 2:
-            row = cycle - self._vstore.issued - 3
-            accesses.append(("vstore", self._vstore.address + row * self.arch_state.cfg.mrf_width))
+        for op, mnemonic in ((self._vload, "vload"), (self._vstore, "vstore")):
+            if op is not None:
+                line = self.geometry.vls_line_stream(mnemonic).row_at(cycle - op.issued)
+                if line is not None:
+                    accesses.append((mnemonic, op.address + line * self.geometry.vmem_line_bytes))
         return accesses
 
     def _check_vmem_ports(self) -> None:
@@ -203,12 +198,14 @@ class LoadStoreUnit(ExecutionUnit):
                 size = {"sb": 1, "sh": 2, "sw": 4}[mnemonic]
                 # Hardware ignores bit 0 for halfwords and bits 1:0 for words.
                 address = op.address & ~(size - 1)
+                self._record_vmem(op.uop, "write", "scalar", address, mask_bytes=size)
                 self.arch_state.write_vmem(address, 0, self._vmem_write(op, address, size))
                 self._finish(op)
                 continue
             if mnemonic in _SCALAR_LOADS:
                 if age == 1:
                     word = op.address & ~3
+                    self._record_vmem(op.uop, "read", "scalar", word)
                     op.staged.sample(("vmem",), slice(word, word + 4), self.arch_state.read_vmem(word, 0, 4))
                 if age == 3:
                     self._check_writeback()
@@ -222,29 +219,38 @@ class LoadStoreUnit(ExecutionUnit):
         self._scalar = remaining
 
     def _tick_vector(self, op: _Operation | None, *, load: bool) -> None:
+        """One beat of a VLOAD or VSTORE: the register rows and VMEM lines it moves
+        this cycle follow ``Geometry.vls_mreg_stream`` and ``vls_line_stream``."""
         if op is None:
             return
+        g = self.geometry
         age = self.cycle - op.issued
-        rows, width = self.arch_state.cfg.mrf_depth, self.arch_state.cfg.mrf_width
+        mnemonic = "vload" if load else "vstore"
+        row = g.vls_mreg_stream(mnemonic).row_at(age)
+        line = g.vls_line_stream(mnemonic).row_at(age)
+        line_bytes = g.vmem_line_bytes
+        start = op.address + line * line_bytes if line is not None else None
         reg = int(op.uop.insn.vd)
         owner = f"{self.name}:{op.uop.id}"
-        if 1 <= age <= rows:
-            row = age - 1
-            if load:
-                start = op.address + row * width
-                op.staged.sample(("vmem",), slice(start, start + width), self.arch_state.read_vmem(start, 0, width))
-            else:
-                self.arch_state.conflict_checker.access_mreg(self.cycle, reg, row, False, owner)
-                op.staged.sample(("mrf", reg), row, self.arch_state.read_mrf_u8(reg)[row])
-        if 3 <= age <= rows + 2:
-            row = age - 3
-            if load:
-                self.arch_state.conflict_checker.access_mreg(self.cycle, reg, row, True, owner)
+        # Every source unit a destination needs has been read by the beat that writes it.
+        if load:
+            if line is not None:
+                self._record_vmem(op.uop, "read", "vector", start)
+                op.staged.sample(("vmem",), slice(start, start + line_bytes),
+                                 self.arch_state.read_vmem(start, 0, line_bytes))
+            if row is not None:
+                self._access_mreg(op.uop, "lsu", reg, row, True, owner)
                 self.arch_state.read_mrf_u8(reg)[row] = op.staged.result(("mrf", reg))[row]
-            else:
-                data = self._vmem_write(op, op.address, rows * width)
-                self.arch_state.write_vmem(op.address + row * width, 0, data[row * width:(row + 1) * width])
-        if age == rows + 2:
+        else:
+            if row is not None:
+                self._access_mreg(op.uop, "lsu", reg, row, False, owner)
+                op.staged.sample(("mrf", reg), row, self.arch_state.read_mrf_u8(reg)[row])
+            if line is not None:
+                data = self._vmem_write(op, op.address, g.tile_bytes)
+                self._record_vmem(op.uop, "write", "vector", start, mask_bytes=line_bytes)
+                offset = line * line_bytes
+                self.arch_state.write_vmem(start, 0, data[offset:offset + line_bytes])
+        if age == g.vls_latency - 1:
             self.arch_state.conflict_checker.release_mreg(owner)
             self._finish(op)
             if load:

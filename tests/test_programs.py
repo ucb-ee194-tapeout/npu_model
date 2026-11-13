@@ -29,9 +29,12 @@ def test_registered_program_executes(
     sim_verbose: bool,
 ) -> None:
     program_cls = getattr(program_configs, program_name)
+    hardware_config = hardware_config_cls()
+    arch = hardware_config.arch_state_config
+    if program_cls.tile != (arch.mrf_depth, arch.mrf_width):
+        pytest.skip(f"written for {program_cls.tile[0]} x {program_cls.tile[1]}-byte tensor registers")
     program = program_cls()
     effective_max_cycles = getattr(program, "kernel_max_cycles", max_cycles)
-    hardware_config = hardware_config_cls()
     hardware_config.arch_state_config = replace(hardware_config.arch_state_config, numerics=numerics)
     sim = run_simulation(
         program,

@@ -229,6 +229,7 @@ class InstructionFetch(Module):
             self.output.prepare(None)
         else:
             uop = Uop(fetched_instruction, pc=pc)
+            uop.energy_ops.record("instruction_fetch", pc=pc)
             self.logger.log_insn(uop.id, str(uop.insn))
             self.logger.log_stage_start(
                 uop.id, "F", lane=LaneType.IFU.value, cycle=self.cycle

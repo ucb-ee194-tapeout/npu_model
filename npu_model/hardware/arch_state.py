@@ -4,6 +4,7 @@ from .sparse_memory import SparseMemory
 from ..logging.logger import Logger
 from .config import ArchStateConfig
 from .bank_conflict import BankConflictChecker
+from ..geometry import Geometry, line_address
 from ..configs.numerics import NUMERICS
 
 class ArchState:
@@ -20,7 +21,7 @@ class ArchState:
         self.reset()
 
     def initialize_buffers(self) -> None:
-        self.conflict_checker: BankConflictChecker = BankConflictChecker()
+        self.conflict_checker: BankConflictChecker = BankConflictChecker(Geometry.of(self.cfg))
         self.dram: SparseMemory = SparseMemory(self.cfg.dram_size)
         self.vmem: torch.Tensor = torch.zeros(self.cfg.vmem_size, dtype=torch.uint8)
         self.xrf: list[int] = [0] * self.cfg.num_x_registers
@@ -389,13 +390,9 @@ class ArchState:
         AtlasCore takes the operand as a 32-bit word address and keeps bits
         [wordAddrBits-1 : wordOffBits] as the line address (``vmemLineAddr``),
         so the low three bits are ignored and higher bits wrap. ``wordAddrBits``
-        is ceil(log2(VMEM words)); a line is 32 bytes (eight words).
+        is ceil(log2(VMEM words)); a line is ``vmem_line_bytes`` (32 by default).
         """
-        line_bytes = 32
-        words = self.cfg.vmem_size // 4
-        word_addr_bits = max(1, (words - 1).bit_length())
-        line = (operand & ((1 << word_addr_bits) - 1)) >> 3
-        return line * line_bytes
+        return line_address(operand, self.cfg.vmem_size, self.cfg.vmem_line_bytes)
 
     def dma_dram_address(self, operand: int) -> int:
         """The 64-bit off-chip address ``{dma.base, x[rs]}`` ScalarCore forms."""

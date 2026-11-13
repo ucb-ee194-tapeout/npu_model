@@ -10,6 +10,7 @@ import torch
 from npu_model.configs.numerics import NUMERICS
 from npu_model.hardware.arch_state import ArchState
 from npu_model.hardware.config import ArchStateConfig
+from npu_model.geometry import line_address
 
 T = TypeVar("T")
 
@@ -109,7 +110,16 @@ class FunctionalConfig:
     dram_size: int = 0x10_0000_0000  # the timed default: 64 GiB from dram_base
     dram_base: int = 0x8000_0000
     vmem_size: int = 1536 * 1024
+    vmem_line_bytes: int = 32
     numerics: str = "rtl"
+
+    @classmethod
+    def from_arch_state(cls, arch: ArchStateConfig, numerics: str | None = None) -> FunctionalConfig:
+        """The sizes of ``arch`` (a hardware config's tensor registers, weight
+        slots and memories), with the functional model's unbounded register files."""
+        return cls(mrf_depth=arch.mrf_depth, mrf_width=arch.mrf_width, wb_width=arch.wb_width,
+                   dram_size=arch.dram_size, dram_base=arch.dram_base, vmem_size=arch.vmem_size,
+                   vmem_line_bytes=arch.vmem_line_bytes, numerics=numerics or cls.numerics)
 
 
 class FunctionalState:
@@ -243,12 +253,8 @@ class FunctionalState:
         return self.acc[unit][ws].clone()
 
     def dma_vmem_byte_address(self, operand: int) -> int:
-        """Map the DMA's VMEM word operand to its 32-byte line address."""
-        line_bytes = 32
-        words = self.cfg.vmem_size // 4
-        word_addr_bits = max(1, (words - 1).bit_length())
-        line = (operand & ((1 << word_addr_bits) - 1)) >> 3
-        return line * line_bytes
+        """Map the DMA's VMEM word operand to its line address."""
+        return line_address(operand, self.cfg.vmem_size, self.cfg.vmem_line_bytes)
 
     # Share the timed model's DMA address formation and mapped DRAM window.
     dma_dram_address = ArchState.dma_dram_address

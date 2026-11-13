@@ -26,6 +26,12 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         help="Instruction arithmetic for program golden checks; the goldens are PyTorch.",
     )
     parser.addoption(
+        "--full-energy",
+        action="store_true",
+        default=False,
+        help="Run every energy program in the 64 x 64 and dense-spacing sets, not one per unit.",
+    )
+    parser.addoption(
         "--sim-verbose",
         action="store_true",
         default=False,

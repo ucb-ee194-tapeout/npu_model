@@ -23,7 +23,11 @@ is which of A's windows B's windows land in.
 ## The table
 
 Everything operation-specific is a table of windows (offsets from the issue
-cycle T, 32-row geometry), transcribed from the sequencers:
+cycle T), transcribed from the sequencers. It is shown at 32 rows; every
+window scales with the register's R rows by the rules in `npu_model/geometry.py`
+(see `docs/rtl-timing.md`), which the timed units run too. `profile`,
+`min_gap`, `gap_violations`, `Scheduler`, `schedule` and `explain_schedule`
+take a `geometry` (default: `DefaultHardwareConfig`'s):
 
 | Operation | Occupies | Reads rows | Writes rows | Reservation free from |
 | --- | --- | --- | --- | --- |

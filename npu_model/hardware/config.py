@@ -1,4 +1,5 @@
-from dataclasses import dataclass
+import copy
+from dataclasses import dataclass, fields, replace
 
 from npu_model.isa import IsaSpec
 
@@ -27,6 +28,10 @@ class ArchStateConfig:
     first touch, so the size costs nothing until used. """
     vmem_size: int
     """ Size of vmem in bytes. """
+    vmem_line_bytes: int = 32
+    """ Width of a VMEM line (``VmemParams.lineBytes``): the unit of every VMEM
+    access and of DMA beats. Independent of the tensor register width; the LSU
+    converts between register rows and lines. """
     dram_base: int = 0x8000_0000
     """ Physical address of the first DRAM byte (``AtlasMemMap.DRAM_BASE``).
     DMA addresses are the 64-bit ``{dma.base, x[rs]}`` the RTL forms; accesses
@@ -40,22 +45,20 @@ class ArchStateConfig:
 
 
 class HardwareConfig:
+    """Hardware parameters. Unit sizes and every latency that depends on them
+    follow from ``arch_state_config`` (see ``npu_model/geometry.py``); build a
+    resized config with ``scaled_config``."""
+
     name: str
     fetch_width: int
     isa: type[IsaSpec] = IsaSpec
     arch_state_config: ArchStateConfig
     execution_units: dict[str, str]
-    mxu0_matmul_latency_cycles: int = 32
-    mxu1_matmul_latency_cycles: int = 32
-    vpu_simple_op_latency_cycles: int = 4
-    vpu_non_pipelineable_op_latency_cycles: int = 16
-    xlu_transform_latency_cycles: int = 4
     offchip_link_width_bits: int = 32
     offchip_link_core_cycles_per_beat: int = 2
     dma_offchip_command_words: int = 2
     vmem_bus_width_bits: int = 512
     vmem_bus_core_cycles_per_beat: int = 1
-    vmem_bytes_per_cycle: int = 64
     vmem_bank_bytes: int = 256 * 1024
     """Contiguous VMEM bank window (six banks in the default RTL)."""
 
@@ -96,7 +99,42 @@ class HardwareConfig:
     """"fixed": minimum cycles between accepted beats. None derives the spec's serialized-link rate."""
 
     clock_period_seconds: float = 1.0
-    energy_unit_static_power_w: dict[str, float] = {}
-    energy_event_joules: dict[str, dict[str, float]] = {}
-    energy_mxu_pe_count: dict[str, int] = {"Matrix0": 1024, "Matrix1": 1024}
-    energy_mxu_pe_event_joules: dict[str, dict[str, float]] = {}
+    energy_op_models: dict = {}
+
+
+def scaled_arch_state(arch: ArchStateConfig, tile: int) -> ArchStateConfig:
+    """``arch`` with T x T tensor registers and T x T FP8 weight slots."""
+    return replace(arch, mrf_depth=tile, mrf_width=tile, wb_width=tile * tile)
+
+
+def apply_overrides(config: HardwareConfig, overrides: dict[str, object]) -> HardwareConfig:
+    """Set ``overrides`` on ``config`` in place: ``ArchStateConfig`` fields go to
+    ``config.arch_state_config``, anything else must already be a config attribute."""
+    arch_fields = {f.name for f in fields(ArchStateConfig)}
+    arch = {name: value for name, value in overrides.items() if name in arch_fields}
+    for name, value in overrides.items():
+        if name in arch:
+            continue
+        if not hasattr(config, name):
+            raise AttributeError(f"{type(config).__name__} has no parameter {name!r}")
+        setattr(config, name, value)
+    if arch:
+        config.arch_state_config = replace(config.arch_state_config, **arch)
+    return config
+
+
+def scaled_config(base: type[HardwareConfig] | HardwareConfig, tile: int, **overrides) -> HardwareConfig:
+    """A copy of ``base`` resized to tile N, as the RTL's ``AtlasParams.withTileDim``:
+    N x N tensor registers, N x N MXU arrays and weight slots, N / 2 BF16 lanes.
+    VMEM (its line width included) and the DMA are unchanged. ``overrides``
+    (e.g. ``vmem_size``) are applied last; the result is validated."""
+    from npu_model.geometry import validate
+
+    config = base() if isinstance(base, type) else copy.copy(base)
+    # Never mutate the class-level objects other instances share.
+    for name in ("execution_units", "dma_memory_params", "energy_op_models"):
+        setattr(config, name, dict(getattr(config, name)))
+    config.arch_state_config = scaled_arch_state(config.arch_state_config, tile)
+    apply_overrides(config, overrides)
+    validate(config)
+    return config

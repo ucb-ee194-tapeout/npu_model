@@ -1,4 +1,5 @@
 from ..isa import Instruction
+from ..energy import EnergyOpLog
 from ..isa_types import ScalarReg, ScalarRegL, ExponentReg, ExponentRegL, MatrixReg, MatrixRegL, Accumulator, AccumulatorL, WeightBuffer, WeightBufferL
 
 
@@ -92,6 +93,7 @@ class Uop():
         # IMEM word index captured at fetch; never reconstruct it from the
         # current fetch PC (which can redirect or remain stalled).
         self.pc = pc
+        self.energy_ops = EnergyOpLog()
 
         self.execute_delay: int = 0
         """the number of execute stalling cycles left"""

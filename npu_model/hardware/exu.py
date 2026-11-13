@@ -10,6 +10,7 @@ from ..hardware.arch_state import ArchState
 from ..software.instruction import Uop
 from ..isa import EXU
 from ..hardware.config import HardwareConfig
+from ..geometry import Geometry
 
 Location = tuple
 """Storage a unit samples or commits: a tile, ("mrf", reg), ("acc", mxu, slot)
@@ -200,6 +201,8 @@ class ExecutionUnit(Module):
         self.arch_state = arch_state
         self.lane_id = lane_id
         self.config = config
+        self.geometry = Geometry.of(arch_state.cfg, config)
+        """Sizes and timing rules of the state this unit drives (``geometry.py``)."""
         self.cycle: int = 0
 
     @abstractmethod
@@ -216,6 +219,29 @@ class ExecutionUnit(Module):
     def tick(self, uop: Uop | None) -> None:
         """Execute one cycle; ``uop`` is the command S1 launched to this unit, if any."""
         pass
+
+    # Storage EnergyOps. MRF and VMEM accesses are recorded per physical row or
+    # line, on the cycle they happen, so each storage structure has its own
+    # ops regardless of which unit drives it; unit ops cover only the unit.
+
+    def _access_mreg(self, uop: Uop, port: str, reg: int, row: int, write: bool, owner: str) -> None:
+        """MRF row access: recorded as ``mrf.read``/``mrf.write`` on ``uop``."""
+        checker = self.arch_state.conflict_checker
+        checker.access_mreg(self.cycle, reg, row, write, owner)
+        uop.energy_ops.record("mrf.write" if write else "mrf.read", port=port,
+                              bank=self.geometry.mreg_bank(reg), bytes=self.geometry.row_bytes)
+
+    def _record_vmem(self, uop: Uop, direction: str, port: str, address: int,
+                     mask_bytes: int | None = None) -> None:
+        """VMEM SRAM line access, as ``vmem.read``/``vmem.write`` on ``uop``.
+        Moves whole lines - LSU scalar loads select a word from one
+        and scalar stores enable ``mask_bytes`` of one (LSU.scala's
+        VmemLineReadPort / MaskedVmemLineWritePort)."""
+        params = {"port": port, "bank": address // self.config.vmem_bank_bytes,
+                  "bytes": self.geometry.vmem_line_bytes}
+        if direction == "write":
+            params["mask_bytes"] = mask_bytes
+        uop.energy_ops.record(f"vmem.{direction}", **params)
 
     @abstractmethod
     def flush_completions(self) -> None:
@@ -319,6 +345,8 @@ class ScalarExecutionUnit(ExecutionUnit):
         # Accept new instruction
         if uop is not None:
             assert uop.insn.exu == EXU.SCALAR, "Attempted to pass non-scalar args to Scalar Excution Unit."
+            if uop.insn.mnemonic != "delay":
+                uop.energy_ops.record("scalar.execute", mnemonic=uop.insn.mnemonic)
             # tag instruction with execution delay
             uop.execute_delay = 1
             self._pending_completion_uop = uop

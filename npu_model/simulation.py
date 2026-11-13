@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from collections import Counter
 import json
 from pathlib import Path
 import sys
@@ -64,7 +63,7 @@ class Simulation:
         self.record_timeline = record_timeline
         self.timeline: list[dict[str, bool]] | None = None
         self.runtime_errors: list[tuple[int, str, str]] = []
-        self._energy_events: dict[str, Counter] = {}
+        self._energy_uops = []
 
         # Create logger for trace output
         lane_names = {LaneType.IFU.value: "IFU"}
@@ -108,7 +107,7 @@ class Simulation:
             raise ValueError("Attempted to run without a logger.")
 
         self.core.reset()
-        self._energy_events = {exu.name: Counter() for exu in self.core.exus}
+        self._energy_uops = []
 
         self.cycle_count = 0
 
@@ -121,9 +120,7 @@ class Simulation:
             self.cycle_count += 1
             issued = self.core.issued_uop
             if issued is not None:
-                unit = next((exu.name for exu in self.core.exus if exu.can_handle(issued)), None)
-                if unit is not None:
-                    self._energy_events.setdefault(unit, Counter())[issued.insn.mnemonic] += 1
+                self._energy_uops.append(issued)
 
             if self.record_timeline:
                 cur_busy = {exu.name: exu.busy_cycles for exu in self.core.exus}
@@ -203,39 +200,13 @@ class Simulation:
                 ),
             )
 
-        energy_enabled = bool(self.hardware_config.energy_unit_static_power_w or
-                              self.hardware_config.energy_event_joules or
-                              self.hardware_config.energy_mxu_pe_event_joules)
-        if energy_enabled:
-            activity = {}
-            for exu in self.core.exus:
-                name = exu.name
-                activity[name] = {f"event:{mnemonic}": count
-                                  for mnemonic, count in self._energy_events.get(name, {}).items()}
-                pe_cycles = getattr(exu, "pe_active_cycles", 0)
-                if pe_cycles:
-                    activity[name]["pe_cycles"] = pe_cycles
+        if self._energy_uops:
             params = EnergyParameters(
                 clock_period_seconds=self.hardware_config.clock_period_seconds,
-                static_power_w=self.hardware_config.energy_unit_static_power_w,
-                dynamic_joules_per_activity={
-                    **{f"event:{unit}:{op}": cost for unit, costs in self.hardware_config.energy_event_joules.items()
-                       for op, cost in costs.items()},
-                    **{f"pe_cycles:{unit}": cost for unit, costs in self.hardware_config.energy_mxu_pe_event_joules.items()
-                       for _, cost in costs.items()},
-                },
+                dynamic_joules_per_activity=self.hardware_config.energy_op_models,
             )
-            # Translate unit-scoped event/PE costs into estimator activity names.
-            scoped_activity = {unit: {} for unit in activity}
-            for unit, metrics in activity.items():
-                for metric, count in metrics.items():
-                    if metric.startswith("event:"):
-                        mnemonic = metric.split(":", 1)[1]
-                        key = f"event:{unit}:{mnemonic}"
-                    else:
-                        key = f"pe_cycles:{unit}"
-                    scoped_activity[unit][key] = count
-            stats.energy = EnergyEstimator(params).estimate(self.cycle_count, scoped_activity)
+            ops = [op for uop in self._energy_uops for op in uop.energy_ops]
+            stats.energy = EnergyEstimator(params).estimate_ops(ops, self.cycle_count)
 
         return stats
 

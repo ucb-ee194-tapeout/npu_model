@@ -39,8 +39,10 @@ Everything instruction-specific is a *table*: ``profile()`` says, for each
 operation, which resources it holds for which issue-relative cycles, which
 rows it reads and writes when, and what it reserves. Those windows are
 transcribed from the RTL sequencers (SystolicArraySequencer.scala,
-InnerProductTreesSequencer.scala, VectorFSM, XLU, LSU) and from the model in
-``npu_model/hardware``.
+InnerProductTreesSequencer.scala, VectorFSM, XLU, LSU); their sizes and
+offsets come from ``npu_model.geometry``, the same rules the timed units in
+``npu_model/hardware`` run, so every function here takes a ``geometry``
+(default: the 32 x 32 ``DefaultHardwareConfig``).
 
 The issue gap G is B's issue cycle minus A's. ``DELAY N`` between A and B
 gives G = N + 2; G = 1 needs no DELAY.
@@ -56,14 +58,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from typing import Iterable, Sequence
 
-ROWS = 32
-LINE_BYTES = 32
-VMEM_BANK_BYTES = 256 * 1024
-MXU_COMPUTE_FIRST = {0: 63, 1: 3}     # issue offset at which result row 0 lands
-MXU_INFLIGHT_DEPTH = {0: 3, 1: 2}     # sequencer in-flight tracker depth
-MXU0_WSLOT_DRAIN = 62                 # SystolicArraySequencer.wbufDrainInit
-MXU1_ACC_PUSH_GATE = 32               # mxu.py: acc_pushes use `age <= 32`
-MXU_PORT_FREE = 33                    # MREG reservation free-from for all MXU ops
+from npu_model.geometry import (DEFAULT, LSU_SCALAR_LOADS, LSU_SCALAR_STORES, VPU_COL_REDUCE,
+                                VPU_GROUPS, VPU_OPS, VPU_ROW_REDUCE, VPU_SINGLE, VPU_TWO_INPUT,
+                                VPU_VLI, Geometry)
+
 FOREVER = 1 << 30
 
 Resource = tuple
@@ -138,32 +136,8 @@ class Profile:
 # Instruction descriptors
 # ---------------------------------------------------------------------------
 
-VPU_TWO_INPUT = frozenset({"vadd.bf16", "vsub.bf16", "vmul.bf16", "vminimum.bf16", "vmaximum.bf16"})
-VPU_ROW_REDUCE = frozenset({"vredsum.row.bf16", "vredmin.row.bf16", "vredmax.row.bf16"})
-VPU_COL_REDUCE = frozenset({"vredsum.bf16", "vredmin.bf16", "vredmax.bf16"})
-VPU_VLI = frozenset({"vli.all", "vli.row", "vli.col", "vli.one"})
-VPU_SINGLE = frozenset({"vmov", "vrecip.bf16", "vexp.bf16", "vexp2.bf16", "vrelu.bf16", "vsin.bf16",
-                        "vcos.bf16", "vtanh.bf16", "vlog2.bf16", "vsqrt.bf16", "vsquare.bf16",
-                        "vcube.bf16", "vpack.bf16.fp8", "vunpack.fp8.bf16"})
-VPU_OPS = VPU_TWO_INPUT | VPU_ROW_REDUCE | VPU_COL_REDUCE | VPU_VLI | VPU_SINGLE
-VPU_GROUPS = (
-    frozenset({"vadd.bf16", "vsub.bf16", "vredsum.row.bf16"}),
-    frozenset({"vexp.bf16", "vexp2.bf16"}),
-    frozenset({"vsin.bf16", "vcos.bf16"}),
-    frozenset({"vsquare.bf16", "vcube.bf16"}),
-    frozenset({"vmaximum.bf16", "vredmax.bf16"}),
-    frozenset({"vminimum.bf16", "vredmin.bf16"}),
-    VPU_VLI,
-)
-VPU_LATENCY = {
-    **dict.fromkeys(VPU_TWO_INPUT | VPU_SINGLE, 66),
-    **dict.fromkeys(VPU_COL_REDUCE, 130),
-    "vredsum.row.bf16": 39, "vredmin.row.bf16": 34, "vredmax.row.bf16": 34,
-    "vli.all": 65, "vli.row": 65, "vli.col": 33, "vli.one": 33,
-    "vunpack.fp8.bf16": 67,
-}
-SCALAR_LOADS = frozenset({"lb", "lh", "lw", "lbu", "lhu", "seld"})
-SCALAR_STORES = frozenset({"sb", "sh", "sw"})
+SCALAR_LOADS = LSU_SCALAR_LOADS
+SCALAR_STORES = LSU_SCALAR_STORES
 BRANCHES = frozenset({"beq", "bne", "blt", "bge", "bltu", "bgeu"})
 MXU_KINDS = ("weight", "push_fp8", "push_bf16", "pop_fp8", "pop_bf16", "matmul", "matmul_acc")
 
@@ -199,7 +173,8 @@ class Op:
         return f"{self.kind}{unit}{chan}"
 
 
-def op_from_instruction(insn, xrf: Sequence[int] | None = None, push_port: int | None = None) -> Op:
+def op_from_instruction(insn, xrf: Sequence[int] | None = None, push_port: int | None = None,
+                        geometry: Geometry = DEFAULT) -> Op:
     """Build an ``Op`` from an npu_model Instruction. ``xrf`` (scalar register values)
     is needed to resolve LSU VMEM addresses; without it they are left unknown."""
     name = insn.mnemonic
@@ -222,7 +197,7 @@ def op_from_instruction(insn, xrf: Sequence[int] | None = None, push_port: int |
         if xrf is not None:
             imm = int(insn.imm) & 0xFFF
             imm = imm - 0x1000 if imm & 0x800 else imm
-            addr = (((xrf[int(insn.rs1)] + (imm << 5)) >> 3) & 0xFFFF) * 32
+            addr = geometry.vls_byte_address(xrf[int(insn.rs1)] + (imm << 5))
         return Op(name, mreg=int(insn.vd), rs=(int(insn.rs1),), vmem_addr=addr)
     if name in VPU_OPS:
         if name in VPU_VLI:
@@ -235,7 +210,7 @@ def op_from_instruction(insn, xrf: Sequence[int] | None = None, push_port: int |
         if xrf is not None:
             imm = int(insn.imm) & 0xFFF
             imm = imm - 0x1000 if imm & 0x800 else imm
-            addr = (xrf[int(insn.rs1)] + imm) & (VMEM_BANK_BYTES * 8 - 1)
+            addr = geometry.scalar_byte_address(xrf[int(insn.rs1)] + imm)
         if name in SCALAR_LOADS:
             return Op("sload", rd=None if name == "seld" else int(insn.rd), rs=(int(insn.rs1),), vmem_addr=addr)
         return Op("sstore", rs=(int(insn.rs1), int(insn.rs2)), vmem_addr=addr)
@@ -265,44 +240,45 @@ def op_from_instruction(insn, xrf: Sequence[int] | None = None, push_port: int |
 # Access profiles (the table)
 # ---------------------------------------------------------------------------
 
-def _mreg_stream(bank: int, first: int, write: bool, rows: Iterable[int] = range(ROWS),
-                 stride: int = 1, phase: int | None = None) -> tuple[Hold, list[RowAccess]]:
-    """Rows of tensor register ``bank`` from ``first``, one per ``stride`` cycles."""
-    rows = list(rows)
-    port = Hold(("mrf_port", bank % 32, "w" if write else "r"), first, first + stride * (len(rows) - 1),
-                (bank, phase) if phase is not None else None)
-    # mN and m(N+32) share a physical 1R1W bank; a read and a write of the same physical row
-    # in the same cycle return undefined data (MregFile.scala SyncReadMem).
+def _mreg_stream(g: Geometry, bank: int, first: int, write: bool, stride: int = 1,
+                 phase: int | None = None) -> tuple[Hold, list[RowAccess]]:
+    """Every row of tensor register ``bank`` from ``first``, one per ``stride`` cycles."""
+    rows = range(g.rows)
+    port = Hold(("mrf_port", g.mreg_bank(bank), "w" if write else "r"), first,
+                first + stride * (len(rows) - 1), (bank, phase) if phase is not None else None)
+    # mN and m(N + banks) share a physical 1R1W bank; a read and a write of the same physical
+    # row in the same cycle return undefined data (MregFile.scala SyncReadMem).
     accesses = [RowAccess(("mrf", bank), r, first + stride * i, write) for i, r in enumerate(rows)]
-    accesses += [RowAccess(("mrf_phys", bank % 32), (bank // 32) * 32 + r, first + stride * i, write)
+    accesses += [RowAccess(("mrf_phys", g.mreg_bank(bank)), g.physical_row(bank, r), first + stride * i, write)
                  for i, r in enumerate(rows)]
     return port, accesses
 
 
-def _mxu_profile(op: Op) -> Profile:
+def _mxu_profile(op: Op, g: Geometry) -> Profile:
     u, kind = op.mxu, op.kind
     p = Profile(op.label)
+    rows = g.rows
     acc = ("acc", u, op.acc)
     acc_rd, acc_wr = ("acc_rport", u, op.acc), ("acc_wport", u, op.acc)
-    first_row = MXU_COMPUTE_FIRST[u]
+    first_row = g.mxu_compute_first(u)
     pair = kind in {"push_bf16", "pop_bf16"}
     mregs = [op.mreg, op.mreg + 1] if pair else [op.mreg]
 
     if kind.startswith("pop"):
         # Reads accumulator rows r at T+r through its one read port; writes vd rows at T+1+r
         # through MXU write ports W0 (and W1 for the BF16 pair).
-        p.holds.append(Hold(acc_rd, 0, ROWS - 1))
-        p.rows += [RowAccess(acc, r, r, False) for r in range(ROWS)]
+        p.holds.append(Hold(acc_rd, 0, rows - 1))
+        p.rows += [RowAccess(acc, r, r, False) for r in range(rows)]
         for i, bank in enumerate(mregs):
-            p.holds.append(Hold(("mxu_port", u, f"W{i}"), 0, ROWS - 1))
-            port, rows = _mreg_stream(bank, 1, True)
+            p.holds.append(Hold(("mxu_port", u, f"W{i}"), 0, rows - 1))
+            port, accesses = _mreg_stream(g, bank, 1, True)
             p.holds.append(port)
-            p.rows += rows
-        p.writes, p.writes_free = frozenset(mregs), MXU_PORT_FREE
+            p.rows += accesses
+        p.writes, p.writes_free = frozenset(mregs), g.mxu_reservation_free
         p.probes.append(Probe(("acc_row0_gate", u, op.acc)))
         return p
 
-    # Everything else streams vs1 (and vs1+1) through MXU read ports at T..T+31.
+    # Everything else streams vs1 (and vs1+1) through MXU read ports at T..T+R-1.
     if kind in {"matmul", "matmul_acc"}:
         ports = ["P0"]
     elif kind == "push_bf16":
@@ -310,125 +286,91 @@ def _mxu_profile(op: Op) -> Profile:
     else:
         ports = ["P1" if op.push_port in (None, 1) else "P0"]
     for i, bank in enumerate(mregs):
-        p.holds.append(Hold(("mxu_port", u, ports[i]), 0, ROWS - 1))
-        port, rows = _mreg_stream(bank, 0, False)
+        p.holds.append(Hold(("mxu_port", u, ports[i]), 0, rows - 1))
+        port, accesses = _mreg_stream(g, bank, 0, False)
         p.holds.append(port)
-        p.rows += rows
-    p.reads, p.reads_free = frozenset(mregs), MXU_PORT_FREE
+        p.rows += accesses
+    p.reads, p.reads_free = frozenset(mregs), g.mxu_reservation_free
 
     if kind == "weight":
         # One weight push at a time per MXU; column c lands at T+1+c.
-        p.holds.append(Hold(("wpath", u), 1, ROWS))
-        p.rows += [RowAccess(("wslot", u, op.wslot), c, 1 + c, True) for c in range(ROWS)]
+        p.holds.append(Hold(("wpath", u), 1, rows))
+        p.rows += [RowAccess(("wslot", u, op.wslot), c, 1 + c, True) for c in range(rows)]
         if u == 0:
             p.probes.append(Probe(("wslot_drain", 0, op.wslot)))
         else:
-            # MXU1 refuses a push to a slot an active (age < 32) push or matmul uses.
-            p.gates.append(Gate(("wslot_gate", 1, op.wslot), 0, ROWS - 1))
+            # MXU1 refuses a push to a slot an active (age < R) push or matmul uses.
+            p.gates.append(Gate(("wslot_gate", 1, op.wslot), 0, rows - 1))
             p.probes.append(Probe(("wslot_gate", 1, op.wslot)))
         return p
 
     if kind.startswith("push"):
         # One accumulator push at a time per MXU; row r lands at T+1+r through the
         # accumulator's single write port.
-        p.holds.append(Hold(("apath", u), 1, ROWS))
-        p.holds.append(Hold(acc_wr, 1, ROWS))
-        p.rows += [RowAccess(acc, r, 1 + r, True) for r in range(ROWS)]
+        p.holds.append(Hold(("apath", u), 1, rows))
+        p.holds.append(Hold(acc_wr, 1, rows))
+        p.rows += [RowAccess(acc, r, 1 + r, True) for r in range(rows)]
         p.probes.append(Probe(("acc_row0_gate", u, op.acc)))
         if u == 1:
-            p.gates.append(Gate(("acc_pushgate", 1, op.acc), 0, MXU1_ACC_PUSH_GATE))
+            p.gates.append(Gate(("acc_pushgate", 1, op.acc), 0, g.mxu1_acc_push_gate))
             if kind == "push_fp8":
                 p.probes.append(Probe(("acc_pushgate", 1, op.acc)))
         return p
 
     # matmul / matmul_acc
-    p.counted.append(Counted(("inflight", u), 0, first_row + ROWS - 1, MXU_INFLIGHT_DEPTH[u]))
-    p.holds.append(Hold(acc_wr, first_row, first_row + ROWS - 1))
-    p.rows += [RowAccess(acc, r, first_row + r, True) for r in range(ROWS)]
+    p.counted.append(Counted(("inflight", u), 0, first_row + rows - 1, g.MXU_INFLIGHT_DEPTH[u]))
+    p.holds.append(Hold(acc_wr, first_row, first_row + rows - 1))
+    p.rows += [RowAccess(acc, r, first_row + r, True) for r in range(rows)]
     # The sequencer refuses any command on this accumulator until row 0 has landed.
     p.gates.append(Gate(("acc_row0_gate", u, op.acc), 0, first_row))
     p.probes.append(Probe(("acc_row0_gate", u, op.acc)))
     if kind == "matmul_acc":
-        p.holds.append(Hold(acc_rd, 0, ROWS - 1))
-        p.rows += [RowAccess(acc, r, r, False) for r in range(ROWS)]
+        p.holds.append(Hold(acc_rd, 0, rows - 1))
+        p.rows += [RowAccess(acc, r, r, False) for r in range(rows)]
     if u == 0:
         # PE(i, j) uses column j for output row r at T+1+r+i+j: column c is live
-        # from T+1+c to T+63+c. The sequencer gate is one cycle more conservative.
-        p.rows += [RowAccess(("wslot", 0, op.wslot), c, 1 + c, False) for c in range(ROWS)]
-        p.rows += [RowAccess(("wslot", 0, op.wslot), c, 1 + c + 2 * (ROWS - 1), False)
-                   for c in range(ROWS)]
-        p.gates.append(Gate(("wslot_drain", 0, op.wslot), 0, MXU0_WSLOT_DRAIN))
+        # from T+1+c to T+1+c+(R-1)+(K-1). The sequencer gate is one cycle more conservative.
+        p.rows += [RowAccess(("wslot", 0, op.wslot), c, 1 + c, False) for c in range(rows)]
+        p.rows += [RowAccess(("wslot", 0, op.wslot), c, 1 + c + (rows - 1) + (g.mxu_k - 1), False)
+                   for c in range(rows)]
+        p.gates.append(Gate(("wslot_drain", 0, op.wslot), 0, g.mxu0_wslot_drain))
     else:
-        # Each IPT row reads the whole slot: every column at T+1..T+32.
+        # Each IPT row reads the whole slot: every column at T+1..T+R.
         p.rows += [RowAccess(("wslot", 1, op.wslot), c, t, False)
-                   for c in range(ROWS) for t in (1, ROWS)]
-        p.gates.append(Gate(("wslot_gate", 1, op.wslot), 0, ROWS - 1))
+                   for c in range(rows) for t in (1, rows)]
+        p.gates.append(Gate(("wslot_gate", 1, op.wslot), 0, rows - 1))
         p.probes.append(Probe(("wslot_gate", 1, op.wslot)))
         p.probes.append(Probe(("acc_pushgate", 1, op.acc)))
     return p
 
 
-def _vpu_profile(op: Op) -> Profile:
-    """VectorFSM: row schedules from vpu.py, issue-busy bits from ``_issue_blocked``."""
+def _vpu_profile(op: Op, g: Geometry) -> Profile:
+    """VectorFSM: row schedules from ``Geometry.vpu_reads``/``vpu_writes`` (what
+    vpu.py runs), issue-busy bits from ``_issue_blocked``."""
     name = op.name
     p = Profile(name)
-    latency = VPU_LATENCY[name]
+    latency = g.vpu_latency(name)
     double = name in VPU_TWO_INPUT or name in VPU_ROW_REDUCE
+    unary_source = name in {"vpack.bf16.fp8", "vunpack.fp8.bf16"}
+    fields = {"vs1": op.mreg, "vs2": op.mreg if unary_source else op.mreg2, "vd": op.mdst}
 
-    # Reads.
-    if name in VPU_VLI:
-        sources: list[int] = []
-    elif name in VPU_ROW_REDUCE:
-        sources = [op.mreg, op.mreg + 1]
-        for bank in sources:
-            port, rows = _mreg_stream(bank, 0, False, phase=0)
-            p.holds.append(port)
-            p.rows += rows
-    elif name == "vunpack.fp8.bf16":
-        sources = [op.mreg]
-        port, rows = _mreg_stream(op.mreg, 0, False, phase=0)
+    sources: list[int] = []
+    for stream in g.vpu_reads(name):
+        bank = fields[stream.operand] + stream.offset
+        # Read-port holds carry their row-0 phase: in-phase streams share one SRAM read.
+        port, rows = _mreg_stream(g, bank, stream.first, False, stream.stride, phase=stream.first)
         p.holds.append(port)
         p.rows += rows
-    else:
-        sources = [op.mreg, op.mreg + 1]
-        passes = 2 if name in VPU_COL_REDUCE else 1
-        for k in range(passes):
-            for half in (0, 1):
-                port, rows = _mreg_stream(op.mreg + half, 64 * k + 32 * half, False, phase=64 * k + 32 * half)
-                p.holds.append(port)
-                p.rows += rows
-        if name in VPU_TWO_INPUT:
-            sources += [op.mreg2, op.mreg2 + 1]
-            for half in (0, 1):
-                port, rows = _mreg_stream(op.mreg2 + half, 32 * half, False, phase=32 * half)
-                p.holds.append(port)
-                p.rows += rows
-    read_last = (-1 if name in VPU_VLI else 31 if name in VPU_ROW_REDUCE or name == "vunpack.fp8.bf16"
-                 else 127 if name in VPU_COL_REDUCE else 63)
-
-    # Writes.
-    if name in VPU_ROW_REDUCE:
-        first = 7 if name == "vredsum.row.bf16" else 2
-        for half in (0, 1):
-            port, rows = _mreg_stream(op.mdst + half, first, True)
-            p.holds.append(port)
-            p.rows += rows
-        dests = [op.mdst, op.mdst + 1]
-    elif name == "vpack.bf16.fp8":
-        port, rows = _mreg_stream(op.mdst, 3, True, stride=2)
+        sources.append(bank)
+    dests: list[int] = []
+    for stream in g.vpu_writes(name):
+        bank = fields[stream.operand] + stream.offset
+        port, rows = _mreg_stream(g, bank, stream.first, True, stream.stride)
         p.holds.append(port)
         p.rows += rows
-        dests = [op.mdst]
-    else:
-        first = 1 if name in VPU_VLI else 3 if name == "vunpack.fp8.bf16" else 66 if name in VPU_COL_REDUCE else 2
-        pair = name not in {"vli.col", "vli.one"}
-        dests = [op.mdst, op.mdst + 1] if pair else [op.mdst]
-        for half, bank in enumerate(dests):
-            port, rows = _mreg_stream(bank, first + 32 * half, True)
-            p.holds.append(port)
-            p.rows += rows
+        dests.append(bank)
     p.reads, p.writes = frozenset(sources), frozenset(dests)
-    p.reads_free, p.writes_free = read_last + 1, latency
+    p.reads_free, p.writes_free = g.vpu_read_last(name) + 1, latency
 
     # Issue-busy bits: an op is live while age < latency - 1. B is refused when any live op
     # exists and (both slots are live, or B or the live op is a two-input/row-reduction op,
@@ -449,56 +391,58 @@ def _vpu_profile(op: Op) -> Profile:
     return p
 
 
-def _xlu_profile(op: Op) -> Profile:
-    """vtrpose.xlu: reads vs1 rows at T+1..T+32, writes vd rows at T+34..T+65."""
+def _xlu_profile(op: Op, g: Geometry) -> Profile:
+    """vtrpose.xlu: reads vs1 rows at T+1..T+R, writes vd rows at T+R+2..T+2R+1."""
     p = Profile(op.label)
-    port, rows = _mreg_stream(op.mreg, 1, False)
+    port, rows = _mreg_stream(g, op.mreg, g.xlu_read_first, False)
     p.holds.append(port)
     p.rows += rows
-    port, rows = _mreg_stream(op.mdst, 34, True)
+    port, rows = _mreg_stream(g, op.mdst, g.xlu_write_first, True)
     p.holds.append(port)
     p.rows += rows
-    p.holds.append(Hold(("xlu",), 0, 65))
+    p.holds.append(Hold(("xlu",), 0, g.transpose_cycles - 1))
     p.reads, p.writes = frozenset({op.mreg}), frozenset({op.mdst})
-    p.reads_free, p.writes_free = 34, 66
+    p.reads_free, p.writes_free = g.xlu_write_first, g.transpose_cycles
     return p
 
 
-def _vmem_access(p: Profile, addr: int | None, first: int, count: int, write: bool) -> None:
-    """``count`` consecutive 32-byte lines from ``addr``, one per cycle from ``first``; the
-    bank (256 KiB) has one port. Unknown addresses contribute nothing."""
+def _vmem_access(p: Profile, g: Geometry, addr: int | None, first: int, count: int, write: bool,
+                 stride: int = 1) -> None:
+    """``count`` consecutive VMEM lines from ``addr``, one per ``stride`` cycles from
+    ``first``; each bank has one port. Unknown addresses contribute nothing."""
     if addr is None:
         return
-    p.holds.append(Hold(("vmem_bank", addr // VMEM_BANK_BYTES), first, first + count - 1))
-    p.rows += [RowAccess(("vmem",), addr // LINE_BYTES + i, first + i, write) for i in range(count)]
+    p.holds.append(Hold(("vmem_bank", addr // g.vmem_bank_bytes), first, first + stride * (count - 1)))
+    p.rows += [RowAccess(("vmem",), addr // g.vmem_line_bytes + i, first + stride * i, write)
+               for i in range(count)]
 
 
-def _lsu_profile(op: Op) -> Profile:
+def _lsu_profile(op: Op, g: Geometry) -> Profile:
     p = Profile(op.label)
     p.rows += [RowAccess(("xrf", r), 0, 0, False) for r in op.rs if r]
-    if op.kind == "vload":
-        port, rows = _mreg_stream(op.mreg, 3, True)
-        p.holds += [port, Hold(("vload_path",), 0, 34)]
-        p.rows += rows
-        _vmem_access(p, op.vmem_addr, 1, ROWS, False)
-        p.writes, p.writes_free = frozenset({op.mreg}), 35
-        p.writer_ignores_readers = True
-    elif op.kind == "vstore":
-        port, rows = _mreg_stream(op.mreg, 1, False)
-        p.holds += [port, Hold(("vstore_path",), 0, 34)]
-        p.rows += rows
-        _vmem_access(p, op.vmem_addr, 3, ROWS, True)
-        p.reads, p.reads_free = frozenset({op.mreg}), 35
+    if op.kind in {"vload", "vstore"}:
+        # One beat per cycle (Geometry.vls_mreg_stream / vls_line_stream).
+        load = op.kind == "vload"
+        rows, lines = g.vls_mreg_stream(op.kind), g.vls_line_stream(op.kind)
+        port, accesses = _mreg_stream(g, op.mreg, rows.first, load, rows.stride)
+        p.holds += [port, Hold((f"{op.kind}_path",), 0, g.vls_latency - 1)]
+        p.rows += accesses
+        _vmem_access(p, g, op.vmem_addr, lines.first, lines.count, not load, lines.stride)
+        if load:
+            p.writes, p.writes_free = frozenset({op.mreg}), g.vls_latency
+            p.writer_ignores_readers = True
+        else:
+            p.reads, p.reads_free = frozenset({op.mreg}), g.vls_latency
     elif op.kind == "sload":
         # One response in flight at a time; the word is read at T+1 and rd written at T+3,
         # when no scalar instruction may be writing a register (no bypass either).
         p.holds.append(Hold(("lsu_scalar",), 0, 2))
-        _vmem_access(p, op.vmem_addr, 1, 1, False)
+        _vmem_access(p, g, op.vmem_addr, 1, 1, False)
         p.gates.append(Gate(("scalar_writeback",), 3, 3))
         if op.rd:
             p.rows.append(RowAccess(("xrf", op.rd), 0, 3, True))
     else:  # sstore
-        _vmem_access(p, op.vmem_addr, 1, 1, True)
+        _vmem_access(p, g, op.vmem_addr, 1, 1, True)
     return p
 
 
@@ -525,16 +469,16 @@ def _dma_profile(op: Op) -> Profile:
     return p
 
 
-def profile(op: Op) -> Profile:
+def profile(op: Op, geometry: Geometry = DEFAULT) -> Profile:
     """Resource-occupancy profile of one instruction, offsets relative to its issue cycle."""
     if op.mxu is not None:
-        return _mxu_profile(op)
+        return _mxu_profile(op, geometry)
     if op.kind == "vpu":
-        return _vpu_profile(op)
+        return _vpu_profile(op, geometry)
     if op.kind == "xlu":
-        return _xlu_profile(op)
+        return _xlu_profile(op, geometry)
     if op.kind in {"vload", "vstore", "sload", "sstore"}:
-        return _lsu_profile(op)
+        return _lsu_profile(op, geometry)
     if op.kind in {"scalar", "seli", "branch"}:
         return _scalar_profile(op)
     if op.kind in {"dma", "dma_wait"}:
@@ -624,20 +568,23 @@ def pair_violations(a: Profile, b: Profile, gap: int) -> list[Violation]:
     return out
 
 
-def gap_violations(a: Op, b: Op, gap: int, *, enforced_only: bool = False) -> list[Violation]:
+def gap_violations(a: Op, b: Op, gap: int, *, enforced_only: bool = False,
+                   geometry: Geometry = DEFAULT) -> list[Violation]:
     """Rules B breaks when issued ``gap`` cycles after A on an otherwise idle machine."""
-    pa = profile(a)
-    found = pair_violations(pa, profile(_with_port(b, [pa], [0], gap)), gap)
+    pa = profile(a, geometry)
+    found = pair_violations(pa, profile(_with_port(b, [pa], [0], gap), geometry), gap)
     return [v for v in found if v.enforced] if enforced_only else found
 
 
-def min_gap(a: Op, b: Op, limit: int = 256, *, enforced_only: bool = False) -> tuple[int, list[Violation]]:
+def min_gap(a: Op, b: Op, limit: int = 1024, *, enforced_only: bool = False,
+            geometry: Geometry = DEFAULT) -> tuple[int, list[Violation]]:
     """Smallest issue gap at which B may follow A from an idle machine, and the
     rules that bind at gap - 1 (empty when B may issue the very next cycle).
     Legality is not always monotone in the gap; ``gap_violations`` gives any gap."""
     for gap in range(1, limit + 1):
-        if not gap_violations(a, b, gap, enforced_only=enforced_only):
-            binding = gap_violations(a, b, gap - 1, enforced_only=enforced_only) if gap > 1 else []
+        if not gap_violations(a, b, gap, enforced_only=enforced_only, geometry=geometry):
+            binding = (gap_violations(a, b, gap - 1, enforced_only=enforced_only, geometry=geometry)
+                       if gap > 1 else [])
             return gap, binding
     raise ValueError(f"{b.label} can never follow {a.label} within {limit} cycles")
 
@@ -659,7 +606,8 @@ def _with_port(op: Op, placed: Sequence[Profile], cycles: Sequence[int], at: int
 class Scheduler:
     """Places instructions in program order at their earliest legal issue cycle."""
 
-    def __init__(self) -> None:
+    def __init__(self, geometry: Geometry = DEFAULT) -> None:
+        self.geometry = geometry
         self.placed: list[tuple[Op, Profile, int]] = []
 
     def _profiles(self) -> tuple[list[Profile], list[int]]:
@@ -668,7 +616,7 @@ class Scheduler:
     def violations(self, op: Op, at: int) -> list[Violation]:
         profiles, cycles = self._profiles()
         op = _with_port(op, profiles, cycles, at)
-        pb = profile(op)
+        pb = profile(op, self.geometry)
         out: list[Violation] = []
         for _, pa, ta in self.placed:
             out += pair_violations(pa, pb, at - ta)
@@ -691,7 +639,7 @@ class Scheduler:
                     holds = [replace(h, last=at - t - 1) if h.resource == ("dma_channel", op.channel) else h
                              for h in p.holds]
                     self.placed[i] = (o, replace(p, holds=holds), t)
-        self.placed.append((op, profile(op), at))
+        self.placed.append((op, profile(op, self.geometry), at))
 
     def place(self, op: Op, not_before: int = 0, limit: int = 1024) -> tuple[int, list[Violation]]:
         """Issue ``op`` at the earliest cycle >= not_before (and after the previous
@@ -715,17 +663,17 @@ class Scheduler:
         return found
 
 
-def schedule(ops: Iterable[Op]) -> list[tuple[Op, int, list[Violation]]]:
+def schedule(ops: Iterable[Op], geometry: Geometry = DEFAULT) -> list[tuple[Op, int, list[Violation]]]:
     """Earliest-issue schedule for ``ops`` in program order: (op, cycle, binding rules)."""
-    sched = Scheduler()
+    sched = Scheduler(geometry)
     return [(op, *sched.place(op)) for op in ops]
 
 
-def explain_schedule(ops: Iterable[Op]) -> str:
+def explain_schedule(ops: Iterable[Op], geometry: Geometry = DEFAULT) -> str:
     """Human-readable schedule: cycle, DELAY to insert, and the binding rule for each op."""
     lines = []
     previous = None
-    for op, at, binding in schedule(ops):
+    for op, at, binding in schedule(ops, geometry):
         gap = at - previous if previous is not None else None
         delay = "" if gap in (None, 1) else f"DELAY {gap - 2}"
         why = "; ".join(f"{v.rule} on {_fmt(v.resource)} vs {v.earlier}" for v in binding[:3])

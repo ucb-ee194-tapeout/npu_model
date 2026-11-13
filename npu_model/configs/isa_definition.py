@@ -51,6 +51,7 @@ from npu_model.isa_types import (
     Imm12,
     EXU,
 )
+from npu_model.geometry import line_address
 
 if TYPE_CHECKING:
     from npu_model.hardware.arch_state import ArchState
@@ -96,11 +97,10 @@ def _vmem_address(state: ArchState, rs1: int, imm: int) -> int:
 
 
 def _vmem_line_address(state: ArchState, rs1: int, imm: int) -> int:
-    """VLS byte address. Operands count words; ScalarCore drops the three
-    word-offset bits and the LSU expands the 32-byte line address."""
-    lines = (state.cfg.vmem_size // 32 - 1).bit_length()
+    """VLS byte address. Operands count words (the immediate 32 words); ScalarCore
+    drops the word-offset bits of a VMEM line and the LSU expands the line address."""
     words = state.read_xrf(rs1) + (_sign_extend(imm & 0xFFF, 12) << 5)
-    return ((words >> 3) & ((1 << lines) - 1)) * 32
+    return line_address(words, state.cfg.vmem_size, state.cfg.vmem_line_bytes)
 
 
 def _load_word(state: ArchState, rs1: int, imm: int) -> tuple[int, int]:

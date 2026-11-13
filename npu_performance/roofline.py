@@ -3,15 +3,17 @@
 The ceilings follow from the hardware config alone, through the units' own
 definitions, so they do not depend on any program:
 
-- compute: each MXU finishes a matmul every ``mxu.PORT_CYCLES`` cycles, two
+- compute: each MXU finishes a matmul every ``Geometry.mxu_port_cycles`` cycles, two
   FLOPs per FP8 multiply-accumulate. The VPU sustains the element rate of its
   fastest mix of BF16 arithmetic instructions across ``vpu.ISSUE_SLOTS``,
   charged as the speed of light charges them, one operation per element;
 - bandwidth: DRAM delivers the memory backend's fastest beat rate across all
   read/write mixes (the curve backend's peak when pacing is enabled, or one
   beat every ``cycles_per_beat`` on the fixed link), at most the DMA engine's
-  one beat a cycle. VMEM delivers a register every ``lsu.LSU_OP_LATENCIES``
+  one beat a cycle. VMEM delivers a register every ``Geometry.vls_latency``
   cycles on each of the VLOAD and VSTORE paths.
+
+Every ceiling follows the config's geometry (``npu_model/geometry.py``).
 
 An engine or path the config leaves out has no ceiling.
 
@@ -50,9 +52,9 @@ import numpy
 import torch
 from tabulate import tabulate
 
-from npu_model.hardware import mxu, vpu
+from npu_model.geometry import VPU_OPS, Geometry
+from npu_model.hardware import vpu
 from npu_model.hardware.config import HardwareConfig
-from npu_model.hardware.lsu import LSU_OP_LATENCIES
 from npu_model.hardware.memory_backend import CurveMemoryBackend, FixedLatencyBackend, make_memory_backend
 from npu_model.hardware.mxu import MatrixExecutionUnitSystolic
 from npu_model.isa_types import EXU
@@ -74,7 +76,7 @@ WORK_UNITS = {"MXU": "FLOP", "VPU": "op"}
 
 VPU_DATA_MOVEMENT = {"vmov", "vpack.bf16.fp8", "vunpack.fp8.bf16", "vli.all", "vli.row", "vli.col", "vli.one"}
 """VPU instructions that move or convert data, which count no operations."""
-VPU_ARITHMETIC = sorted(set(vpu.VPU_OP_LATENCIES) - VPU_DATA_MOVEMENT)
+VPU_ARITHMETIC = sorted(VPU_OPS - VPU_DATA_MOVEMENT)
 
 COLORS = ("#0072B2", "#E69F00", "#009E73", "#CC79A7", "#56B4E9", "#D55E00", "#000000")
 """Okabe-Ito colors, one per program in order; markers change after the last."""
@@ -147,9 +149,10 @@ def vpu_peak(config: HardwareConfig) -> float:
     """Element operations per cycle of the fastest mix of arithmetic
     instructions, one per issue slot, as the speed of light charges them."""
     elements = vpu_elements(config)
+    geometry = Geometry.from_config(config)
     best = 0.0
     for mix in itertools.combinations_with_replacement(VPU_ARITHMETIC, vpu.ISSUE_SLOTS):
-        rate = len(mix) * elements / vpu_cycles(Counter(mix))
+        rate = len(mix) * elements / vpu_cycles(Counter(mix), geometry)
         best = max(best, rate)
     return best
 
@@ -162,10 +165,11 @@ def ceilings(config: HardwareConfig) -> Ceilings:
     """The configured machine's ceilings; an engine or path it leaves out is 0."""
     mxus = len(configured_mxus(config))
     register = register_bytes(config)
-    vmem = register / LSU_OP_LATENCIES["vload"] + register / LSU_OP_LATENCIES["vstore"]
+    geometry = Geometry.from_config(config)
+    vmem = 2 * register / geometry.vls_latency
     return Ceilings(
         mxus=mxus,
-        mxu_flops=mxus * matmul_flops(config) / mxu.PORT_CYCLES,
+        mxu_flops=mxus * matmul_flops(config) / geometry.mxu_port_cycles,
         vpu_ops=vpu_peak(config) if configured(config, EXU.VECTOR) else 0.0,
         dram=dram_bandwidth(config) if configured(config, EXU.DMA) else 0.0,
         vmem=vmem if configured(config, EXU.LSU) else 0.0,

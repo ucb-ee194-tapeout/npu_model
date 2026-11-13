@@ -10,8 +10,7 @@ import pytest
 import npu_model.configs.programs as program_configs
 from npu_model.configs.hardware.default import DefaultHardwareConfig
 from npu_model.hardware import BankConflictError, Core
-from npu_model.hardware import mxu, vpu, xlu
-from npu_model.hardware.lsu import LSU_OP_LATENCIES
+from npu_model.geometry import DEFAULT
 from npu_model.isa_types import EXU
 from npu_model.logging.logger import Logger
 from npu_model.software.instruction import Uop
@@ -72,8 +71,8 @@ def test_each_charge_is_when_the_unit_accepts_the_next_command() -> None:
          mxu_cycles(Counter({"vmatpush.weight.mxu1": 1}))),
         (EXU.VECTOR, "vadd.bf16 m4, m0, m2", "vadd.bf16 m10, m6, m8", vpu_cycles(Counter({"vadd.bf16": 1}))),
         (EXU.VECTOR, "vexp.bf16 m4, m0", "vexp.bf16 m10, m6", vpu_cycles(Counter({"vexp.bf16": 1}))),
-        (EXU.XLU, "vtrpose.xlu m1, m0", "vtrpose.xlu m3, m2", xlu.TRANSPOSE_CYCLES),
-        (EXU.LSU, "vload m0, 0(x0)", "vload m1, 256(x0)", LSU_OP_LATENCIES["vload"]),
+        (EXU.XLU, "vtrpose.xlu m1, m0", "vtrpose.xlu m3, m2", DEFAULT.transpose_cycles),
+        (EXU.LSU, "vload m0, 0(x0)", "vload m1, 256(x0)", DEFAULT.lsu_latency("vload")),
     ]
     for unit, first, second, charge in cases:
         assert not legal_after(unit, first, second, charge - 1), first
@@ -81,12 +80,12 @@ def test_each_charge_is_when_the_unit_accepts_the_next_command() -> None:
 
 
 def test_charges_combine_across_ports_and_slots() -> None:
-    port = mxu.PORT_CYCLES
+    port = DEFAULT.mxu_port_cycles
     # Weight pushes take read port 1 alongside computes on port 0...
     assert mxu_cycles(Counter({"vmatmul.mxu0": 4, "vmatpush.weight.mxu0": 4})) == 4 * port
     # ...but a BF16 push holds both read ports.
     assert mxu_cycles(Counter({"vmatmul.mxu1": 2, "vmatpush.acc.bf16.mxu1": 2})) == 4 * port
-    exp, recip = vpu.issue_cycles("vexp.bf16"), vpu.issue_cycles("vrecip.bf16")
+    exp, recip = DEFAULT.vpu_issue_cycles("vexp.bf16"), DEFAULT.vpu_issue_cycles("vrecip.bf16")
     # Different lane logic shares the two VPU slots; the same logic runs alone.
     assert vpu_cycles(Counter({"vexp.bf16": 2, "vrecip.bf16": 2})) == 2 * max(exp, recip)
     assert vpu_cycles(Counter({"vexp.bf16": 2, "vexp2.bf16": 2})) == 4 * exp

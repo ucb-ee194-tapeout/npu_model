@@ -168,27 +168,35 @@ def sa_fma(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
 
 
 def ipt_row(a: torch.Tensor, weights: torch.Tensor, partial: torch.Tensor) -> torch.Tensor:
-    """Default IPT: 32-bit anchor integers, headroom seven, RNE BF16 output."""
+    """IPT (AnchorAccumulationTree) for a K-wide dot product: anchor-aligned
+    integers, RNE BF16 output. ``InnerProductTreeParams`` sizes the accumulator
+    from K: headroom ``bitLength(K + 1) + 1`` (7 at K = 32) keeps the K + 1
+    aligned terms from overflowing ``intWidth = 8 + headroom + 17`` bits (32 at
+    K = 32), to which the sum is truncated."""
     av = a.contiguous().view(torch.uint8).tolist()
     wv = weights.contiguous().view(torch.uint8).tolist()
     pv = partial.contiguous().view(torch.int16).tolist()
+    headroom = (len(av) + 1).bit_length() + 1
+    int_w = 8 + headroom + 17
+    top = int_w - 8           # an 8-bit significand's offset at the top of the integer
     result = []
     for ws, psum in zip(wv, pv):
         psum &= 65535
         products = [product(x,y) for x,y in zip(av,ws)]
         pe, pm = (psum >> 7) & 255, psum & 127
         anchor = max([e - 13 if e else -1024 for _,e,_ in products]
-                     + [pe - 127 if (psum & 32767) else -1024]) + 7
+                     + [pe - 127 if (psum & 32767) else -1024]) + headroom
         total = 0
         for s, e, m in products:
             if e:
-                magnitude = ((128 | m) << 24) >> (anchor - (e - 13))
+                magnitude = ((128 | m) << top) >> (anchor - (e - 13))
                 total += -magnitude if s else magnitude
-        shift = anchor - (pe - 127) - 24
+        shift = anchor - (pe - 127) - top
         sig = (128 if pe else 0) | pm
-        magnitude = 0 if shift >= 32 or shift < -31 else (sig >> shift if shift >= 0 else (sig << -shift) & 0xffffffff)
+        magnitude = (0 if shift >= int_w or shift < -(int_w - 1)
+                     else sig >> shift if shift >= 0 else (sig << -shift) & ((1 << int_w) - 1))
         total += -magnitude if psum & 32768 else magnitude
-        total = ((total + (1 << 31)) & 0xffffffff) - (1 << 31)
+        total = ((total + (1 << (int_w - 1))) & ((1 << int_w) - 1)) - (1 << (int_w - 1))
         if not total:
             result.append(0)
             continue
@@ -202,7 +210,7 @@ def ipt_row(a: torch.Tensor, weights: torch.Tensor, partial: torch.Tensor) -> to
             sig >>= 1
             lead += 1
         # int->recFN->exponent adjustment, normal domain of default FP8 inputs.
-        exponent = lead + anchor - 31 + 127
+        exponent = lead + anchor - (int_w - 1) + 127
         if exponent <= 0:
             bits = 0
         elif exponent >= 255:

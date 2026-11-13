@@ -18,6 +18,10 @@ class Program:
     relative to. The supplied workloads program ``dma.config`` with base 1, so
     their 32-bit DMA operands address DRAM from 4 GiB: inside the window the
     RTL simulation maps (64 GiB at 0x8000_0000) and clear of the host program."""
+    tile: tuple[int, int] = (32, 32)
+    """(rows, bytes per row) of the tensor registers the program is written for.
+    Delays, addresses and data layouts depend on it, so a program runs only on a
+    hardware config of the same geometry."""
 
     def __len__(self) -> int:
         return len(self.instructions)

@@ -6,7 +6,8 @@ from unittest.mock import Mock
 import pytest
 import torch
 
-from npu_model.configs.hardware.default import DefaultHardwareConfig
+from npu_model.configs.hardware import DefaultHardwareConfig, Tile16HardwareConfig, Tile64HardwareConfig
+from npu_model.geometry import MXU_MNEMONICS, VPU_OPS, Geometry
 from npu_model.configs.isa_definition import (
     DMA_CONFIG, DMA_LOAD, DMA_STORE, LB, LBU, LH, LHU, LW, SB, SELD, SH, SW,
     VADD_BF16, VLI_ALL, VLI_COL, VLOAD, VMATMUL_MXU0, VMATPUSH_WEIGHT_MXU0, VSTORE,
@@ -15,8 +16,8 @@ from npu_model.configs.numerics import NUMERICS
 from npu_model.hardware.arch_state import ArchState
 from npu_model.hardware.dma import DmaExecutionUnit
 from npu_model.hardware.lsu import LoadStoreUnit
-from npu_model.hardware.mxu import MXU_OP_LATENCIES, MatrixExecutionUnitInner, MatrixExecutionUnitSystolic
-from npu_model.hardware.vpu import VPU_OP_LATENCIES, VectorExecutionUnit
+from npu_model.hardware.mxu import MatrixExecutionUnitInner, MatrixExecutionUnitSystolic
+from npu_model.hardware.vpu import VectorExecutionUnit
 from npu_model.hardware.xlu import CrossLaneExecutionUnit
 from npu_model.logging.logger import Logger
 from npu_model.software import acc, e, m, w, x
@@ -34,24 +35,29 @@ MXU_OPERANDS = {
 }
 
 
-def make(unit="VPU", numerics="rtl"):
-    cfg = DefaultHardwareConfig()
+GEOMETRIES = (DefaultHardwareConfig, Tile16HardwareConfig, Tile64HardwareConfig)
+
+
+def make(unit="VPU", numerics="rtl", config=DefaultHardwareConfig):
+    cfg = config()
     cfg.arch_state_config = replace(cfg.arch_state_config, dram_base=0, dram_size=4096, numerics=numerics)
+    g = Geometry.from_config(cfg)
     state = ArchState(cfg.arch_state_config)
     generator = torch.Generator().manual_seed(0)
     random = lambda shape, scale=4: torch.randn(shape, generator=generator) * scale
     for bank in range(8):
-        state.mrf[bank].view(torch.bfloat16)[:] = random(512).to(torch.bfloat16)
+        state.mrf[bank].view(torch.bfloat16)[:] = random(g.tile_bytes // 2).to(torch.bfloat16)
     for bank in range(8, 16):
-        state.mrf[bank].view(torch.float8_e4m3fn)[:] = random(1024).to(torch.float8_e4m3fn)
+        state.mrf[bank].view(torch.float8_e4m3fn)[:] = random(g.tile_bytes).to(torch.float8_e4m3fn)
     for mxu in state.acc:
         for slot in range(2):
-            state.acc[mxu][slot][:] = random((32, 32)).to(torch.bfloat16)
-            state.wb[mxu][slot].view(torch.float8_e4m3fn)[:] = random(1024, 1).to(torch.float8_e4m3fn)
+            state.acc[mxu][slot][:] = random((g.rows, g.row_bytes)).to(torch.bfloat16)
+            state.wb[mxu][slot].view(torch.float8_e4m3fn)[:] = random(g.tile_bytes, 1).to(torch.float8_e4m3fn)
     state.vmem[:] = torch.randint(0, 256, state.vmem.shape, generator=generator, dtype=torch.uint8)
     state.dram[:] = torch.randint(0, 256, state.dram.shape, generator=generator, dtype=torch.uint8)
     state.write_erf(0, 129)
-    # Unaligned scalar address, VLS word address of byte 0x1000, a store value
+    # Unaligned scalar address, VLS word address of byte 0x1000 (a register-aligned
+    # VMEM address at every geometry), a store value
     # above 2**31, a DMA length, a DRAM address, the DMA VMEM word address of
     # byte 0x2000, and a DMA base.
     for reg, value in zip(range(1, 8), (0x1003, 0x400, 0xDEADBEEF, 64, 0x100, 0x800, 1)):
@@ -105,7 +111,7 @@ MEMORY_CASES = [
         LH(rd=x(10), rs1=x(1), imm=0), LHU(rd=x(10), rs1=x(1), imm=0),
         LW(rd=x(10), rs1=x(1), imm=1), SELD(rd=e(1), rs1=x(1), imm=0),
         SB(rs1=x(1), rs2=x(3), imm=0), SH(rs1=x(1), rs2=x(3), imm=0), SW(rs1=x(1), rs2=x(3), imm=0),
-        VLOAD(vd=m(20), rs1=x(2), imm=0), VSTORE(vd=m(0), rs1=x(2), imm=8),
+        VLOAD(vd=m(20), rs1=x(2), imm=0), VSTORE(vd=m(0), rs1=x(2), imm=32),
     )
 ] + [
     ("DMA", insn) for insn in (
@@ -113,17 +119,18 @@ MEMORY_CASES = [
         DMA_CONFIG(ch=0, rs1=x(7)),
     )
 ]
-CASES = ([("VPU", name) for name in sorted(VPU_OP_LATENCIES)]
-         + [(f"MXU{name[-1]}", name) for name in sorted(MXU_OP_LATENCIES)]
+CASES = ([("VPU", name) for name in sorted(VPU_OPS)]
+         + [(f"MXU{name[-1]}", name) for name in sorted(MXU_MNEMONICS)]
          + [("XLU", "vtrpose.xlu")] + MEMORY_CASES)
 
 
+@pytest.mark.parametrize("config", GEOMETRIES, ids=lambda config: config.name)
 @pytest.mark.parametrize("unit,name", CASES, ids=lambda case: getattr(case, "mnemonic", case))
-def test_unit_commits_exec_results_on_a_numerics_independent_schedule(unit, name):
+def test_unit_commits_exec_results_on_a_numerics_independent_schedule(unit, name, config):
     insn = name if not isinstance(name, str) else stream_to_instrs(StringIO(asm(name)))[0]
     schedules = []
     for numerics in ("rtl", "pytorch"):
-        exu, reference = make(unit, numerics), make(unit, numerics).arch_state
+        exu, reference = make(unit, numerics, config), make(unit, numerics, config).arch_state
         insn.exec(reference)
         schedules.append(run(exu, insn))
         assert_same_state(exu.arch_state, reference)

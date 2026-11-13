@@ -10,6 +10,7 @@ from npu_model.isa_types import EXU
 
 from .hardware import Module
 from .config import HardwareConfig
+from ..geometry import validate
 from .ifu import InstructionFetch
 from .exu import ExecutionUnit
 
@@ -42,6 +43,7 @@ class Core(Module):
     ) -> None:
         self.config = config
         self.logger = logger
+        validate(config)
 
         self.arch_state = ArchState(
             config=self.config.arch_state_config,

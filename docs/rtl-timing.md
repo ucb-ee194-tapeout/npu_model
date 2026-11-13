@@ -38,31 +38,63 @@ alias the physical memory without truncating the architectural PC or jump links.
 The host interface accepts decoded instruction objects. Uninitialized words end
 a model program as a software convenience; real software should use ECALL/EBREAK.
 
+## Geometry
+
+The RTL is parameterized by one tile size N (`AtlasParams.withTileDim`,
+`WithAtlasTileDim(n)`): a tensor register holds N rows of N bytes (R = W = N, a
+power of two, at least 8), both MXU arrays are N x N with N accumulator rows,
+and the VPU has N/2 BF16 lanes, one register row per cycle. Weight slots, the
+register count, VMEM, the DMA and the SoC bus do not change: VMEM lines and DMA
+beats stay 32 bytes. `npu_model/geometry.py` holds the rules. The timed units,
+the issue-rule engine (`docs/issue-rules.md`) and the energy program generator
+all read them, and `tests/test_geometry.py` checks that the timed units move
+exactly the rows and lines the rule engine describes at N = 16, 32 and 64.
+`Tile16HardwareConfig` and `Tile64HardwareConfig` are resized configs;
+`scaled_config(base, n)` builds others, and `Core` rejects a geometry the RTL's
+`AtlasParams` and `LSU` would reject.
+
+Every size-dependent rule follows the parameterized RTL (sp26-atlas-acc
+`parameterizable`, 6b48d36):
+
+- VLOAD/VSTORE step one beat per cycle, the narrower of a 32-byte line and an
+  N-byte row (`LSU.scala`'s `WidthConverter`), so they take N²/min(32, N) beats
+  and finish at T + beats + 2. At N = 64 two lines fill each row (rows written
+  every other cycle); at N = 16 each line holds two rows (lines read every
+  other cycle).
+- The row-sum tree (`AddSubSumVec`) has log2(N/2) pipelined levels: the first
+  row lands at T + 3 + log2(N/2).
+- MXU0's first result row lands at T + 2N - 1, after the systolic array's
+  `rows + cols - 2` cycles; its weight-slot drain is
+  `wbufDrainInit = rows + cols - 2`.
+- MXU1's inner-product trees keep two pipeline stages (`pipelineCuts`) at any N.
+- MXU1's anchor accumulator has `bitLength(K + 1) + 1` bits of headroom and
+  `headroom + 25` integer bits (7 and 32 at K = 32), so the sum cannot overflow.
+
 ## LSU and tensor engines
 
-For a command issued at T (default 32 rows):
+For a command issued at T, with R rows per register (default 32):
 
-| Operation | First write | Last write |
-| --- | --- | --- |
-| Scalar store | T+1 | T+1 |
-| Scalar load register writeback | T+3 | T+3 |
-| VLOAD / VSTORE | T+3 | T+34 |
-| MXU weight/accumulator push, accumulator pop | T+1 | T+32 |
-| MXU0 systolic compute, accumulator rows | T+63 | T+94 |
-| MXU1 inner-product compute, accumulator rows | T+3 | T+34 |
-| VPU ordinary BF16 operations | T+2 | T+65 |
-| VPU row min/max | T+2 | T+33 |
-| VPU row sum | T+7 | T+38 |
-| VPU column reductions | T+66 | T+129 |
-| VPU pack | T+3 | T+65, every other cycle |
-| VPU unpack | T+3 | T+66 |
-| VLI all/row | T+1 | T+64 |
-| VLI column/one | T+1 | T+32 |
-| XLU transpose | T+34 | T+65 |
+| Operation | First write | Last write | At R = 32 |
+| --- | --- | --- | --- |
+| Scalar store | T+1 | T+1 | |
+| Scalar load register writeback | T+3 | T+3 | |
+| VLOAD / VSTORE (B = N²/min(32, N) beats) | T+3, or T+4 when each write gathers two beats (VLOAD at N > 32, VSTORE at N < 32) | T+B+2 | T+3 .. T+34 |
+| MXU weight/accumulator push, accumulator pop | T+1 | T+R | T+1 .. T+32 |
+| MXU0 systolic compute, accumulator rows | T+2R-1 | T+3R-2 | T+63 .. T+94 |
+| MXU1 inner-product compute, accumulator rows | T+3 | T+R+2 | T+3 .. T+34 |
+| VPU ordinary BF16 operations | T+2 | T+2R+1 | T+2 .. T+65 |
+| VPU row min/max | T+2 | T+R+1 | T+2 .. T+33 |
+| VPU row sum | T+3+log2(N/2) | T+R+2+log2(N/2) | T+7 .. T+38 |
+| VPU column reductions | T+2R+2 | T+4R+1 | T+66 .. T+129 |
+| VPU pack | T+3 | T+2R+1, every other cycle | T+3 .. T+65 |
+| VPU unpack | T+3 | T+2R+2 | T+3 .. T+66 |
+| VLI all/row | T+1 | T+2R | T+1 .. T+64 |
+| VLI column/one | T+1 | T+R | T+1 .. T+32 |
+| XLU transpose | T+R+2 | T+2R+1 | T+34 .. T+65 |
 
 The MXU table lists row-write edges; command issue checks can impose additional
-spacing when operations reuse a port, register or accumulator. The bank-conflict
-tests distinguish these cases: MXU0 can read a weight slot while the push is
+spacing when operations reuse a port, register or accumulator. At R = 32 the
+bank-conflict tests distinguish these cases: MXU0 can read a weight slot while the push is
 still streaming when the MRF sources differ, while MXU1 requires `delay 30`
 before reading the slot. A weight push and matmul that both read `m0` need
 `delay 30` because their physical MRF reads overlap; `vadd.bf16` reading `m0`
@@ -85,9 +117,10 @@ occupy both. `issue_busy_mask` exposes the opcode-specific issue restrictions.
 
 Scalar LSU addresses are **bytes**. VLOAD/VSTORE bases are **words**, and their
 immediate contributes 32 words per unit. For example, byte address 0x2000 needs
-base 0x800; an additional 1024 bytes uses immediate 8. VMEM contains six contiguous
-256 KiB banks. Logical MREG reservations distinguish readers and writers, while
-physical port checks account for mN/m(N+32) sharing a 1R1W bank.
+base 0x800; an additional 1024 bytes uses immediate 8. VLOAD/VSTORE bases must
+be register (N² byte) aligned. VMEM contains six contiguous 256 KiB banks.
+Logical MREG reservations distinguish readers and writers, while physical port
+checks account for mN/m(N+32) sharing a 1R1W bank.
 
 ## Numerical behavior and layouts
 
@@ -119,9 +152,10 @@ Scalar, VPU, both MXUs, LSU and XLU have real-RTL comparison fixtures. Engine
 harnesses supply synchronous memory responses and check cycle/address/data
 traces; VPU traces also check busy and opcode-specific issue-busy signals.
 IMEM host arbitration and CSR counters have directed Python tests. The harnesses
-do not instantiate a complete AtlasTile/TileLink system. The default geometry,
-custom-FMA systolic architecture and two-stage IPT are the supported timing
-configuration.
+do not instantiate a complete AtlasTile/TileLink system. The custom-FMA systolic
+architecture and two-stage IPT are the supported timing configuration. The
+trace fixtures are from the 32 x 32 RTL; other sizes follow the rules above,
+read from the parameterized RTL and checked against the issue-rule engine.
 
 ## DMA: beat-level engine, parameterized memory
 

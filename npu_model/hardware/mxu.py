@@ -1,7 +1,8 @@
 """Port sequencers and row pipelines corresponding to the two RTL MXUs.
 
-The timing follows the default 32x32 geometry and two-stage IPT. Values come
-from Instruction.exec; this unit decides only when rows are read and written.
+Every window is R rows long and the MXU0 skew follows its W x W array; the
+rules are in ``geometry.py`` (two-stage IPT on MXU1). Values come from
+Instruction.exec; this unit decides only when rows are read and written.
 """
 from __future__ import annotations
 
@@ -16,14 +17,6 @@ from ..software.instruction import Uop
 from ..isa import EXU
 from .config import HardwareConfig
 
-MXU_OP_LATENCIES = {
-    f"{op}.mxu{unit}": (95 if unit == 0 else 35) if op.startswith("vmatmul") else 33
-    for unit in (0, 1)
-    for op in ("vmatpush.weight", "vmatpush.acc.fp8", "vmatpush.acc.bf16",
-               "vmatmul.acc", "vmatmul", "vmatpop.fp8.acc", "vmatpop.bf16.acc")
-}
-PORT_CYCLES = 32
-"""Cycles a command holds each sequencer port it takes, one row per cycle."""
 PORT_CHOICES = {
     "compute": ((0,),),
     "push_bf16": ((0, 1),),
@@ -42,7 +35,6 @@ _PORTS_BUSY = {
     "pop_fp8": "pop issued while write ports are busy",
     "pop_bf16": "pop issued while write ports are busy",
 }
-_GRID = torch.arange(32)
 
 
 @dataclass
@@ -65,13 +57,19 @@ class _Operation:
 
 class _MatrixExecutionUnit(ExecutionUnit):
     mxu: str
+    unit: int
     exu_type: EXU
-    compute_first: int
-    inflight_depth: int
 
     def __init__(self, name: str, logger: Logger, arch_state: ArchState,
                  lane_id: int = 0, config: HardwareConfig | None = None) -> None:
         super().__init__(name, logger, arch_state, lane_id, config)
+        g = self.geometry
+        self.rows = g.rows
+        self.compute_first = g.mxu_compute_first(self.unit)
+        """Issue offset at which a matmul's accumulator row 0 lands."""
+        self.inflight_depth = g.MXU_INFLIGHT_DEPTH[self.unit]
+        # PE(i, j) of the systolic array, by weight row i and column j.
+        self._grid = torch.arange(g.row_bytes)
         self.reset()
 
     def can_handle(self, uop: Uop) -> bool:
@@ -84,8 +82,6 @@ class _MatrixExecutionUnit(ExecutionUnit):
         self._complete_count = 0
         self._total_instructions = 0
         self._busy_cycles = 0
-        self.pe_active_cycles = 0
-        self.pe_active_count = 0
         self._last_compute: dict[int, int] = {}
 
     @property
@@ -99,7 +95,7 @@ class _MatrixExecutionUnit(ExecutionUnit):
         self._pending_completions = []
 
     def _execution_latency(self, uop: Uop) -> int:
-        return MXU_OP_LATENCIES[uop.insn.mnemonic]
+        return self.geometry.mxu_latency(uop.insn.mnemonic)
 
     @staticmethod
     def _kind(mnemonic: str) -> str:
@@ -120,11 +116,13 @@ class _MatrixExecutionUnit(ExecutionUnit):
     def _accept(self, uop: Uop) -> None:
         assert uop.insn.exu == self.exu_type, "Instruction sent to wrong MXU"
         insn, kind = uop.insn, self._kind(uop.insn.mnemonic)
+        uop.energy_ops.record(f"{self.mxu}.{kind}", mnemonic=insn.mnemonic,
+                              rows=self.rows, columns=self.geometry.mxu_n)
         pop = kind.startswith("pop")
         acc = int(insn.vs2 if pop else insn.vd) & 1
         weight = int(insn.vs2 if kind == "compute" else insn.vd) & 1
         mreg = int(insn.vd if pop else insn.vs1)
-        active = [op for op in self._ops if self.cycle - op.issued < PORT_CYCLES]
+        active = [op for op in self._ops if self.cycle - op.issued < self.geometry.mxu_port_cycles]
         compute = [op for op in self._ops if op.kind == "compute"]
         free = lambda port: not any(port in op.ports for op in active)
         if kind != "weight" and any(op.acc == acc and self.cycle - op.issued <= self.compute_first for op in compute):
@@ -138,12 +136,12 @@ class _MatrixExecutionUnit(ExecutionUnit):
         if ports is None or (kind == "compute" and len(compute) >= self.inflight_depth):
             raise RuntimeError(f"{self.mxu}: {_PORTS_BUSY[kind]}")
         if self.mxu == "mxu0" and kind == "weight":
-            if weight in self._last_compute and self.cycle - self._last_compute[weight] <= 62:
+            if weight in self._last_compute and self.cycle - self._last_compute[weight] <= self.geometry.mxu0_wslot_drain:
                 raise RuntimeError("mxu0: weight push issued before previous matmul on same slot drained")
         if self.mxu == "mxu1":
             weight_pushes = [op for op in active if op.kind == "weight" and op.weight == weight]
             acc_pushes = [op for op in self._ops if op.kind.startswith("push") and op.acc == acc
-                          and self.cycle - op.issued <= 32]
+                          and self.cycle - op.issued <= self.geometry.mxu1_acc_push_gate]
             if kind == "weight" and (weight_pushes or any(op.kind == "compute" and op.weight == weight for op in active)):
                 raise RuntimeError("mxu1: weight slot busy")
             if kind == "compute" and (weight_pushes or acc_pushes):
@@ -189,19 +187,20 @@ class _MatrixExecutionUnit(ExecutionUnit):
         if op.kind.startswith("pop"):
             return
         for bank in op.banks:
-            state.conflict_checker.access_mreg(self.cycle, bank, row, False, op.owner)
+            self._access_mreg(op.uop, self.mxu, bank, row, False, op.owner)
             op.staged.sample(("mrf", bank), row, state.read_mrf_u8(bank)[row])
 
     def _weight_uses(self, age: int) -> tuple[torch.Tensor, torch.Tensor]:
         """(output column, inner) weights read at this age, and which are row 0's."""
         if self.mxu == "mxu1":
             # Each IPT row reads the whole tile, row r at age r + 1.
-            used = torch.full((32, 32), 1 <= age <= 32)
+            width = len(self._grid)
+            used = torch.full((width, width), 1 <= age <= self.rows)
             return used, used & (age == 1)
         # SA PE(i, j) evaluates row r at T+1+r+i+j, reading the weight
         # present at that PE's use cycle.
-        row = age - 1 - _GRID[:, None] - _GRID[None, :]
-        return (row >= 0) & (row <= 31), row == 0
+        row = age - 1 - self._grid[:, None] - self._grid[None, :]
+        return (row >= 0) & (row < self.rows), row == 0
 
     def _sample_weights(self, op: _Operation, age: int) -> None:
         """Every use of a weight follows row 0's, so a change seen there is
@@ -218,7 +217,7 @@ class _MatrixExecutionUnit(ExecutionUnit):
 
     def _pop_row(self, op: _Operation, row: int) -> None:
         for bank in op.banks:
-            self.arch_state.conflict_checker.access_mreg(self.cycle, bank, row, True, op.owner)
+            self._access_mreg(op.uop, self.mxu, bank, row, True, op.owner)
         for bank in op.banks:
             self.arch_state.read_mrf_u8(bank)[row] = op.staged.result(("mrf", bank))[row]
 
@@ -231,24 +230,13 @@ class _MatrixExecutionUnit(ExecutionUnit):
             self._accept(uop)
         if self._ops:
             self._busy_cycles += 1
-        # Systolic wavefront: one additional diagonal of PEs becomes active
-        # per cycle, then the full array remains active through the output wave.
-        self.pe_active_count = 0
-        if self.mxu == "mxu0":
-            for op in self._ops:
-                if op.kind == "compute":
-                    age = self.cycle - op.issued
-                    rows = max(0, min(32, age + 1))
-                    cols = max(0, min(32, age + 1))
-                    self.pe_active_count += rows * cols
-            self.pe_active_cycles += self.pe_active_count
         # Read all SRAM operands before applying this edge's writes. Each
         # accumulator has one read port, shared by pops and accumulate-mode
         # computes; an overwrite compute never reads it.
         readers: dict[int, str] = {}
         for op in self._ops:
             age = self.cycle - op.issued
-            if 0 <= age < 32:
+            if 0 <= age < self.rows:
                 if ("acc", self.mxu, op.acc) in op.staged.operands:
                     if op.acc in readers:
                         raise RuntimeError(f"{self.mxu}: compute and pop read the same accumulator")
@@ -263,9 +251,9 @@ class _MatrixExecutionUnit(ExecutionUnit):
         compute_writes: list[tuple[_Operation, int]] = []
         for op in self._ops:
             age = self.cycle - op.issued
-            if op.kind == "compute" and self.compute_first <= age <= self.compute_first + 31:
+            if op.kind == "compute" and self.compute_first <= age < self.compute_first + self.rows:
                 compute_writes.append((op, age - self.compute_first))
-            if 1 <= age <= 32:
+            if 1 <= age <= self.rows:
                 if op.kind == "weight" and (weight_push is None or op.ports[0] > weight_push.ports[0]):
                     weight_push = op
                 elif op.kind.startswith("push") and (acc_push is None or op.ports[0] > acc_push.ports[0]):
@@ -287,10 +275,10 @@ class _MatrixExecutionUnit(ExecutionUnit):
         remaining = []
         for op in self._ops:
             age = self.cycle - op.issued
-            if age == 32 and not op.mreg_released:
+            if age == self.rows and not op.mreg_released:
                 self.arch_state.conflict_checker.release_mreg(op.owner)
                 op.mreg_released = True
-            last = self.compute_first + 31 if op.kind == "compute" else 32
+            last = self.compute_first + self.rows - 1 if op.kind == "compute" else self.rows
             if age == last:
                 self._complete_count += 1
                 self._pending_completions.append(op.uop)
@@ -326,13 +314,11 @@ class _MatrixExecutionUnit(ExecutionUnit):
 
 class MatrixExecutionUnitSystolic(_MatrixExecutionUnit):
     mxu = "mxu0"
+    unit = 0
     exu_type = EXU.MATRIX_SYSTOLIC
-    compute_first = 63
-    inflight_depth = 3
 
 
 class MatrixExecutionUnitInner(_MatrixExecutionUnit):
     mxu = "mxu1"
+    unit = 1
     exu_type = EXU.MATRIX_INNER
-    compute_first = 3
-    inflight_depth = 2

@@ -290,9 +290,12 @@ class DmaExecutionUnit(ExecutionUnit):
             raise RuntimeError(f"{mnemonic} VMEM range exceeds VMEM capacity")
         dram_addr = state.dma_dram_address(dram_operand)
         state._check_dram_window(dram_addr, dram_addr + nbytes, f"{mnemonic} transfer")
+        channel = int(insn.funct3)
+        if channel >= self.num_channels:
+            raise RuntimeError(f"{mnemonic} on channel {channel}: the DMA has {self.num_channels} channels")
         writes = self._WRITES[mnemonic]
         staged = StagedExecution(uop, state, [], writes, self.name)
-        return _Slot(uop, staged, int(insn.funct3), is_store, vmem_addr, dram_addr,
+        return _Slot(uop, staged, channel, is_store, vmem_addr, dram_addr,
                      nbytes // self.beat_bytes, self.cycle)
 
     # ------------------------------------------------------------------
@@ -371,6 +374,7 @@ class DmaExecutionUnit(ExecutionUnit):
                 record.vmem_write = [bank, bank_line, granted]
                 if granted:
                     write_bank = bank
+                    self._record_vmem(meta.slot.uop, "write", "dma", line, mask_bytes=self.beat_bytes)
                     state.write_vmem(line, 0, self._load_bytes(meta.slot, meta.index))
                     d_fire = True
             else:
@@ -393,6 +397,7 @@ class DmaExecutionUnit(ExecutionUnit):
             granted = checker.vmem_bank_owner(cycle, bank) is None and bank != write_bank
             record.vmem_read = [bank, bank_line, granted]
             if granted:
+                self._record_vmem(head.uop, "read", "dma", line)
                 head.staged.sample(("vmem",), slice(line, line + self.beat_bytes),
                                    state.read_vmem(line, 0, self.beat_bytes))
                 # SyncReadMem data next cycle, then one cycle through storeDataQueue.
@@ -420,6 +425,9 @@ class DmaExecutionUnit(ExecutionUnit):
                 self.backend.issue(BeatRequest(self._next_source, address, head.is_store, cycle))
                 self._source_meta[self._next_source] = _BeatMeta(head, index, not head.is_store)
                 record.a = [self._next_source, address, head.is_store]
+                # Engine and TileLink side; the beat's VMEM line is a vmem.* op.
+                head.uop.energy_ops.record("dma.beat", direction="write" if head.is_store else "read",
+                                           bytes=self.beat_bytes, index=index)
                 a_fire = True
                 beat = BeatRecord(head.uop.id, head.channel, head.is_store, index, address,
                                   head.launched, cycle, getattr(self.backend, "latency", None))

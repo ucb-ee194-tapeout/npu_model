@@ -7,13 +7,15 @@ so the bound follows the model as it changes:
 
 - DRAM: the fixed backend's beat spacing or the curve backend's fastest peak
   across all read/write mixes, when pacing is enabled;
-- each MXU: every command holds sequencer ports for ``mxu.PORT_CYCLES``
+- each MXU: every command holds sequencer ports for ``Geometry.mxu_port_cycles``
   (``mxu.PORT_CHOICES``), and pushes on one path write one at a time;
 - the VPU: ``vpu.ISSUE_SLOTS`` issue slots, each instruction holding one, or
-  both, for ``vpu.issue_cycles``; instructions that share lane logic never
-  overlap;
-- the XLU (``xlu.TRANSPOSE_CYCLES`` per transpose) and the LSU's VLOAD and
-  VSTORE paths (``lsu.LSU_OP_LATENCIES``);
+  both, for ``Geometry.vpu_issue_cycles``; instructions that share lane logic
+  never overlap;
+- the XLU (``Geometry.transpose_cycles`` per transpose) and the LSU's VLOAD and
+  VSTORE paths (``Geometry.vls_latency``);
+
+Every charge follows the config's geometry (``npu_model/geometry.py``).
 - S1, which launches one instruction per cycle.
 
 No schedule of the same work finishes before its busiest resource does, so the
@@ -47,9 +49,9 @@ from tabulate import tabulate
 import npu_model.hardware  # noqa: F401
 import npu_model.configs.hardware as hardware_configs
 import npu_model.configs.programs as program_configs
-from npu_model.hardware import DmaExecutionUnit, mxu, vpu, xlu
+from npu_model.geometry import DEFAULT, Geometry
+from npu_model.hardware import DmaExecutionUnit, mxu, vpu
 from npu_model.hardware.config import HardwareConfig
-from npu_model.hardware.lsu import LSU_OP_LATENCIES
 from npu_model.hardware.memory_backend import CurveMemoryBackend, FixedLatencyBackend, make_memory_backend
 from npu_model.hardware.mxu import MatrixExecutionUnitInner, MatrixExecutionUnitSystolic
 from npu_model.hardware.vpu import VectorExecutionUnit
@@ -156,8 +158,9 @@ def command_kinds(launches: Counter[str]) -> Counter[str]:
     return kinds
 
 
-def mxu_cycles(launches: Counter[str]) -> int:
+def mxu_cycles(launches: Counter[str], geometry: Geometry = DEFAULT) -> int:
     """Sequencer port and push-path time for one MXU's commands."""
+    port_cycles = geometry.mxu_port_cycles
     kinds = command_kinds(launches)
     ports: set[int] = set()
     for choices in mxu.PORT_CHOICES.values():
@@ -173,7 +176,7 @@ def mxu_cycles(launches: Counter[str]) -> int:
             for kind, count in kinds.items():
                 fewest = min(len(set(choice) & set(group)) for choice in mxu.PORT_CHOICES[kind])
                 held += count * fewest
-            cycles = max(cycles, math.ceil(held * mxu.PORT_CYCLES / size))
+            cycles = max(cycles, math.ceil(held * port_cycles / size))
 
     # Pushes on one path write one at a time.
     pushes: Counter[str] = Counter()
@@ -182,16 +185,16 @@ def mxu_cycles(launches: Counter[str]) -> int:
         if path is not None:
             pushes[path] += count
     for count in pushes.values():
-        cycles = max(cycles, count * mxu.PORT_CYCLES)
+        cycles = max(cycles, count * port_cycles)
     return cycles
 
 
-def vpu_cycles(launches: Counter[str]) -> int:
+def vpu_cycles(launches: Counter[str], geometry: Geometry = DEFAULT) -> int:
     """Issue-slot time for the VPU's instructions."""
     both_slots = 0
     one_slot: dict[str, int] = {}
     for name, count in launches.items():
-        cycles = vpu.issue_cycles(name) * count
+        cycles = geometry.vpu_issue_cycles(name) * count
         if VectorExecutionUnit._double(name):
             both_slots += cycles
         else:
@@ -211,6 +214,7 @@ def vpu_cycles(launches: Counter[str]) -> int:
 def speed_of_light(program: Program, config: HardwareConfig, max_cycles: int = 1_000_000) -> SpeedOfLight:
     """Measure ``program`` on the cycle model and charge each resource for its work."""
     run = execute(program, config, max_cycles)
+    geometry = Geometry.from_config(config)
     by_unit: dict[EXU, Counter[str]] = {}
     for (unit, mnemonic), count in run.launches.items():
         by_unit.setdefault(unit, Counter())[mnemonic] += count
@@ -236,16 +240,16 @@ def speed_of_light(program: Program, config: HardwareConfig, max_cycles: int = 1
                 pops += count
         matmuls += kinds["compute"]
         work = f"{kinds['compute']:,} matmuls, {pushes:,} pushes, {pops:,} pops"
-        resources.append(Resource(unit.mxu.upper(), work, mxu_cycles(launches)))
+        resources.append(Resource(unit.mxu.upper(), work, mxu_cycles(launches, geometry)))
 
     vector = by_unit.get(EXU.VECTOR, Counter())
-    resources.append(Resource("VPU", f"{vector.total():,} instructions", vpu_cycles(vector)))
+    resources.append(Resource("VPU", f"{vector.total():,} instructions", vpu_cycles(vector, geometry)))
     transposes = by_unit.get(EXU.XLU, Counter()).total()
-    resources.append(Resource("XLU", f"{transposes:,} transposes", xlu.TRANSPOSE_CYCLES * transposes))
+    resources.append(Resource("XLU", f"{transposes:,} transposes", geometry.transpose_cycles * transposes))
     memory = by_unit.get(EXU.LSU, Counter())
     for path in ("vload", "vstore"):
         resources.append(Resource(f"{path.upper()} path", f"{memory[path]:,} {path}s",
-                                  LSU_OP_LATENCIES[path] * memory[path]))
+                                  geometry.lsu_latency(path) * memory[path]))
     launched = run.launches.total()
     resources.append(Resource("S1", f"{launched:,} instructions", launched))
 
@@ -253,7 +257,7 @@ def speed_of_light(program: Program, config: HardwareConfig, max_cycles: int = 1
         measured=run.cycles,
         resources=resources,
         flops=matmuls * flops_per_matmul,
-        peak_flops_per_cycle=len(units) * flops_per_matmul / mxu.PORT_CYCLES,
+        peak_flops_per_cycle=len(units) * flops_per_matmul / geometry.mxu_port_cycles,
         dram_bytes=loaded + stored,
         dram_cycles=dram,
     )

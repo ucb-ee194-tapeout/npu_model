@@ -6,15 +6,11 @@ from .exu import ExecutionUnit, StagedExecution
 from ..software.instruction import Uop
 from ..isa import EXU
 
-TRANSPOSE_CYCLES = 66
-"""Cycles a transpose holds the engine, from issue through its last row write."""
 
 
 class CrossLaneExecutionUnit(ExecutionUnit):
     def __init__(self, name, logger, arch_state, lane_id=0, config=None):
         super().__init__(name, logger, arch_state, lane_id, config)
-        if arch_state.cfg.mrf_depth != 32 or arch_state.cfg.mrf_width != 32:
-            raise ValueError("XluEngine requires a 32 by 32 byte MREG")
         self.reset()
 
     def reset(self) -> None:
@@ -48,6 +44,7 @@ class CrossLaneExecutionUnit(ExecutionUnit):
             if self.in_flight is not None:
                 raise RuntimeError("XLU command issued while transpose engine is busy")
             self.in_flight = uop
+            uop.energy_ops.record("xlu.transpose", rows=self.arch_state.cfg.mrf_depth)
             self.issued = self.cycle
             self.owner = f"{self.name}:{uop.id}:vtrpose.xlu"
             source, destination = int(uop.insn.vs1), int(uop.insn.vd)
@@ -55,29 +52,31 @@ class CrossLaneExecutionUnit(ExecutionUnit):
             self.staged = StagedExecution(uop, self.arch_state, [("mrf", source)],
                                           [("mrf", destination)], "XluEngine")
             self._total_instructions += 1
-            uop.execute_delay = TRANSPOSE_CYCLES
+            uop.execute_delay = self.geometry.transpose_cycles
             self.logger.log_stage_start(uop.id, "E", lane=self.lane_id, cycle=self.cycle)
         if self.in_flight is None:
             return
         self._busy_cycles += 1
         age = self.cycle - self.issued
         insn = self.in_flight.insn
-        if 1 <= age <= 32:
-            row = age - 1
-            checker.access_mreg(self.cycle, int(insn.vs1), row, False, self.owner)
+        g = self.geometry
+        rows, read_first, write_first = g.rows, g.xlu_read_first, g.xlu_write_first
+        if read_first <= age < read_first + rows:
+            row = age - read_first
+            self._access_mreg(self.in_flight, "xlu", int(insn.vs1), row, False, self.owner)
             # Capture the value at the request edge; the response appears one
             # cycle later. The last response changes ReadMreg to WriteMreg.
             source = int(insn.vs1)
             self.staged.sample(("mrf", source), row, self.arch_state.read_mrf_u8(source)[row])
-        if age == 33:
+        if age == read_first + rows:
             checker.release_mreg(self.owner, reads=True, writes=False)
-        if 34 <= age <= 65:
-            row = age - 34
+        if write_first <= age < write_first + rows:
+            row = age - write_first
             destination = int(insn.vd)
-            checker.access_mreg(self.cycle, destination, row, True, self.owner)
+            self._access_mreg(self.in_flight, "xlu", destination, row, True, self.owner)
             self.arch_state.read_mrf_u8(destination)[row] = self.staged.result(("mrf", destination))[row]
-        self.in_flight.execute_delay = max(0, TRANSPOSE_CYCLES - 1 - age)
-        if age == TRANSPOSE_CYCLES - 1:
+        self.in_flight.execute_delay = max(0, g.transpose_cycles - 1 - age)
+        if age == g.transpose_cycles - 1:
             checker.release_mreg(self.owner)
             self._pending_completions.append(self.in_flight)
             self.in_flight = None

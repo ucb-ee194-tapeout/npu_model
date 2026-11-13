@@ -267,23 +267,23 @@ class MyProgram(Program):
 
 ## Creating Custom Hardware Configurations
 
-Define custom hardware by subclassing `HardwareConfig`:
+Subclass `DefaultHardwareConfig` (or `HardwareConfig`) and override its
+attributes. Unit sizes follow the tile size N, the tensor register's
+`mrf_depth` rows of `mrf_width` bytes (square, as the RTL's `withTileDim`
+builds it): MXU arrays, VPU lanes and every latency scale with it, while VMEM
+lines and DMA beats stay 32 bytes (`npu_model/geometry.py`,
+`docs/rtl-timing.md`). `scaled_config` resizes a config as the RTL does, and
+`Core` rejects an inconsistent geometry:
 
 ```python
-from npu_model.hardware.config import HardwareConfig
-from npu_model.isa import IsaSpec
+from npu_model.configs.hardware import DefaultHardwareConfig
+from npu_model.hardware.config import scaled_config
 
-class MyHardwareConfig(HardwareConfig):
-    name = "MyNPU"
-    fetch_width = 1
-    isa = IsaSpec
-    matrix_shape = (32, 32)  # 32x32 matrices
-    memory_size = 32 * 32 * 4 * 4
-    execution_units = {
-        "Scalar0": "ScalarExecutionUnit",
-        "Matrix0": "MatrixExecutionUnit",
-    }
+config = scaled_config(DefaultHardwareConfig, 64, vmem_size=2 * 1024 * 1024)
 ```
+
+Subclasses in `npu_model/configs/hardware` register by name for `--hardware-config`
+(`Tile16HardwareConfig` and `Tile64HardwareConfig` ship with the model).
 
 ### Pre-commit
 
