@@ -41,7 +41,9 @@ add x.total, x.left, x.right
 `x.zero` is an ordinary name: it reads zero only because it is never written.
 
 Branch and jump labels are supported. Functional control flow has no hardware
-delay slot: a taken branch continues at its target. Programs finish when the
+delay slot by default: a taken branch continues at its target.
+`FunctionalInterpreter(delay_slot=True)` executes the RTL's one delay slot
+instead. Programs finish when the
 PC moves past the final instruction. The interpreter stops with an error if
 control flow leaves the program range or exceeds the configured instruction
 limit.

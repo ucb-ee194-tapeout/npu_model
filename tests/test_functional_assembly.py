@@ -144,6 +144,62 @@ def test_labels_drive_functional_control_flow_without_delay_slots():
     assert result.named_registers(program)["x"]["done"] == 3
 
 
+def test_delay_slot_option_executes_the_next_instruction_before_each_redirect():
+    program = parse_functional_assembly(
+        """
+        beq x.zero, x.zero, taken      # 0: taken
+        addi x.slot, x.zero, 7         # 1: delay slot
+        addi x.skipped, x.zero, 9
+        taken:
+        bne x.zero, x.zero, end        # 3: not taken, so no delay slot
+        jal x.jal_link, called         # 4: links to its delay slot
+        addi x.jal_slot, x.zero, 13
+        addi x.skipped, x.zero, 15
+        called:
+        addi x.address, x.zero, 12     # 7
+        jalr x.jalr_link, x.address, 0 # 8: links to its delay slot
+        addi x.jalr_slot, x.zero, 17
+        addi x.skipped, x.zero, 19
+        addi x.skipped, x.zero, 21
+        end:
+        addi x.done, x.zero, 1         # 12
+        """
+    )
+
+    result = FunctionalInterpreter(delay_slot=True).run(program)
+
+    assert (result.instructions_executed, result.final_pc) == (9, 13)
+    assert result.named_registers(program)["x"] == {
+        "zero": 0,
+        "slot": 7,
+        "skipped": 0,
+        "jal_link": 5,
+        "jal_slot": 13,
+        "address": 12,
+        "jalr_link": 9,
+        "jalr_slot": 17,
+        "done": 1,
+    }
+    assert FunctionalInterpreter().run(program).named_registers(program)["x"]["slot"] == 0
+
+
+@pytest.mark.parametrize(
+    "slot", ["bne x.zero, x.zero, end", "jal x.link, end", "jalr x.link, x.zero, 3"]
+)
+def test_delay_slot_option_rejects_control_flow_in_the_slot(slot, monkeypatch):
+    program = parse_functional_assembly(f"jal x.link, end\n{slot}\nend:\naddi x.done, x.zero, 1")
+    mnemonic = slot.split()[0]
+    executed = []
+    monkeypatch.setattr(program.instructions[1].instruction, "exec", executed.append)
+
+    with pytest.raises(
+        FunctionalAssemblyError,
+        match=f"line 2: illegal control flow '{mnemonic}' in the delay slot at PC 1",
+    ):
+        FunctionalInterpreter(delay_slot=True).run(program)
+    assert not executed
+
+
 def test_csr_register_and_immediate_forms_read_and_update_state():
     program = parse_functional_assembly(
         """
