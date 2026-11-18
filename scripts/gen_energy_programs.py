@@ -574,7 +574,7 @@ def build_config(hardware: str, params: dict[str, object]) -> HardwareConfig:
     except AttributeError:
         sys.exit(f"unknown --hardware {hardware}; choose from {', '.join(hardware_configs.__all__)}")
     # Copy the shared containers before overriding anything on this instance.
-    for name in ("execution_units", "dma_memory_params", "energy_op_models"):
+    for name in ("execution_units", "dma_memory_params", "energy_op_models", "energy_background_power_w"):
         setattr(config, name, dict(getattr(config, name)))
     return apply_overrides(config, params)
 
@@ -590,7 +590,8 @@ def report(directory: Path, config: HardwareConfig) -> None:
             print(f"{mnemonic:24s} FAILED: halt {window.halt_reason}, idle markers {window.idle}")
             continue
         reps = [uop for uop in window.uops if uop.insn.mnemonic == mnemonic]
-        ops = Counter(op.kind for uop in reps for op in uop.energy_ops if op.kind != "instruction_fetch")
+        ops = Counter(op.kind for uop in reps for op in uop.energy_ops
+                      if op.kind not in ("instruction_fetch", "issue"))
         per_rep = ", ".join(f"{kind} {count / len(reps):g}" for kind, count in sorted(ops.items()))
         print(f"{mnemonic:24s} {len(reps):3d} reps, {len(window.uops):4d} window instructions: {per_rep}")
 
